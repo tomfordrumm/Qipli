@@ -207,38 +207,44 @@ final class HistoryPasteExecutorTests: XCTestCase {
 
 @MainActor
 final class PanelActivationPresenterTests: XCTestCase {
-    func testPerformsPresentationAfterActivationBecomesActive() {
+    func testRunsActiveOnlyCompletionAfterActivationBecomesActive() {
         let application = FakeQipliApplication(activeResults: [false, true])
         let presenter = PanelActivationPresenter(
             application: application,
             scheduleNextMainRunLoop: { $0() }
         )
-        var presentationCount = 0
+        var completionCount = 0
 
-        presenter.activateThenPerform {
-            presentationCount += 1
-        }
+        presenter.presentImmediatelyThenWhenActive(
+            present: {},
+            whenActive: {
+                completionCount += 1
+            }
+        )
 
         XCTAssertEqual(application.activateCount, 1)
         XCTAssertEqual(application.activeCheckCount, 2)
-        XCTAssertEqual(presentationCount, 1)
+        XCTAssertEqual(completionCount, 1)
     }
 
-    func testDoesNotPresentWhenActivationNeverBecomesActive() {
+    func testExhaustedActivationStillRunsImmediatePresentationAndSkipsActiveCompletion() {
         let application = FakeQipliApplication(activeResults: [false, false, false])
         let presenter = PanelActivationPresenter(
             application: application,
             scheduleNextMainRunLoop: { $0() }
         )
         var presentationCount = 0
+        var completionCount = 0
 
-        presenter.activateThenPerform {
-            presentationCount += 1
-        }
+        presenter.presentImmediatelyThenWhenActive(
+            present: { presentationCount += 1 },
+            whenActive: { completionCount += 1 }
+        )
 
         XCTAssertEqual(application.activateCount, 1)
         XCTAssertEqual(application.activeCheckCount, 3)
-        XCTAssertEqual(presentationCount, 0)
+        XCTAssertEqual(presentationCount, 1)
+        XCTAssertEqual(completionCount, 0)
     }
 }
 

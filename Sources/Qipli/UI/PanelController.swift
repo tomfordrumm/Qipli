@@ -140,14 +140,22 @@ final class PanelController {
 
     private func present(_ panel: NSPanel, requestSearchFocus: Bool = false) {
         panel.center()
-        activationPresenter.activateThenPerform { [weak self, weak panel] in
-            guard let panel else { return }
-            panel.makeKeyAndOrderFront(nil)
-            if requestSearchFocus {
-                panel.makeFirstResponder(nil)
-                self?.historyViewModel.requestSearchFocus()
+        // `NSApplication.activate()` is an asynchronous, best-effort request. The
+        // panel must still be visible if activation is denied or delayed, so order
+        // it before waiting for the active-only keyboard follow-up.
+        activationPresenter.presentImmediatelyThenWhenActive(
+            present: { [weak panel] in
+                panel?.makeKeyAndOrderFront(nil)
+            },
+            whenActive: { [weak self, weak panel] in
+                guard let panel else { return }
+                panel.makeKey()
+                if requestSearchFocus {
+                    panel.makeFirstResponder(nil)
+                    self?.historyViewModel.requestSearchFocus()
+                }
             }
-        }
+        )
     }
 }
 
@@ -166,7 +174,10 @@ final class SystemQipliApplicationActivator: QipliApplicationActivating {
     }
 }
 
-/// Waits for AppKit activation before making a keyboard-active panel key.
+/// Requests AppKit activation and performs an optional active-only follow-up.
+///
+/// Panel visibility is deliberately outside this bounded check: activation is
+/// cooperative and may not be accepted by the system immediately.
 @MainActor
 final class PanelActivationPresenter {
     private let application: QipliApplicationActivating
@@ -185,9 +196,15 @@ final class PanelActivationPresenter {
         self.scheduleNextMainRunLoop = scheduleNextMainRunLoop
     }
 
-    func activateThenPerform(_ action: @escaping () -> Void) {
+    /// Runs `present` before making a best-effort activation request. The second
+    /// closure is only for work that requires Qipli to be active.
+    func presentImmediatelyThenWhenActive(
+        present: @escaping () -> Void,
+        whenActive: @escaping () -> Void
+    ) {
+        present()
         application.activate()
-        performWhenActive(remainingChecks: maximumChecks, action: action)
+        performWhenActive(remainingChecks: maximumChecks, action: whenActive)
     }
 
     private func performWhenActive(remainingChecks: Int, action: @escaping () -> Void) {

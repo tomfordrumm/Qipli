@@ -103,7 +103,7 @@ covers:
 
 ### Реализовано
 
-- History panel сохраняет prior frontmost target до показа; Qipli activation проверяется ограниченным числом main-run-loop turns перед тем, как panel становится key, после чего first-show/reuse autofocus ставит пустой search field без click.
+- History panel сохраняет prior frontmost target до показа и сразу order-front; затем Qipli activation запрашивается и проверяется ограниченным числом main-run-loop turns. После подтверждённой activation panel повторно становится key и first-show/reuse autofocus ставит пустой search field без click; при исчерпании checks panel остаётся видимой и доступной по click.
 - Search выполняется in-memory по исходному тексту через `localizedCaseInsensitiveContains`; selection хранится по `HistoryEntry.id`, стрелки ограничены видимыми результатами, а delete выбирает ближайшую запись.
 - `Enter` использует immutable text snapshot и отдельный `HistoryPasteExecutor`: final `NSPasteboard.changeCount` регистрируется как self-write сразу после успешной internal write, затем panel закрывается, target активируется и проверяется ограниченным числом main-run-loop turns, только после этого отправляется tagged `⌘V`.
 - `Esc` закрывает History и пытается вернуть captured target без clipboard/event side effects. Permission missing, unavailable target, write и dispatch errors остаются видимыми и retryable; history entry не изменяется.
@@ -134,7 +134,7 @@ covers:
 - Deterministic coverage includes localized search, selection transitions, filtered delete, exact self-write change registration, permission denial, terminated/unactivatable targets, delayed/exhausted activation, dispatch failure and `Esc` focus restoration seam.
 - Active-filter coverage verifies only exact untagged history/stack hotkey keyDown events are consumed; ordinary `⌘V`, extra modifiers, keyUp and Qipli tagged synthetic input pass through.
 - Keyboard scheduling change compiles in both build systems; clean console during manual Up/Down/Enter/Esc verification remains required because a dedicated XCUI target is intentionally absent.
-- `PanelActivationPresenter` tests cover delayed app activation before presentation and bounded exhaustion without showing a non-key panel.
+- `PanelActivationPresenter` tests cover delayed activation before the active-only key/focus follow-up and prove bounded exhaustion still runs immediate panel presentation while skipping only that follow-up.
 
 ### Отклонения от плана
 
@@ -142,4 +142,4 @@ covers:
 
 ### Оставшиеся проблемы
 
-Автоматические проверки завершены. Для `done` потребуется ручная проверка, что `⌘⇧V` не выполняет action в target app до показа History, History autofocus работает без click после hotkey/reopen, keyboard navigation Up/Down/Enter/Esc проходит без SwiftUI console warning `Publishing changes from within view updates`, реальной вставки (TextEdit, browser, code editor; Unicode and multiline), `Esc` focus return, permission-denied UI, read-only/secure field and closed/unactivatable target without false success.
+Автоматические проверки завершены. Для `done` потребуется ручная проверка, что `⌘⇧V` не выполняет action в target app до показа History, History всегда становится visible (и после принятой activation — key с autofocus) без click после hotkey/reopen, keyboard navigation Up/Down/Enter/Esc проходит без SwiftUI console warning `Publishing changes from within view updates`, реальной вставки (TextEdit, browser, code editor; Unicode and multiline), `Esc` focus return, permission-denied UI, read-only/secure field and closed/unactivatable target without false success.
