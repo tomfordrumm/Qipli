@@ -17,6 +17,13 @@
 		A00100000000000000000008 /* InputCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000008 /* InputCoordinatorTests.swift */; };
 		A00100000000000000000009 /* EventTapRecoveryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000013 /* EventTapRecoveryPolicy.swift */; };
 		A00100000000000000000010 /* SyntheticEventMarker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000014 /* SyntheticEventMarker.swift */; };
+		A00100000000000000000011 /* PasteboardMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000015 /* PasteboardMonitor.swift */; };
+		A00100000000000000000012 /* HistoryEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000016 /* HistoryEntry.swift */; };
+		A00100000000000000000013 /* HistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000017 /* HistoryStore.swift */; };
+		A00100000000000000000014 /* HistoryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000018 /* HistoryService.swift */; };
+		A00100000000000000000015 /* HistoryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000019 /* HistoryViewModel.swift */; };
+		A00100000000000000000016 /* PasteboardMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000020 /* PasteboardMonitorTests.swift */; };
+		A00100000000000000000017 /* HistoryStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000021 /* HistoryStoreTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -44,6 +51,13 @@
 		A00200000000000000000012 /* QipliTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QipliTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A00200000000000000000013 /* EventTapRecoveryPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventTapRecoveryPolicy.swift; sourceTree = "<group>"; };
 		A00200000000000000000014 /* SyntheticEventMarker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntheticEventMarker.swift; sourceTree = "<group>"; };
+		A00200000000000000000015 /* PasteboardMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardMonitor.swift; sourceTree = "<group>"; };
+		A00200000000000000000016 /* HistoryEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryEntry.swift; sourceTree = "<group>"; };
+		A00200000000000000000017 /* HistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryStore.swift; sourceTree = "<group>"; };
+		A00200000000000000000018 /* HistoryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryService.swift; sourceTree = "<group>"; };
+		A00200000000000000000019 /* HistoryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryViewModel.swift; sourceTree = "<group>"; };
+		A00200000000000000000020 /* PasteboardMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardMonitorTests.swift; sourceTree = "<group>"; };
+		A00200000000000000000021 /* HistoryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryStoreTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -78,6 +92,8 @@
 			children = (
 				A00400000000000000000003 /* App */,
 				A00400000000000000000004 /* Input */,
+				A00400000000000000000009 /* Clipboard */,
+				A00400000000000000000010 /* History */,
 				A00400000000000000000005 /* UI */,
 				A00400000000000000000008 /* Resources */,
 			);
@@ -118,8 +134,29 @@
 			isa = PBXGroup;
 			children = (
 				A00200000000000000000008 /* InputCoordinatorTests.swift */,
+				A00200000000000000000020 /* PasteboardMonitorTests.swift */,
+				A00200000000000000000021 /* HistoryStoreTests.swift */,
 			);
 			path = Tests/QipliTests;
+			sourceTree = "<group>";
+		};
+		A00400000000000000000009 /* Clipboard */ = {
+			isa = PBXGroup;
+			children = (
+				A00200000000000000000015 /* PasteboardMonitor.swift */,
+			);
+			path = Clipboard;
+			sourceTree = "<group>";
+		};
+		A00400000000000000000010 /* History */ = {
+			isa = PBXGroup;
+			children = (
+				A00200000000000000000016 /* HistoryEntry.swift */,
+				A00200000000000000000017 /* HistoryStore.swift */,
+				A00200000000000000000018 /* HistoryService.swift */,
+				A00200000000000000000019 /* HistoryViewModel.swift */,
+			);
+			path = History;
 			sourceTree = "<group>";
 		};
 		A00400000000000000000007 /* Products */ = {
@@ -236,6 +273,11 @@
 				A00100000000000000000005 /* CGEventTapAdapter.swift in Sources */,
 				A00100000000000000000009 /* EventTapRecoveryPolicy.swift in Sources */,
 				A00100000000000000000010 /* SyntheticEventMarker.swift in Sources */,
+				A00100000000000000000011 /* PasteboardMonitor.swift in Sources */,
+				A00100000000000000000012 /* HistoryEntry.swift in Sources */,
+				A00100000000000000000013 /* HistoryStore.swift in Sources */,
+				A00100000000000000000014 /* HistoryService.swift in Sources */,
+				A00100000000000000000015 /* HistoryViewModel.swift in Sources */,
 				A00100000000000000000006 /* PanelController.swift in Sources */,
 				A00100000000000000000007 /* PlaceholderViews.swift in Sources */,
 			);
@@ -246,6 +288,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				A00100000000000000000008 /* InputCoordinatorTests.swift in Sources */,
+				A00100000000000000000016 /* PasteboardMonitorTests.swift in Sources */,
+				A00100000000000000000017 /* HistoryStoreTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -1,0 +1,66 @@
+import AppKit
+import Foundation
+
+protocol PasteboardReading: AnyObject {
+    var changeCount: Int { get }
+    func textValue() -> String?
+}
+
+final class SystemPasteboardReader: PasteboardReading {
+    private let pasteboard: NSPasteboard
+
+    init(pasteboard: NSPasteboard = .general) {
+        self.pasteboard = pasteboard
+    }
+
+    var changeCount: Int { pasteboard.changeCount }
+
+    func textValue() -> String? {
+        pasteboard.string(forType: .string)
+    }
+}
+
+/// Polls the system pasteboard. A suppression is tied to one exact change number, never its text.
+final class PasteboardMonitor {
+    private let pasteboard: PasteboardReading
+    private let onExternalText: (String) -> Void
+    private var lastChangeCount: Int
+    private var ignoredChanges = Set<Int>()
+    private var timer: Timer?
+
+    init(pasteboard: PasteboardReading = SystemPasteboardReader(), onExternalText: @escaping (String) -> Void) {
+        self.pasteboard = pasteboard
+        self.onExternalText = onExternalText
+        lastChangeCount = pasteboard.changeCount
+    }
+
+    func start(interval: TimeInterval = 0.35) {
+        stop()
+        lastChangeCount = pasteboard.changeCount
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.poll()
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    /// Called by future Qipli writers immediately after their pasteboard write completes.
+    func registerSelfWrite(changeCount: Int) {
+        ignoredChanges.insert(changeCount)
+    }
+
+    func poll() {
+        let currentChangeCount = pasteboard.changeCount
+        guard currentChangeCount != lastChangeCount else { return }
+        lastChangeCount = currentChangeCount
+
+        // A newer external change makes every older expected self-write irrelevant.
+        ignoredChanges = ignoredChanges.filter { $0 >= currentChangeCount }
+        guard ignoredChanges.remove(currentChangeCount) == nil else { return }
+        guard let text = pasteboard.textValue() else { return }
+        onExternalText(text)
+    }
+}

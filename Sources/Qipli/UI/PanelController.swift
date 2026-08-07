@@ -2,19 +2,23 @@ import AppKit
 import SwiftUI
 
 /// Maintains one AppKit panel per temporary surface; reopening a surface reuses its panel.
+@MainActor
 final class PanelController {
     private let permissionService: AccessibilityPermissionService
+    private let historyViewModel: HistoryViewModel
     private var historyPanel: NSPanel?
     private var stackPanel: NSPanel?
     private var permissionPanel: NSPanel?
 
-    init(permissionService: AccessibilityPermissionService) {
+    init(permissionService: AccessibilityPermissionService, historyViewModel: HistoryViewModel) {
         self.permissionService = permissionService
+        self.historyViewModel = historyViewModel
     }
 
     func showHistory() {
+        historyViewModel.reload()
         let panel = historyPanel ?? makePanel(title: "History") {
-            HistoryPlaceholderView()
+            HistoryPanelView(viewModel: self.historyViewModel)
         }
         historyPanel = panel
         present(panel)

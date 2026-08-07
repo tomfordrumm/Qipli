@@ -1,23 +1,41 @@
 import AppKit
 
 /// Owns AppKit lifecycle concerns. Product rules remain in the injected services.
+@MainActor
 final class ApplicationShell: NSObject {
     private let permissionService: AccessibilityPermissionService
     private let inputCoordinator: InputCoordinator
     private let panels: PanelController
+    private let historyViewModel: HistoryViewModel
+    private let pasteboardMonitor: PasteboardMonitor
+    private var retentionTimer: Timer?
     private let statusItem: NSStatusItem
     private let permissionMenuItem = NSMenuItem()
 
     init(
         permissionService: AccessibilityPermissionService = AccessibilityPermissionService(),
-        inputAdapter: GlobalInputEventAdapting = CGEventTapAdapter()
+        inputAdapter: GlobalInputEventAdapting = CGEventTapAdapter(),
+        historyStore: HistoryStoring? = nil
     ) {
         self.permissionService = permissionService
+        let store: HistoryStoring
+        if let historyStore {
+            store = historyStore
+        } else {
+            store = RetryingHistoryStore { try CoreDataHistoryStore() }
+        }
+        let historyService = HistoryService(store: store)
+        historyViewModel = HistoryViewModel(service: historyService)
+        pasteboardMonitor = PasteboardMonitor { [weak historyViewModel] text in
+            Task { @MainActor in
+                historyViewModel?.recordExternalText(text)
+            }
+        }
         inputCoordinator = InputCoordinator(
             permissionService: permissionService,
             eventAdapter: inputAdapter
         )
-        panels = PanelController(permissionService: permissionService)
+        panels = PanelController(permissionService: permissionService, historyViewModel: historyViewModel)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
 
@@ -37,10 +55,20 @@ final class ApplicationShell: NSObject {
     func start() {
         configureStatusItem()
         refreshInputAvailability()
+        historyViewModel.reload()
+        pasteboardMonitor.start()
+        retentionTimer = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.historyViewModel.reload()
+            }
+        }
     }
 
     func stop() {
         inputCoordinator.stop()
+        pasteboardMonitor.stop()
+        retentionTimer?.invalidate()
+        retentionTimer = nil
         panels.closeAll()
         NSStatusBar.system.removeStatusItem(statusItem)
     }

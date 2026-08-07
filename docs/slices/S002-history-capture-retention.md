@@ -1,7 +1,7 @@
 ---
 id: S002
 title: Захват, хранение и удаление истории
-status: planned
+status: needs_verification
 depends_on:
   - S001
 covers:
@@ -83,10 +83,10 @@ covers:
 
 ## Verification
 
-- [ ] Unit tests на exact text, duplicates, unsupported type и self-write suppression.
-- [ ] Repository tests на create/list/delete/delete-all с временным store.
-- [ ] Тесты времени на 29d23h59m59s, ровно 30d и старше с injected clock.
-- [ ] Перезапуск приложения с сохранённым store и повторная проверка списка.
+- [x] Unit tests на exact text, duplicates, unsupported type и self-write suppression.
+- [x] Repository tests на create/list/delete/delete-all с временным store.
+- [x] Тесты времени на 29d23h59m59s, ровно 30d и старше с injected clock.
+- [x] Перезапуск приложения с сохранённым store и повторная проверка списка.
 - [ ] Ручная проверка копирований из TextEdit, браузера и редактора кода.
 - [ ] Проверить отсутствие text payload в unified/debug logs тестовой сессии.
 
@@ -103,20 +103,33 @@ covers:
 
 ### Реализовано
 
-Не начато.
+- `PasteboardMonitor` polling по `NSPasteboard.changeCount`; принимается только строковое представление, одинаковые события не дедуплицируются, а self-write suppression привязан к точному `changeCount`.
+- `HistoryService` с injected clock и 30-day boundary, `CoreDataHistoryStore` с локальным SQLite в Application Support, индексом `capturedAt`, retention cleanup, durable delete и destructive clear-all без обращения к system pasteboard.
+- Базовая History UI: loading, empty, list newest-first, delete, clear-all confirmation и error/retry. Ошибка первоначального открытия store повторяется на Retry; runtime retention запускается ежечасно.
 
 ### Изменённые файлы
 
-Не начато.
+- `Sources/Qipli/Clipboard/PasteboardMonitor.swift`
+- `Sources/Qipli/History/HistoryEntry.swift`
+- `Sources/Qipli/History/HistoryStore.swift`
+- `Sources/Qipli/History/HistoryService.swift`
+- `Sources/Qipli/History/HistoryViewModel.swift`
+- `Sources/Qipli/App/ApplicationShell.swift`, `Sources/Qipli/UI/PanelController.swift`, `Sources/Qipli/UI/PlaceholderViews.swift`
+- `Qipli.xcodeproj/project.pbxproj`
+- `Tests/QipliTests/PasteboardMonitorTests.swift`, `Tests/QipliTests/HistoryStoreTests.swift`
 
 ### Выполненная проверка
 
-Не начато.
+- `swift test` — 20 XCTest passed.
+- `xcodebuild -project Qipli.xcodeproj -scheme Qipli -configuration Debug -derivedDataPath /tmp/qipli-s002-build test CODE_SIGNING_ALLOWED=NO` — 20 XCTest passed.
+- Xcode Release universal build (`arm64`, `x86_64`) с deployment target macOS 14 и `CODE_SIGNING_ALLOWED=NO` — успешно.
+- `plutil -lint Qipli.xcodeproj/project.pbxproj` и `git diff --check` passed.
+- Статический privacy scan подтвердил отсутствие app logging и network API; тест launch boundary подтверждает, что содержимое pasteboard до запуска monitor не импортируется.
 
 ### Отклонения от плана
 
-Нет.
+- Core Data model создаётся программно вместо отдельного `.xcdatamodeld`; это сохраняет минимальный проект и тот же SQLite/Core Data контракт. Ручная macOS verification ещё не выполнена, поэтому slice не отмечен `done`.
 
 ### Оставшиеся проблемы
 
-Зависит от S001.
+- Проверить в реальном приложении TextEdit, браузер и code editor: exact text/Unicode/multiline, duplicates, non-text copy, restart, delete one, clear-all confirmation, неизменность system pasteboard и отсутствие clipboard payload в логах.

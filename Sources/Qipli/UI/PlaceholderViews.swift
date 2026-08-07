@@ -1,11 +1,71 @@
 import SwiftUI
 
-struct HistoryPlaceholderView: View {
+struct HistoryPanelView: View {
+    @ObservedObject var viewModel: HistoryViewModel
+    @State private var confirmsClearAll = false
+
     var body: some View {
-        PlaceholderSurface(
-            title: "History",
-            message: "History capture starts in the next implementation slice."
-        )
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("History")
+                    .font(.headline)
+                Spacer()
+                if case .list = viewModel.state {
+                    Button("Clear All", role: .destructive) {
+                        confirmsClearAll = true
+                    }
+                }
+            }
+
+            content
+        }
+        .padding(20)
+        .frame(width: 460, height: 340, alignment: .topLeading)
+        .alert("Clear all Qipli history?", isPresented: $confirmsClearAll) {
+            Button("Clear All", role: .destructive) {
+                viewModel.clearAll()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This deletes Qipli’s local history. It does not change your current system clipboard.")
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch viewModel.state {
+        case .loading:
+            ProgressView("Loading history…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .empty:
+            ContentUnavailableView("No History Yet", systemImage: "clipboard", description: Text("Copied text will appear here while Qipli is running."))
+        case let .list(entries):
+            List(entries) { entry in
+                HStack(alignment: .top, spacing: 12) {
+                    Text(entry.text)
+                        .lineLimit(3)
+                        .textSelection(.enabled)
+                    Spacer(minLength: 8)
+                    Button("Delete", role: .destructive) {
+                        viewModel.delete(entry)
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(.vertical, 3)
+            }
+            .listStyle(.inset)
+        case .error:
+            VStack(alignment: .leading, spacing: 12) {
+                Text("History is unavailable.")
+                    .font(.headline)
+                Text("Qipli could not read or update local history. Your system clipboard was not changed.")
+                    .foregroundStyle(.secondary)
+                Button("Retry") {
+                    viewModel.reload()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        }
     }
 }
 
