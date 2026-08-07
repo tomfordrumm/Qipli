@@ -43,7 +43,7 @@ covers:
 - До разрешения пользователь может открыть Qipli из menu bar и прочитать локальное объяснение.
 - Системный prompt вызывается только после понятного пользовательского действия.
 - При отказе приложение остаётся управляемым и не показывает ложное состояние готовности.
-- После разрешения тестовый event tap видит целевые сочетания, не меняя ввод остальных приложений.
+- После разрешения active event tap потребляет только точные Qipli global shortcuts; весь остальной ввод приложений, включая обычный `⌘V`, не меняется.
 - Если macOS отключает event tap, приложение обнаруживает состояние и либо восстанавливает tap, либо сообщает проблему.
 
 ## Состояния интерфейса
@@ -101,11 +101,11 @@ covers:
 - Status item использует фиксированную видимую ширину и template-иконку clipboard с текстовым fallback.
 - Добавлены singleton AppKit panels c SwiftUI placeholder content для History, Paste Stack и Accessibility onboarding.
 - Добавлен инъецируемый `AccessibilityPermissionService`: проверка trust, явный user-triggered системный prompt и переход в System Settings. При отсутствии trust global input не запускается.
-- Добавлены изолированные `InputCoordinator` и `GlobalInputEventAdapting`. Production adapter использует listen-only `CGEvent` tap для `⌘⇧V`/`⌘⇧C`, поэтому не модифицирует обычный `⌘V`.
+- Добавлены изолированные `InputCoordinator` и `GlobalInputEventAdapting`. Production adapter использует active `CGEvent` tap, который потребляет только exact untagged `⌘⇧V`/`⌘⇧C`; обычный `⌘V`, другие combinations и synthetic marker проходят без изменения.
 - Platform spike включает отправку synthetic `⌘V` с process marker, распознавание marker во входящем событии и bounded recovery (две попытки с проверкой результата) после системного отключения event tap.
 - Internal Debug-only hook детерминированно симулирует disabled event tap без установки реального tap и проверяет успешное восстановление и исчерпание двух попыток.
 - После исчерпания recovery пользовательский повтор через Permission Status пересоздаёт adapter вместо сохранения нерабочего tap.
-- Добавлены XCTest с fake permission/input adapters и чистой классификацией keyboard events; они проверяют permission states, retry, hotkeys, неизменность обычного `⌘V`, synthetic marker и recovery policy без Accessibility или clipboard data.
+- Добавлены XCTest с fake permission/input adapters и чистой классификацией keyboard events; они проверяют permission states, retry, exact consumed hotkeys, неизменность обычного `⌘V`, synthetic marker и recovery policy без Accessibility или clipboard data.
 - Debug app target настроен как testable и без оптимизации; test target получил стабильные product/module names, поэтому XCTest bundle корректно собирается и загружается.
 - Для release target задан Hardened Runtime. Entitlements намеренно пусты: App Sandbox и необоснованные exceptions отсутствуют.
 

@@ -80,6 +80,7 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
 ### InputCoordinator и PasteExecutor
 
 - регистрируют глобальные сочетания и event tap только в разрешённом состоянии, включая `Esc` как отмену только при активном стеке;
+- active event tap потребляет только exact untagged `⌘⇧V` и `⌘⇧C` keyDown, чтобы target app не исполнил собственную команду до открытия Qipli; обычный `⌘V`, другие modifiers и Qipli synthetic events проходят без изменения;
 - не модифицируют обычный `⌘V`, когда стек не активен;
 - перед внутренней записью помечают ожидаемый `changeCount`/операцию, чтобы монитор пропустил self-write;
 - быстро подготавливают следующий текст в pasteboard и отправляют/пропускают событие вставки, не блокируя event tap тяжёлой работой;

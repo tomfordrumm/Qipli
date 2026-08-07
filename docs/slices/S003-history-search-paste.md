@@ -72,7 +72,7 @@ covers:
 
 ## Acceptance criteria
 
-- [ ] `⌘⇧V` из другого приложения открывает одну history panel поверх него и фокусирует пустую строку поиска без дополнительного клика.
+- [ ] `⌘⇧V` из другого приложения открывает одну history panel поверх него и фокусирует пустую строку поиска без дополнительного клика; target app не исполняет собственный `⌘⇧V` до открытия панели.
 - [ ] Ввод запроса фильтрует записи по регистронезависимому вхождению подстроки; пустой запрос показывает latest-first список, отсутствие совпадений — отдельное состояние.
 - [ ] Up/Down перемещают явный selection в границах результатов; после изменения запроса selection становится первым результатом либо отсутствует.
 - [ ] `Enter` при выбранной записи закрывает панель, активирует прежнее приложение и отправляет точный Unicode/многострочный текст через стандартную paste-команду.
@@ -108,6 +108,7 @@ covers:
 - `Enter` использует immutable text snapshot и отдельный `HistoryPasteExecutor`: final `NSPasteboard.changeCount` регистрируется как self-write сразу после успешной internal write, затем panel закрывается, target активируется и проверяется ограниченным числом main-run-loop turns, только после этого отправляется tagged `⌘V`.
 - `Esc` закрывает History и пытается вернуть captured target без clipboard/event side effects. Permission missing, unavailable target, write и dispatch errors остаются видимыми и retryable; history entry не изменяется.
 - Нормальный `⌘V` не менялся; synthetic event остаётся tagged и игнорируется global listener.
+- Active event tap потребляет только exact untagged `⌘⇧V`/`⌘⇧C` keyDown, поэтому исходный hotkey не успевает выполнить действие target app.
 
 ### Изменённые файлы
 
@@ -125,11 +126,12 @@ covers:
 
 ### Выполненная проверка
 
-- `swift test`: 31 tests, 0 failures.
-- Xcode Debug XCTest (`CODE_SIGNING_ALLOWED=NO`): 31 tests, 0 failures.
+- `swift test`: 33 tests, 0 failures.
+- Xcode Debug XCTest (`CODE_SIGNING_ALLOWED=NO`): 33 tests, 0 failures.
 - Xcode Debug и Release macOS builds (`CODE_SIGNING_ALLOWED=NO`): passed; both arm64 and x86_64 were built.
 - `plutil -lint` passed for `Info.plist`, entitlements and `project.pbxproj`; `git diff --check` passed.
 - Deterministic coverage includes localized search, selection transitions, filtered delete, exact self-write change registration, permission denial, terminated/unactivatable targets, delayed/exhausted activation, dispatch failure and `Esc` focus restoration seam.
+- Active-filter coverage verifies only exact untagged history/stack hotkey keyDown events are consumed; ordinary `⌘V`, extra modifiers, keyUp and Qipli tagged synthetic input pass through.
 
 ### Отклонения от плана
 
@@ -137,4 +139,4 @@ covers:
 
 ### Оставшиеся проблемы
 
-Автоматические проверки завершены. Для `done` потребуется ручная проверка реальной вставки (TextEdit, browser, code editor; Unicode and multiline), `Esc` focus return, permission-denied UI, read-only/secure field and closed/unactivatable target without false success.
+Автоматические проверки завершены. Для `done` потребуется ручная проверка, что `⌘⇧V` не выполняет action в target app до показа History, реальной вставки (TextEdit, browser, code editor; Unicode and multiline), `Esc` focus return, permission-denied UI, read-only/secure field and closed/unactivatable target without false success.

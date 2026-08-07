@@ -2,7 +2,7 @@ import ApplicationServices
 import Carbon.HIToolbox
 import Foundation
 
-/// Core Graphics adapter. It begins as a listen-only tap, so ordinary Command-V is never changed.
+/// Core Graphics adapter. Its active filter consumes only Qipli's exact untagged global hotkeys.
 final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispatching {
     var onHotKey: ((GlobalHotKey) -> Void)?
     var onStatusChange: ((GlobalInputStatus) -> Void)?
@@ -10,6 +10,7 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
     private var recoveryPolicy = EventTapRecoveryPolicy(maximumAttempts: 2)
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    static let eventTapOptions: CGEventTapOptions = .defaultTap
     private(set) var status: GlobalInputStatus = .stopped {
         didSet { onStatusChange?(status) }
     }
@@ -22,7 +23,7 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         guard let newTap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .listenOnly,
+            options: Self.eventTapOptions,
             eventsOfInterest: keyDownMask,
             callback: Self.eventTapCallback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
@@ -75,11 +76,12 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
     private static let eventTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
         guard let userInfo else { return Unmanaged.passUnretained(event) }
         let adapter = Unmanaged<CGEventTapAdapter>.fromOpaque(userInfo).takeUnretainedValue()
-        adapter.handle(type: type, event: event)
-        return Unmanaged.passUnretained(event)
+        let hotKey = consumedHotKey(type: type, event: event)
+        adapter.handle(type: type, event: event, hotKey: hotKey)
+        return hotKey == nil ? Unmanaged.passUnretained(event) : nil
     }
 
-    private func handle(type: CGEventType, event: CGEvent) {
+    private func handle(type: CGEventType, event: CGEvent, hotKey: GlobalHotKey?) {
         switch type {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
             DispatchQueue.main.async { [weak self] in
@@ -87,7 +89,7 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
             }
         case .keyDown:
             recoveryPolicy.recordHealthyEvent()
-            guard let hotKey = Self.hotKey(for: event) else { return }
+            guard let hotKey else { return }
             DispatchQueue.main.async { [weak self] in self?.onHotKey?(hotKey) }
         default:
             break
@@ -117,6 +119,12 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         default:
             return nil
         }
+    }
+
+    /// This is the full active-filter contract: only the two Qipli shortcuts are removed from the target app's stream.
+    static func consumedHotKey(type: CGEventType, event: CGEvent) -> GlobalHotKey? {
+        guard type == .keyDown else { return nil }
+        return hotKey(for: event)
     }
 
     private func recoverFromDisabledTap() {

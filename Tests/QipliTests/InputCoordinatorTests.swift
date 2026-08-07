@@ -102,6 +102,28 @@ final class CGEventTapAdapterClassificationTests: XCTestCase {
         XCTAssertNil(CGEventTapAdapter.hotKey(for: syntheticHotKey))
     }
 
+    func testActiveTapConsumesOnlyExactUntaggedQipliHotkeyKeyDownEvents() throws {
+        let history = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_V), flags: [.maskCommand, .maskShift])
+        let stack = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_C), flags: [.maskCommand, .maskShift])
+        let ordinaryPaste = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
+        let modifiedPaste = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_V), flags: [.maskCommand, .maskShift, .maskAlternate])
+        let unrelatedHotKey = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_X), flags: [.maskCommand, .maskShift])
+        let taggedHistory = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_V), flags: [.maskCommand, .maskShift])
+        taggedHistory.setIntegerValueField(.eventSourceUserData, value: SyntheticEventMarker.sourceUserData)
+
+        XCTAssertEqual(CGEventTapAdapter.consumedHotKey(type: .keyDown, event: history), .history)
+        XCTAssertEqual(CGEventTapAdapter.consumedHotKey(type: .keyDown, event: stack), .pasteStack)
+        XCTAssertNil(CGEventTapAdapter.consumedHotKey(type: .keyUp, event: history))
+        XCTAssertNil(CGEventTapAdapter.consumedHotKey(type: .keyDown, event: ordinaryPaste))
+        XCTAssertNil(CGEventTapAdapter.consumedHotKey(type: .keyDown, event: modifiedPaste))
+        XCTAssertNil(CGEventTapAdapter.consumedHotKey(type: .keyDown, event: unrelatedHotKey))
+        XCTAssertNil(CGEventTapAdapter.consumedHotKey(type: .keyDown, event: taggedHistory))
+    }
+
+    func testTapUsesActiveFilteringConfiguration() {
+        XCTAssertEqual(CGEventTapAdapter.eventTapOptions, .defaultTap)
+    }
+
     private func makeKeyEvent(keyCode: CGKeyCode, flags: CGEventFlags) throws -> CGEvent {
         let event = try XCTUnwrap(CGEvent(
             keyboardEventSource: CGEventSource(stateID: .combinedSessionState),
