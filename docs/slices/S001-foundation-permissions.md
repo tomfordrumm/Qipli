@@ -1,7 +1,7 @@
 ---
 id: S001
 title: Скелет приложения и системное разрешение
-status: ready
+status: needs_verification
 depends_on: []
 covers:
   - FR-016
@@ -95,20 +95,40 @@ covers:
 
 ### Реализовано
 
-Не начато.
+- Добавлены минимальные `Qipli.xcodeproj` (application target и `QipliTests`) и Swift Package configuration с deployment target macOS 14.
+- Реализована menu bar оболочка без постоянного main window: команды `History`, `Start Paste Stack`, permission status и штатный `Quit`.
+- Добавлены singleton AppKit panels c SwiftUI placeholder content для History, Paste Stack и Accessibility onboarding.
+- Добавлен инъецируемый `AccessibilityPermissionService`: проверка trust, явный user-triggered системный prompt и переход в System Settings. При отсутствии trust global input не запускается.
+- Добавлены изолированные `InputCoordinator` и `GlobalInputEventAdapting`. Production adapter использует listen-only `CGEvent` tap для `⌘⇧V`/`⌘⇧C`, поэтому не модифицирует обычный `⌘V`.
+- Platform spike включает отправку synthetic `⌘V` с process marker, распознавание marker во входящем событии и bounded recovery (две попытки с проверкой результата) после системного отключения event tap.
+- После исчерпания recovery пользовательский повтор через Permission Status пересоздаёт adapter вместо сохранения нерабочего tap.
+- Добавлены XCTest с fake permission/input adapters и чистой классификацией keyboard events; они проверяют permission states, retry, hotkeys, неизменность обычного `⌘V`, synthetic marker и recovery policy без Accessibility или clipboard data.
+- Для release target задан Hardened Runtime. Entitlements намеренно пусты: App Sandbox и необоснованные exceptions отсутствуют.
 
 ### Изменённые файлы
 
-Не начато.
+- `.gitignore`
+- `Package.swift`
+- `Qipli.xcodeproj/project.pbxproj`, scheme и workspace metadata
+- `Sources/Qipli/App/*`, `Sources/Qipli/Input/*`, `Sources/Qipli/UI/*`, `Sources/Qipli/Resources/*`
+- `Tests/QipliTests/InputCoordinatorTests.swift`
+- `docs/STATE.md` и этот slice
 
 ### Выполненная проверка
 
-Не начато.
+- `swift build` (Debug) — успешно.
+- `swift build -c release` — успешно.
+- `plutil -lint` для `.pbxproj`, `Info.plist` и entitlements — успешно.
+- `git diff --check` — успешно.
+- Test target объявлен и в Xcode project, и в `Package.swift`; `swift test` достигает компиляции `QipliTests`.
+- Статически подтверждено: deployment target 14.0, Hardened Runtime включён, App Sandbox entitlement отсутствует, product code не содержит pasteboard read/logging или network/telemetry API.
+- `swift test` был запущен, но текущие Command Line Tools не содержат модуль XCTest (также нет полного Xcode), поэтому XCTest не были выполнены. Production source до XCTest target компилируется и линкуется успешно.
 
 ### Отклонения от плана
 
-Нет.
+- Xcode Debug/Release build, XCTest и ручная проверка Accessibility/event tap не выполнены: active developer directory указывает на Command Line Tools, `xcodebuild` недоступен. Функциональный статус среза поэтому не подтверждён.
 
 ### Оставшиеся проблемы
 
-Нет известных блокеров до начала.
+- На macOS 14 с полным Xcode выполнить Xcode scheme tests и Debug/Release builds.
+- На чистом профиле вручную проверить отказ/выдачу Accessibility, оба global shortcuts из другого приложения, неизменность обычного `⌘V`, singleton panels, synthetic event marker и exhausted event-tap recovery.
