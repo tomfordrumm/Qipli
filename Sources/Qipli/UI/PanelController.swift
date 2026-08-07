@@ -54,7 +54,7 @@ final class PanelController {
             )
         }
         historyPanel = panel
-        present(panel, requestSearchFocus: true)
+        present(panel, requestSearchFocus: true, requiresStrongUserActivation: true)
     }
 
     func showPasteStack() {
@@ -111,7 +111,7 @@ final class PanelController {
 
     private func reopenHistoryAfterPasteFailure() {
         guard let historyPanel else { return }
-        present(historyPanel, requestSearchFocus: true)
+        present(historyPanel, requestSearchFocus: true, requiresStrongUserActivation: true)
     }
 
     private func makePanel<Content: View>(
@@ -138,12 +138,17 @@ final class PanelController {
         return panel
     }
 
-    private func present(_ panel: NSPanel, requestSearchFocus: Bool = false) {
+    private func present(
+        _ panel: NSPanel,
+        requestSearchFocus: Bool = false,
+        requiresStrongUserActivation: Bool = false
+    ) {
         panel.center()
         // `NSApplication.activate()` is an asynchronous, best-effort request. The
         // panel must still be visible if activation is denied or delayed, so order
         // it before waiting for the active-only keyboard follow-up.
         activationPresenter.presentImmediatelyThenWhenActive(
+            requiresStrongUserActivation: requiresStrongUserActivation,
             present: { [weak panel] in
                 panel?.makeKeyAndOrderFront(nil)
             },
@@ -162,15 +167,30 @@ final class PanelController {
 @MainActor
 protocol QipliApplicationActivating: AnyObject {
     var isActive: Bool { get }
-    func activate()
+    func requestActivation()
+    /// This path is used only for an explicit Qipli command that opens a keyboard-driven panel.
+    func requestUserInitiatedActivation()
 }
 
 @MainActor
 final class SystemQipliApplicationActivator: QipliApplicationActivating {
     var isActive: Bool { NSApp.isActive }
 
-    func activate() {
+    func requestActivation() {
         NSApp.activate()
+    }
+
+    func requestUserInitiatedActivation() {
+        StrongUserInitiatedActivation.request()
+    }
+}
+
+/// Isolates the only legacy activation call. The command was explicitly initiated
+/// from Qipli's menu or global hotkey, so stealing focus is necessary for its
+/// keyboard-first History surface to work.
+private enum StrongUserInitiatedActivation {
+    static func request() {
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 
@@ -196,14 +216,19 @@ final class PanelActivationPresenter {
         self.scheduleNextMainRunLoop = scheduleNextMainRunLoop
     }
 
-    /// Runs `present` before making a best-effort activation request. The second
-    /// closure is only for work that requires Qipli to be active.
+    /// Runs `present` before the requested activation path. The second closure is
+    /// only for work that requires Qipli to be active.
     func presentImmediatelyThenWhenActive(
+        requiresStrongUserActivation: Bool,
         present: @escaping () -> Void,
         whenActive: @escaping () -> Void
     ) {
         present()
-        application.activate()
+        if requiresStrongUserActivation {
+            application.requestUserInitiatedActivation()
+        } else {
+            application.requestActivation()
+        }
         performWhenActive(remainingChecks: maximumChecks, action: whenActive)
     }
 

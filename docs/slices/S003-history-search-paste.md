@@ -52,6 +52,7 @@ covers:
 - `Enter` доступен только при выбранном результате и готовом Accessibility.
 - После отправки paste выбранное значение остаётся current system pasteboard.
 - `Esc` закрывает history panel без выбора и без изменения pasteboard.
+- Текст entries read-only: один click выбирает запись, double-click выбирает эту же запись и запускает тот же paste flow, что и `Enter`; Delete остаётся отдельным действием без paste.
 
 ## Состояния интерфейса
 
@@ -72,9 +73,10 @@ covers:
 
 ## Acceptance criteria
 
-- [ ] `⌘⇧V` из другого приложения открывает одну history panel поверх него и фокусирует пустую строку поиска без дополнительного клика; target app не исполняет собственный `⌘⇧V` до открытия панели.
+- [ ] `⌘⇧V` из другого приложения открывает одну history panel поверх него, принудительно активирует Qipli и фокусирует пустую строку поиска без дополнительного клика; target app не исполняет собственный `⌘⇧V` до открытия панели.
 - [ ] Ввод запроса фильтрует записи по регистронезависимому вхождению подстроки; пустой запрос показывает latest-first список, отсутствие совпадений — отдельное состояние.
 - [ ] Up/Down перемещают явный selection в границах результатов; после изменения запроса selection становится первым результатом либо отсутствует.
+- [ ] Entry text нельзя выделить или изменить; single-click выбирает ровно эту строку, double-click выбирает её и запускает тот же flow, что `Enter`, а Delete не выбирает и не вставляет запись.
 - [ ] `Enter` при выбранной записи закрывает панель, активирует прежнее приложение и отправляет точный Unicode/многострочный текст через стандартную paste-команду.
 - [ ] Внутренняя запись выбранного текста не создаёт новую запись истории; вставленная запись остаётся с прежними ID и `capturedAt`, а выбранный текст становится current system pasteboard.
 - [ ] `Esc` закрывает панель и возвращает фокус без pasteboard write; повторное открытие показывает актуальную историю.
@@ -103,8 +105,9 @@ covers:
 
 ### Реализовано
 
-- History panel сохраняет prior frontmost target до показа и сразу order-front; затем Qipli activation запрашивается и проверяется ограниченным числом main-run-loop turns. После подтверждённой activation panel повторно становится key и first-show/reuse autofocus ставит пустой search field без click; при исчерпании checks panel остаётся видимой и доступной по click.
+- History panel сохраняет prior frontmost target до показа и сразу order-front; явный `⌘⇧V`/menu action затем вызывает локализованную strong activation request, потому что cooperative `NSApp.activate()` не дал keyboard focus accessory app в ручной проверке. После подтверждённой activation panel повторно становится key и first-show/reuse autofocus ставит пустой search field без click; при исчерпании checks panel остаётся видимой и доступной по click.
 - Search выполняется in-memory по исходному тексту через `localizedCaseInsensitiveContains`; selection хранится по `HistoryEntry.id`, стрелки ограничены видимыми результатами, а delete выбирает ближайшую запись.
+- History entries отображаются read-only без text selection; single-click планирует ID selection, double-click планирует selection и тот же paste flow, что `Enter`. Delete — отдельная borderless button и не несёт select/paste gesture.
 - `Enter` использует immutable text snapshot и отдельный `HistoryPasteExecutor`: final `NSPasteboard.changeCount` регистрируется как self-write сразу после успешной internal write, затем panel закрывается, target активируется и проверяется ограниченным числом main-run-loop turns, только после этого отправляется tagged `⌘V`.
 - `Esc` закрывает History и пытается вернуть captured target без clipboard/event side effects. Permission missing, unavailable target, write и dispatch errors остаются видимыми и retryable; history entry не изменяется.
 - Нормальный `⌘V` не менялся; synthetic event остаётся tagged и игнорируется global listener.
@@ -127,14 +130,15 @@ covers:
 
 ### Выполненная проверка
 
-- `swift test`: 35 tests, 0 failures.
-- Xcode Debug XCTest (`CODE_SIGNING_ALLOWED=NO`): 35 tests, 0 failures.
+- `swift test`: 40 tests, 0 failures.
+- Xcode Debug XCTest (`CODE_SIGNING_ALLOWED=NO`): 40 tests, 0 failures.
 - Xcode Debug и Release macOS builds (`CODE_SIGNING_ALLOWED=NO`): passed; both arm64 and x86_64 were built.
 - `plutil -lint` passed for `Info.plist`, entitlements and `project.pbxproj`; `git diff --check` passed.
 - Deterministic coverage includes localized search, selection transitions, filtered delete, exact self-write change registration, permission denial, terminated/unactivatable targets, delayed/exhausted activation, dispatch failure and `Esc` focus restoration seam.
 - Active-filter coverage verifies only exact untagged history/stack hotkey keyDown events are consumed; ordinary `⌘V`, extra modifiers, keyUp and Qipli tagged synthetic input pass through.
 - Keyboard scheduling change compiles in both build systems; clean console during manual Up/Down/Enter/Esc verification remains required because a dedicated XCUI target is intentionally absent.
 - `PanelActivationPresenter` tests cover delayed activation before the active-only key/focus follow-up and prove bounded exhaustion still runs immediate panel presentation while skipping only that follow-up.
+- Intent tests lock Up/Down/Enter/Esc routing plus separate single-select, double-click select-and-paste and Delete intents; activation fake expresses the strong user-initiated request.
 
 ### Отклонения от плана
 
@@ -142,4 +146,4 @@ covers:
 
 ### Оставшиеся проблемы
 
-Автоматические проверки завершены. Для `done` потребуется ручная проверка, что `⌘⇧V` не выполняет action в target app до показа History, History всегда становится visible (и после принятой activation — key с autofocus) без click после hotkey/reopen, keyboard navigation Up/Down/Enter/Esc проходит без SwiftUI console warning `Publishing changes from within view updates`, реальной вставки (TextEdit, browser, code editor; Unicode and multiline), `Esc` focus return, permission-denied UI, read-only/secure field and closed/unactivatable target without false success.
+Автоматические проверки завершены. Для `done` потребуется ручная проверка, что `⌘⇧V` не выполняет action в target app до показа History, всегда force-activates Qipli и делает History key с autofocus без click после hotkey/reopen, Up/Down/Enter/Esc проходят без SwiftUI console warning `Publishing changes from within view updates`, read-only entries, single-click selection, double-click exact paste и Delete without selection/paste, реальной вставки (TextEdit, browser, code editor; Unicode and multiline), `Esc` focus return, permission-denied UI, read-only/secure field and closed/unactivatable target without false success.

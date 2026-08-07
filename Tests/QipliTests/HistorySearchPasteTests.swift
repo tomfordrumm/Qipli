@@ -207,7 +207,7 @@ final class HistoryPasteExecutorTests: XCTestCase {
 
 @MainActor
 final class PanelActivationPresenterTests: XCTestCase {
-    func testRunsActiveOnlyCompletionAfterActivationBecomesActive() {
+    func testUsesStrongUserInitiatedActivationAndRunsCompletionWhenActive() {
         let application = FakeQipliApplication(activeResults: [false, true])
         let presenter = PanelActivationPresenter(
             application: application,
@@ -216,15 +216,34 @@ final class PanelActivationPresenterTests: XCTestCase {
         var completionCount = 0
 
         presenter.presentImmediatelyThenWhenActive(
+            requiresStrongUserActivation: true,
             present: {},
             whenActive: {
                 completionCount += 1
             }
         )
 
-        XCTAssertEqual(application.activateCount, 1)
+        XCTAssertEqual(application.strongActivationRequestCount, 1)
+        XCTAssertEqual(application.activationRequestCount, 0)
         XCTAssertEqual(application.activeCheckCount, 2)
         XCTAssertEqual(completionCount, 1)
+    }
+
+    func testRegularPanelUsesCooperativeActivation() {
+        let application = FakeQipliApplication(activeResults: [true])
+        let presenter = PanelActivationPresenter(
+            application: application,
+            scheduleNextMainRunLoop: { $0() }
+        )
+
+        presenter.presentImmediatelyThenWhenActive(
+            requiresStrongUserActivation: false,
+            present: {},
+            whenActive: {}
+        )
+
+        XCTAssertEqual(application.activationRequestCount, 1)
+        XCTAssertEqual(application.strongActivationRequestCount, 0)
     }
 
     func testExhaustedActivationStillRunsImmediatePresentationAndSkipsActiveCompletion() {
@@ -237,14 +256,100 @@ final class PanelActivationPresenterTests: XCTestCase {
         var completionCount = 0
 
         presenter.presentImmediatelyThenWhenActive(
+            requiresStrongUserActivation: true,
             present: { presentationCount += 1 },
             whenActive: { completionCount += 1 }
         )
 
-        XCTAssertEqual(application.activateCount, 1)
+        XCTAssertEqual(application.strongActivationRequestCount, 1)
+        XCTAssertEqual(application.activationRequestCount, 0)
         XCTAssertEqual(application.activeCheckCount, 3)
         XCTAssertEqual(presentationCount, 1)
         XCTAssertEqual(completionCount, 0)
+    }
+}
+
+@MainActor
+final class HistoryPanelIntentTests: XCTestCase {
+    func testKeyboardIntentsDriveSelectionPasteAndClose() {
+        let entry = makeEntry("fixture", offset: 1)
+        let trace = HistoryPanelIntentTrace(selectedEntryID: entry.id)
+        let executor = makeExecutor(trace: trace)
+
+        executor.execute(.moveSelection(by: 1))
+        executor.execute(.pasteSelected)
+        executor.execute(.close)
+
+        XCTAssertEqual(trace.selectionOffsets, [1])
+        XCTAssertEqual(trace.pasteCount, 1)
+        XCTAssertEqual(trace.closeCount, 1)
+    }
+
+    func testDoubleClickSelectsExactIDThenPastesOnceWhenAllowed() {
+        let entry = makeEntry("fixture", offset: 1)
+        let trace = HistoryPanelIntentTrace(selectedEntryID: nil)
+        let executor = makeExecutor(trace: trace)
+
+        executor.execute(.selectAndPaste(entry.id))
+
+        XCTAssertEqual(trace.selectedIDs, [entry.id])
+        XCTAssertEqual(trace.pasteCount, 1)
+    }
+
+    func testDoubleClickDoesNotPasteWhenPermissionIsUnavailable() {
+        let entry = makeEntry("fixture", offset: 1)
+        let trace = HistoryPanelIntentTrace(selectedEntryID: nil, canPaste: false)
+
+        makeExecutor(trace: trace).execute(.selectAndPaste(entry.id))
+
+        XCTAssertEqual(trace.selectedIDs, [entry.id])
+        XCTAssertEqual(trace.pasteCount, 0)
+    }
+
+    func testDeleteDoesNotSelectOrPaste() {
+        let entry = makeEntry("fixture", offset: 1)
+        let trace = HistoryPanelIntentTrace(selectedEntryID: nil)
+
+        makeExecutor(trace: trace).execute(.delete(entry))
+
+        XCTAssertEqual(trace.deletedIDs, [entry.id])
+        XCTAssertTrue(trace.selectedIDs.isEmpty)
+        XCTAssertEqual(trace.pasteCount, 0)
+    }
+
+    private func makeEntry(_ text: String, offset: TimeInterval) -> HistoryEntry {
+        HistoryEntry(id: UUID(), text: text, capturedAt: Date.now.addingTimeInterval(offset))
+    }
+
+    private func makeExecutor(trace: HistoryPanelIntentTrace) -> HistoryPanelIntentExecutor {
+        HistoryPanelIntentExecutor(
+            moveSelection: { trace.selectionOffsets.append($0) },
+            select: {
+                trace.selectedIDs.append($0)
+                trace.selectedEntryID = $0
+            },
+            hasSelectedEntry: { trace.selectedEntryID != nil },
+            canPaste: { trace.canPaste },
+            pasteSelection: { trace.pasteCount += 1 },
+            close: { trace.closeCount += 1 },
+            delete: { trace.deletedIDs.append($0.id) }
+        )
+    }
+}
+
+@MainActor
+private final class HistoryPanelIntentTrace {
+    var selectedEntryID: UUID?
+    var canPaste: Bool
+    var selectionOffsets: [Int] = []
+    var selectedIDs: [UUID] = []
+    var pasteCount = 0
+    var closeCount = 0
+    var deletedIDs: [UUID] = []
+
+    init(selectedEntryID: UUID?, canPaste: Bool = true) {
+        self.selectedEntryID = selectedEntryID
+        self.canPaste = canPaste
     }
 }
 
@@ -358,7 +463,8 @@ private final class FakePasteCommandDispatcher: TaggedPasteCommandDispatching {
 @MainActor
 private final class FakeQipliApplication: QipliApplicationActivating {
     private var activeResults: [Bool]
-    private(set) var activateCount = 0
+    private(set) var activationRequestCount = 0
+    private(set) var strongActivationRequestCount = 0
     private(set) var activeCheckCount = 0
 
     init(activeResults: [Bool]) {
@@ -373,8 +479,12 @@ private final class FakeQipliApplication: QipliApplicationActivating {
         return activeResults.first ?? false
     }
 
-    func activate() {
-        activateCount += 1
+    func requestActivation() {
+        activationRequestCount += 1
+    }
+
+    func requestUserInitiatedActivation() {
+        strongActivationRequestCount += 1
     }
 }
 

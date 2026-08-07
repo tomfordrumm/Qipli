@@ -29,6 +29,22 @@ struct HistoryPanelView: View {
             .textFieldStyle(.roundedBorder)
             .focused($searchIsFocused)
             .accessibilityIdentifier("history-search")
+            .onKeyPress(.upArrow) {
+                schedule(.moveSelection(by: -1))
+                return .handled
+            }
+            .onKeyPress(.downArrow) {
+                schedule(.moveSelection(by: 1))
+                return .handled
+            }
+            .onKeyPress(.return) {
+                schedule(.pasteSelected)
+                return .handled
+            }
+            .onKeyPress(.escape) {
+                schedule(.close)
+                return .handled
+            }
 
             content
 
@@ -45,32 +61,6 @@ struct HistoryPanelView: View {
             HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
                 searchIsFocused = true
             }
-        }
-        .onKeyPress(.upArrow) {
-            HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
-                viewModel.moveSelection(by: -1)
-            }
-            return .handled
-        }
-        .onKeyPress(.downArrow) {
-            HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
-                viewModel.moveSelection(by: 1)
-            }
-            return .handled
-        }
-        .onKeyPress(.return) {
-            HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
-                if canPaste, viewModel.selectedEntry != nil {
-                    pasteSelection()
-                }
-            }
-            return .handled
-        }
-        .onKeyPress(.escape) {
-            HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
-                close()
-            }
-            return .handled
         }
         .alert("Clear all Qipli history?", isPresented: $confirmsClearAll) {
             Button("Clear All", role: .destructive) {
@@ -99,22 +89,31 @@ struct HistoryPanelView: View {
                 )
             } else {
                 List(entries) { entry in
-                HStack(alignment: .top, spacing: 12) {
-                    Text(entry.text)
-                        .lineLimit(3)
-                        .textSelection(.enabled)
-                    Spacer(minLength: 8)
-                    Button("Delete", role: .destructive) {
-                        viewModel.delete(entry)
+                    HStack(alignment: .top, spacing: 12) {
+                        Button {
+                            schedule(.select(entry.id))
+                        } label: {
+                            Text(entry.text)
+                                .lineLimit(3)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .highPriorityGesture(
+                            TapGesture(count: 2).onEnded {
+                                schedule(.selectAndPaste(entry.id))
+                            }
+                        )
+
+                        Button("Delete", role: .destructive) {
+                            schedule(.delete(entry))
+                        }
+                        .buttonStyle(.borderless)
                     }
-                    .buttonStyle(.borderless)
+                    .padding(.vertical, 3)
+                    .listRowBackground(viewModel.selectedEntryID == entry.id ? Color.accentColor.opacity(0.18) : Color.clear)
                 }
-                .padding(.vertical, 3)
-                .contentShape(Rectangle())
-                .onTapGesture { viewModel.select(id: entry.id) }
-                .listRowBackground(viewModel.selectedEntryID == entry.id ? Color.accentColor.opacity(0.18) : Color.clear)
-            }
-            .listStyle(.inset)
+                .listStyle(.inset)
             }
         case .error:
             VStack(alignment: .leading, spacing: 12) {
@@ -158,6 +157,68 @@ struct HistoryPanelView: View {
 
     private var canPaste: Bool {
         permissionService.state == .granted
+    }
+
+    private func schedule(_ intent: HistoryPanelIntent) {
+        HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
+            HistoryPanelIntentExecutor(
+                moveSelection: viewModel.moveSelection,
+                select: viewModel.select,
+                hasSelectedEntry: { viewModel.selectedEntry != nil },
+                canPaste: { canPaste },
+                pasteSelection: pasteSelection,
+                close: close,
+                delete: viewModel.delete
+            )
+            .execute(intent)
+        }
+    }
+}
+
+/// Intent is separated from SwiftUI event callbacks so keyboard and row actions
+/// can be verified without depending on an XCUI event loop.
+enum HistoryPanelIntent: Equatable {
+    case moveSelection(by: Int)
+    case pasteSelected
+    case close
+    case select(UUID)
+    case selectAndPaste(UUID)
+    case delete(HistoryEntry)
+}
+
+/// Executes a deferred History UI intent without depending on SwiftUI. Keeping
+/// this small seam makes selection, paste and destructive actions testable.
+@MainActor
+struct HistoryPanelIntentExecutor {
+    let moveSelection: (Int) -> Void
+    let select: (UUID) -> Void
+    let hasSelectedEntry: () -> Bool
+    let canPaste: () -> Bool
+    let pasteSelection: () -> Void
+    let close: () -> Void
+    let delete: (HistoryEntry) -> Void
+
+    func execute(_ intent: HistoryPanelIntent) {
+        switch intent {
+        case let .moveSelection(offset):
+            moveSelection(offset)
+        case .pasteSelected:
+            pasteIfAvailable()
+        case .close:
+            close()
+        case let .select(id):
+            select(id)
+        case let .selectAndPaste(id):
+            select(id)
+            pasteIfAvailable()
+        case let .delete(entry):
+            delete(entry)
+        }
+    }
+
+    private func pasteIfAvailable() {
+        guard canPaste(), hasSelectedEntry() else { return }
+        pasteSelection()
     }
 }
 
