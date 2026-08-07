@@ -4,8 +4,18 @@ import AppKit
 final class QipliAppDelegate: NSObject, NSApplicationDelegate {
     private var shell: ApplicationShell?
 
+    static func main() {
+        let application = NSApplication.shared
+        let delegate = QipliAppDelegate()
+        application.setActivationPolicy(.accessory)
+        application.delegate = delegate
+
+        withExtendedLifetime(delegate) {
+            application.run()
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
         shell = ApplicationShell()
         shell?.start()
     }

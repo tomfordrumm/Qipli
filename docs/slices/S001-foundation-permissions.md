@@ -75,8 +75,8 @@ covers:
 
 ## Verification
 
-- [ ] Запустить unit tests permission/event adapter с fake implementations.
-- [ ] Собрать Debug и Release configurations для macOS 14 target.
+- [x] Запустить unit tests permission/event adapter с fake implementations.
+- [x] Собрать Debug и Release configurations для macOS 14 target.
 - [ ] На профиле без разрешения проверить запуск, отказ, переход в System Settings и сохранение управляемого состояния.
 - [ ] Выдать разрешение, перезапустить приложение и проверить оба глобальных сочетания из другого приложения.
 - [ ] Убедиться в TextEdit и браузере, что обычный `⌘V` без активного стека не изменён.
@@ -96,13 +96,16 @@ covers:
 ### Реализовано
 
 - Добавлены минимальные `Qipli.xcodeproj` (application target и `QipliTests`) и Swift Package configuration с deployment target macOS 14.
+- Добавлен явный programmatic AppKit bootstrap, который создаёт и удерживает app delegate до завершения event loop; это гарантирует запуск menu bar shell без storyboard/nib.
 - Реализована menu bar оболочка без постоянного main window: команды `History`, `Start Paste Stack`, permission status и штатный `Quit`.
+- Status item использует фиксированную видимую ширину и template-иконку clipboard с текстовым fallback.
 - Добавлены singleton AppKit panels c SwiftUI placeholder content для History, Paste Stack и Accessibility onboarding.
 - Добавлен инъецируемый `AccessibilityPermissionService`: проверка trust, явный user-triggered системный prompt и переход в System Settings. При отсутствии trust global input не запускается.
 - Добавлены изолированные `InputCoordinator` и `GlobalInputEventAdapting`. Production adapter использует listen-only `CGEvent` tap для `⌘⇧V`/`⌘⇧C`, поэтому не модифицирует обычный `⌘V`.
 - Platform spike включает отправку synthetic `⌘V` с process marker, распознавание marker во входящем событии и bounded recovery (две попытки с проверкой результата) после системного отключения event tap.
 - После исчерпания recovery пользовательский повтор через Permission Status пересоздаёт adapter вместо сохранения нерабочего tap.
 - Добавлены XCTest с fake permission/input adapters и чистой классификацией keyboard events; они проверяют permission states, retry, hotkeys, неизменность обычного `⌘V`, synthetic marker и recovery policy без Accessibility или clipboard data.
+- Debug app target настроен как testable и без оптимизации; test target получил стабильные product/module names, поэтому XCTest bundle корректно собирается и загружается.
 - Для release target задан Hardened Runtime. Entitlements намеренно пусты: App Sandbox и необоснованные exceptions отсутствуют.
 
 ### Изменённые файлы
@@ -118,17 +121,19 @@ covers:
 
 - `swift build` (Debug) — успешно.
 - `swift build -c release` — успешно.
+- Xcode Debug build для macOS 14 target с `CODE_SIGNING_ALLOWED=NO` — успешно.
+- Xcode Release build для macOS 14 target с `CODE_SIGNING_ALLOWED=NO` — успешно.
+- Xcode XCTest — успешно: 9 тестов, 0 ошибок.
 - `plutil -lint` для `.pbxproj`, `Info.plist` и entitlements — успешно.
 - `git diff --check` — успешно.
-- Test target объявлен и в Xcode project, и в `Package.swift`; `swift test` достигает компиляции `QipliTests`.
 - Статически подтверждено: deployment target 14.0, Hardened Runtime включён, App Sandbox entitlement отсутствует, product code не содержит pasteboard read/logging или network/telemetry API.
-- `swift test` был запущен, но текущие Command Line Tools не содержат модуль XCTest (также нет полного Xcode), поэтому XCTest не были выполнены. Production source до XCTest target компилируется и линкуется успешно.
 
 ### Отклонения от плана
 
-- Xcode Debug/Release build, XCTest и ручная проверка Accessibility/event tap не выполнены: active developer directory указывает на Command Line Tools, `xcodebuild` недоступен. Функциональный статус среза поэтому не подтверждён.
+- Первоначальный programmatic AppKit target полагался на автоматическое создание `NSApplicationDelegate`, но без storyboard/nib delegate не инстанцировался. Во время ручного запуска это обнаружено и исправлено явной точкой входа.
+- Ручная проверка Accessibility/event tap пока не выполнена, поэтому функциональный статус среза остаётся `needs_verification`.
 
 ### Оставшиеся проблемы
 
-- На macOS 14 с полным Xcode выполнить Xcode scheme tests и Debug/Release builds.
-- На чистом профиле вручную проверить отказ/выдачу Accessibility, оба global shortcuts из другого приложения, неизменность обычного `⌘V`, singleton panels, synthetic event marker и exhausted event-tap recovery.
+- Перезапустить приложение из Xcode и подтвердить появление status item/menu и onboarding.
+- На чистом или поддерживаемом профиле macOS вручную проверить отказ/выдачу Accessibility, оба global shortcuts из другого приложения, неизменность обычного `⌘V`, singleton panels, synthetic event marker и exhausted event-tap recovery.
