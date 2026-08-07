@@ -1,7 +1,7 @@
 ---
 id: S003
 title: Поиск и повторная вставка из истории
-status: planned
+status: needs_verification
 depends_on:
   - S002
 covers:
@@ -67,7 +67,7 @@ covers:
 
 - Поиск выполняется по исходному `text`, регистронезависимо и с системными locale rules.
 - View model хранит ID selection, а не позицию; после удаления выбирается ближайшая видимая запись.
-- PasteExecutor получает immutable text snapshot и target identity; self-write помечается до pasteboard write.
+- PasteExecutor получает immutable text snapshot и target identity; точный final `changeCount` помечается сразу после успешной pasteboard write и до того, как monitor может её обработать.
 - Запись истории не удаляется и не меняет дату после вставки.
 
 ## Acceptance criteria
@@ -83,8 +83,8 @@ covers:
 
 ## Verification
 
-- [ ] Unit tests search semantics, selection transitions и delete in filtered results.
-- [ ] Integration tests history-paste flow с fake pasteboard/application/event adapters.
+- [x] Unit tests search semantics, selection transitions и delete in filtered results.
+- [x] Integration tests history-paste flow с fake pasteboard/application/event adapters.
 - [ ] UI tests autofocus, arrows, Enter, Esc, no-results и permission denied.
 - [ ] Ручная вставка в TextEdit, браузер и редактор кода, включая Unicode и переводы строк.
 - [ ] Ручная проверка read-only/secure field и закрывшегося target без ложного подтверждения.
@@ -94,29 +94,47 @@ covers:
 
 - [ ] Все acceptance criteria выполнены.
 - [ ] Автоматические и ручные проверки пройдены.
-- [ ] Приложение собирается без новой регрессии.
-- [ ] `STATE.md` и frontmatter синхронно обновлены.
-- [ ] Новые значимые решения записаны в `DECISIONS.md`.
-- [ ] Implementation report заполнен.
+- [x] Приложение собирается без новой регрессии.
+- [x] `STATE.md` и frontmatter синхронно обновлены.
+- [x] Новые значимые решения записаны в `DECISIONS.md`.
+- [x] Implementation report заполнен.
 
 ## Implementation report
 
 ### Реализовано
 
-Не начато.
+- History panel становится key window, сохраняет prior frontmost target до показа и каждый раз фокусирует пустой search field.
+- Search выполняется in-memory по исходному тексту через `localizedCaseInsensitiveContains`; selection хранится по `HistoryEntry.id`, стрелки ограничены видимыми результатами, а delete выбирает ближайшую запись.
+- `Enter` использует immutable text snapshot и отдельный `HistoryPasteExecutor`: final `NSPasteboard.changeCount` регистрируется как self-write сразу после успешной internal write, затем panel закрывается, target активируется и проверяется ограниченным числом main-run-loop turns, только после этого отправляется tagged `⌘V`.
+- `Esc` закрывает History и пытается вернуть captured target без clipboard/event side effects. Permission missing, unavailable target, write и dispatch errors остаются видимыми и retryable; history entry не изменяется.
+- Нормальный `⌘V` не менялся; synthetic event остаётся tagged и игнорируется global listener.
 
 ### Изменённые файлы
 
-Не начато.
+- `Sources/Qipli/Input/HistoryPasteExecutor.swift`
+- `Sources/Qipli/History/HistoryViewModel.swift`
+- `Sources/Qipli/UI/PanelController.swift`
+- `Sources/Qipli/UI/PlaceholderViews.swift`
+- `Sources/Qipli/App/ApplicationShell.swift`
+- `Sources/Qipli/Input/CGEventTapAdapter.swift`
+- `Tests/QipliTests/HistorySearchPasteTests.swift`
+- `Qipli.xcodeproj/project.pbxproj`
+- `docs/DECISIONS.md`
+- `docs/STATE.md`
+- `docs/slices/S003-history-search-paste.md`
 
 ### Выполненная проверка
 
-Не начато.
+- `swift test`: 31 tests, 0 failures.
+- Xcode Debug XCTest (`CODE_SIGNING_ALLOWED=NO`): 31 tests, 0 failures.
+- Xcode Debug и Release macOS builds (`CODE_SIGNING_ALLOWED=NO`): passed; both arm64 and x86_64 were built.
+- `plutil -lint` passed for `Info.plist`, entitlements and `project.pbxproj`; `git diff --check` passed.
+- Deterministic coverage includes localized search, selection transitions, filtered delete, exact self-write change registration, permission denial, terminated/unactivatable targets, delayed/exhausted activation, dispatch failure and `Esc` focus restoration seam.
 
 ### Отклонения от плана
 
-Нет.
+- No dedicated XCUI target was added: keyboard and view-model behavior is isolated for deterministic unit/integration coverage. Real panel focus and cross-application paste remain explicit manual verification work.
 
 ### Оставшиеся проблемы
 
-Зависит от S002.
+Автоматические проверки завершены. Для `done` потребуется ручная проверка реальной вставки (TextEdit, browser, code editor; Unicode and multiline), `Esc` focus return, permission-denied UI, read-only/secure field and closed/unactivatable target without false success.

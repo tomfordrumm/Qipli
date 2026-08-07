@@ -6,19 +6,42 @@ import SwiftUI
 final class PanelController {
     private let permissionService: AccessibilityPermissionService
     private let historyViewModel: HistoryViewModel
+    private let historyPasteExecutor: HistoryPasteExecutor
+    private let frontmostApplicationCapture: FrontmostApplicationCapturing
+    private let openAccessibilitySettings: () -> Void
     private var historyPanel: NSPanel?
     private var stackPanel: NSPanel?
     private var permissionPanel: NSPanel?
+    private var historyPasteTarget: HistoryPasteTarget?
 
-    init(permissionService: AccessibilityPermissionService, historyViewModel: HistoryViewModel) {
+    init(
+        permissionService: AccessibilityPermissionService,
+        historyViewModel: HistoryViewModel,
+        historyPasteExecutor: HistoryPasteExecutor,
+        frontmostApplicationCapture: FrontmostApplicationCapturing = SystemFrontmostApplicationCapture(),
+        openAccessibilitySettings: @escaping () -> Void
+    ) {
         self.permissionService = permissionService
         self.historyViewModel = historyViewModel
+        self.historyPasteExecutor = historyPasteExecutor
+        self.frontmostApplicationCapture = frontmostApplicationCapture
+        self.openAccessibilitySettings = openAccessibilitySettings
     }
 
     func showHistory() {
-        historyViewModel.reload()
-        let panel = historyPanel ?? makePanel(title: "History") {
-            HistoryPanelView(viewModel: self.historyViewModel)
+        _ = permissionService.refresh()
+        if historyPanel?.isVisible != true {
+            historyPasteTarget = frontmostApplicationCapture.capturePriorApplication()
+        }
+        historyViewModel.prepareForPresentation()
+        let panel = historyPanel ?? makePanel(title: "History", acceptsKeyboardInput: true) {
+            HistoryPanelView(
+                viewModel: self.historyViewModel,
+                permissionService: self.permissionService,
+                openAccessibilitySettings: self.openAccessibilitySettings,
+                pasteSelection: { [weak self] in self?.pasteSelectedHistoryEntry() },
+                close: { [weak self] in self?.cancelHistory() }
+            )
         }
         historyPanel = panel
         present(panel)
@@ -48,10 +71,52 @@ final class PanelController {
         [historyPanel, stackPanel, permissionPanel].forEach { $0?.close() }
     }
 
-    private func makePanel<Content: View>(title: String, @ViewBuilder content: () -> Content) -> NSPanel {
+    private func pasteSelectedHistoryEntry() {
+        guard let entry = historyViewModel.selectedEntry else { return }
+        historyViewModel.clearPasteFailure()
+        historyPasteExecutor.paste(
+            entry: entry,
+            target: historyPasteTarget,
+            closePanel: { [weak self] in self?.dismissHistoryForPaste() },
+            completion: { [weak self] result in
+                switch result {
+                case .success:
+                    break
+                case let .failure(failure):
+                    self?.historyViewModel.recordPasteFailure(failure)
+                    self?.reopenHistoryAfterPasteFailure()
+                }
+            }
+        )
+    }
+
+    private func dismissHistoryForPaste() {
+        historyPanel?.orderOut(nil)
+    }
+
+    private func cancelHistory() {
+        historyPanel?.orderOut(nil)
+        _ = HistoryFocusRestorer.returnToCapturedTarget(historyPasteTarget)
+    }
+
+    private func reopenHistoryAfterPasteFailure() {
+        guard let historyPanel else { return }
+        NSApp.activate()
+        historyPanel.makeKeyAndOrderFront(nil)
+    }
+
+    private func makePanel<Content: View>(
+        title: String,
+        acceptsKeyboardInput: Bool = false,
+        @ViewBuilder content: () -> Content
+    ) -> NSPanel {
+        var styleMask: NSWindow.StyleMask = [.titled, .closable, .utilityWindow]
+        if !acceptsKeyboardInput {
+            styleMask.insert(.nonactivatingPanel)
+        }
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
-            styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
+            styleMask: styleMask,
             backing: .buffered,
             defer: false
         )
@@ -66,7 +131,7 @@ final class PanelController {
 
     private func present(_ panel: NSPanel) {
         panel.center()
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
         panel.makeKeyAndOrderFront(nil)
     }
 }

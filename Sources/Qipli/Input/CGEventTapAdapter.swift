@@ -3,7 +3,7 @@ import Carbon.HIToolbox
 import Foundation
 
 /// Core Graphics adapter. It begins as a listen-only tap, so ordinary Command-V is never changed.
-final class CGEventTapAdapter: GlobalInputEventAdapting {
+final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispatching {
     var onHotKey: ((GlobalHotKey) -> Void)?
     var onStatusChange: ((GlobalInputStatus) -> Void)?
 

@@ -8,9 +8,9 @@
 
 - S001 и S002 завершены: автоматические и ручные проверки пройдены.
 - Текущий milestone: M1 — рабочая локальная история.
-- Активный срез отсутствует; следующий кандидат — S003.
+- Активный срез: [`S003 — Поиск и повторная вставка из истории`](slices/S003-history-search-paste.md), статус `needs_verification`.
 - Завершённые срезы: [`S001 — Скелет приложения и системное разрешение`](slices/S001-foundation-permissions.md) и [`S002 — Захват, хранение и удаление истории`](slices/S002-history-capture-retention.md).
-- Точный следующий шаг: перед реализацией перепроверить зависимости и границы S003, перевести его из `planned` в `ready` и передать отдельному Terra subagent.
+- Точный следующий шаг: вручную проверить S003: keyboard focus/search, `Enter` paste в TextEdit/browser/editor, `Esc`, permission-denied и unavailable target paths; затем принять или исправить slice.
 
 ## Статусы срезов
 
@@ -18,7 +18,7 @@
 |---|---|---|---|
 | S001 | Скелет приложения и системное разрешение | `done` | — |
 | S002 | Захват, хранение и удаление истории | `done` | S001 |
-| S003 | Поиск и повторная вставка из истории | `planned` | S002 |
+| S003 | Поиск и повторная вставка из истории | `needs_verification` | S002 |
 | S004 | Сбор и визуальная панель Paste Stack | `planned` | S002 |
 | S005 | Порядок и направление обхода | `planned` | S004 |
 | S006 | Последовательная вставка и прогресс | `planned` | S001, S005 |
@@ -27,7 +27,7 @@
 
 ## Блокеры и recheck points
 
-Активных блокеров для S001–S002 нет.
+Активных блокеров для S001–S003 нет.
 
 - Перед S008 подтвердить доступ к Apple Developer Program, Developer ID Application certificate и notarization credentials.
 - В S008 повторить подтверждённый в S001 Accessibility/event-tap flow на чистой минимально поддерживаемой macOS 14 с подписанным release artifact.
@@ -43,7 +43,8 @@
 - Пользователь вручную подтвердил menu bar, permission onboarding и выдачу Accessibility, оба глобальных сочетания, singleton panels, неизменность обычного `⌘V` и штатный Quit.
 - S002 добавил локальную Core Data/SQLite history, changeCount monitor, retention и базовую панель; SwiftPM и Xcode XCTest прошли по 20 тестов, Xcode Release build прошёл.
 - Пользователь вручную подтвердил exact text/Unicode/multiline capture, duplicates, игнорирование non-text, restart persistence, durable delete, clear-all confirmation, неизменность system pasteboard и отсутствие clipboard payload в логах.
-- S001 и S002 имеют статус `done`; остальные срезы остаются `planned`.
+- S003 реализован: keyboard-active History panel, local search/ID selection, safe history paste executor и retryable failures. SwiftPM и Xcode XCTest прошли по 31 тесту; Xcode Debug/Release builds прошли. Реальные focus/paste/failure paths ожидают ручной проверки.
+- S001 и S002 имеют статус `done`; S003 — `needs_verification`; остальные срезы остаются `planned`.
 
 ## Журнал переходов
 
@@ -56,3 +57,5 @@
 | 2026-08-07 | D-006 принят, S002 переведён в `ready`. | S001 завершён; Core Data/SQLite остаётся самым простым системным persistence решением без сторонней зависимости. |
 | 2026-08-07 | S002 реализован и переведён в `needs_verification`. | SwiftPM и Xcode XCTest: 20 тестов без ошибок; требуется ручная проверка real NSPasteboard, persistence и UI. |
 | 2026-08-07 | S002 переведён в `done`. | Пользователь подтвердил полную ручную clipboard/UI/restart/privacy матрицу; автоматические проверки ранее прошли. |
+| 2026-08-07 | D-004 и D-007 приняты, S003 переведён в `ready`. | S001 подтвердил AppKit/Core Graphics input и menu-bar shell на macOS 14; S002 завершён, границы search/paste и Apple platform contracts перепроверены. |
+| 2026-08-07 | S003 реализован и переведён в `needs_verification`. | SwiftPM и Xcode XCTest: 31 тест без ошибок; Debug и Release builds прошли. Остаётся ручная матрица real paste/focus/permission/failure. |

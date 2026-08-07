@@ -15,7 +15,8 @@ final class ApplicationShell: NSObject {
     init(
         permissionService: AccessibilityPermissionService = AccessibilityPermissionService(),
         inputAdapter: GlobalInputEventAdapting = CGEventTapAdapter(),
-        historyStore: HistoryStoring? = nil
+        historyStore: HistoryStoring? = nil,
+        pasteCommandDispatcher: TaggedPasteCommandDispatching? = nil
     ) {
         self.permissionService = permissionService
         let store: HistoryStoring
@@ -35,7 +36,25 @@ final class ApplicationShell: NSObject {
             permissionService: permissionService,
             eventAdapter: inputAdapter
         )
-        panels = PanelController(permissionService: permissionService, historyViewModel: historyViewModel)
+        let commandDispatcher = pasteCommandDispatcher
+            ?? (inputAdapter as? TaggedPasteCommandDispatching)
+            ?? UnavailablePasteCommandDispatcher()
+        let pasteExecutor = HistoryPasteExecutor(
+            permissionService: permissionService,
+            pasteboardWriter: SystemHistoryPasteboardWriter(),
+            registerSelfWrite: { [weak pasteboardMonitor] changeCount in
+                pasteboardMonitor?.registerSelfWrite(changeCount: changeCount)
+            },
+            commandDispatcher: commandDispatcher
+        )
+        panels = PanelController(
+            permissionService: permissionService,
+            historyViewModel: historyViewModel,
+            historyPasteExecutor: pasteExecutor,
+            openAccessibilitySettings: { [weak permissionService] in
+                permissionService?.openSystemSettings()
+            }
+        )
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
 
@@ -163,4 +182,8 @@ final class ApplicationShell: NSObject {
         stop()
         NSApp.terminate(nil)
     }
+}
+
+private final class UnavailablePasteCommandDispatcher: TaggedPasteCommandDispatching {
+    func postTaggedCommandV() -> Bool { false }
 }
