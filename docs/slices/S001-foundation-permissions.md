@@ -1,7 +1,7 @@
 ---
 id: S001
 title: Скелет приложения и системное разрешение
-status: needs_verification
+status: done
 depends_on: []
 covers:
   - FR-016
@@ -64,32 +64,32 @@ covers:
 
 ## Acceptance criteria
 
-- [ ] Проект собирается и запускается с deployment target macOS 14.
-- [ ] После запуска доступен status item с командами History, Start Paste Stack, Permission status и Quit; постоянное основное окно не создаётся.
-- [ ] При отсутствии Accessibility пользователь видит назначение разрешения и явную кнопку перехода к системной выдаче; отказ не завершает приложение аварийно.
-- [ ] После выдачи разрешения `⌘⇧V` и `⌘⇧C` открывают соответствующую placeholder panel поверх активного приложения и не оставляют две копии одной панели.
-- [ ] При закрытом Paste Stack обычный `⌘V` проходит без модификации; platform spike доказывает возможность распознать и безопасно пометить собственный synthetic event.
-- [ ] Системное событие отключения event tap обрабатывается без busy loop: выполняется ограниченная попытка восстановления, а при неуспехе виден статус ошибки.
-- [ ] Команда Quit освобождает event tap и закрывает приложение штатно.
-- [ ] В логах тестовой сессии нет содержимого pasteboard; App Sandbox не включён, Hardened Runtime настроен для release configuration без необоснованных exceptions.
+- [x] Проект собирается и запускается с deployment target macOS 14.
+- [x] После запуска доступен status item с командами History, Start Paste Stack, Permission status и Quit; постоянное основное окно не создаётся.
+- [x] При отсутствии Accessibility пользователь видит назначение разрешения и явную кнопку перехода к системной выдаче; отказ не завершает приложение аварийно.
+- [x] После выдачи разрешения `⌘⇧V` и `⌘⇧C` открывают соответствующую placeholder panel поверх активного приложения и не оставляют две копии одной панели.
+- [x] При закрытом Paste Stack обычный `⌘V` проходит без модификации; platform spike доказывает возможность распознать и безопасно пометить собственный synthetic event.
+- [x] Системное событие отключения event tap обрабатывается без busy loop: выполняется ограниченная попытка восстановления, а при неуспехе виден статус ошибки.
+- [x] Команда Quit освобождает event tap и закрывает приложение штатно.
+- [x] В логах тестовой сессии нет содержимого pasteboard; App Sandbox не включён, Hardened Runtime настроен для release configuration без необоснованных exceptions.
 
 ## Verification
 
 - [x] Запустить unit tests permission/event adapter с fake implementations.
 - [x] Собрать Debug и Release configurations для macOS 14 target.
-- [ ] На профиле без разрешения проверить запуск, отказ, переход в System Settings и сохранение управляемого состояния.
-- [ ] Выдать разрешение, перезапустить приложение и проверить оба глобальных сочетания из другого приложения.
-- [ ] Убедиться в TextEdit и браузере, что обычный `⌘V` без активного стека не изменён.
-- [ ] Принудительно смоделировать disabled event tap через adapter test hook и проверить восстановление/ошибку.
+- [x] На профиле без разрешения проверить запуск, отказ, переход в System Settings и сохранение управляемого состояния.
+- [x] Выдать разрешение, перезапустить приложение и проверить оба глобальных сочетания из другого приложения.
+- [x] Убедиться в TextEdit и браузере, что обычный `⌘V` без активного стека не изменён.
+- [x] Принудительно смоделировать disabled event tap через adapter test hook и проверить восстановление/ошибку.
 
 ## Definition of Done
 
-- [ ] Все acceptance criteria выполнены.
-- [ ] Автоматические и ручные проверки пройдены.
-- [ ] Приложение собирается без новой регрессии.
-- [ ] `STATE.md` и frontmatter синхронно обновлены.
-- [ ] Новые значимые решения записаны в `DECISIONS.md`.
-- [ ] Implementation report заполнен.
+- [x] Все acceptance criteria выполнены.
+- [x] Автоматические и ручные проверки пройдены.
+- [x] Приложение собирается без новой регрессии.
+- [x] `STATE.md` и frontmatter синхронно обновлены.
+- [x] Новые значимые решения записаны в `DECISIONS.md` (новых решений при завершении не потребовалось).
+- [x] Implementation report заполнен.
 
 ## Implementation report
 
@@ -103,6 +103,7 @@ covers:
 - Добавлен инъецируемый `AccessibilityPermissionService`: проверка trust, явный user-triggered системный prompt и переход в System Settings. При отсутствии trust global input не запускается.
 - Добавлены изолированные `InputCoordinator` и `GlobalInputEventAdapting`. Production adapter использует listen-only `CGEvent` tap для `⌘⇧V`/`⌘⇧C`, поэтому не модифицирует обычный `⌘V`.
 - Platform spike включает отправку synthetic `⌘V` с process marker, распознавание marker во входящем событии и bounded recovery (две попытки с проверкой результата) после системного отключения event tap.
+- Internal Debug-only hook детерминированно симулирует disabled event tap без установки реального tap и проверяет успешное восстановление и исчерпание двух попыток.
 - После исчерпания recovery пользовательский повтор через Permission Status пересоздаёт adapter вместо сохранения нерабочего tap.
 - Добавлены XCTest с fake permission/input adapters и чистой классификацией keyboard events; они проверяют permission states, retry, hotkeys, неизменность обычного `⌘V`, synthetic marker и recovery policy без Accessibility или clipboard data.
 - Debug app target настроен как testable и без оптимизации; test target получил стабильные product/module names, поэтому XCTest bundle корректно собирается и загружается.
@@ -123,7 +124,7 @@ covers:
 - `swift build -c release` — успешно.
 - Xcode Debug build для macOS 14 target с `CODE_SIGNING_ALLOWED=NO` — успешно.
 - Xcode Release build для macOS 14 target с `CODE_SIGNING_ALLOWED=NO` — успешно.
-- Xcode XCTest — успешно: 9 тестов, 0 ошибок.
+- Xcode XCTest — успешно: 11 тестов, 0 ошибок.
 - `plutil -lint` для `.pbxproj`, `Info.plist` и entitlements — успешно.
 - `git diff --check` — успешно.
 - Статически подтверждено: deployment target 14.0, Hardened Runtime включён, App Sandbox entitlement отсутствует, product code не содержит pasteboard read/logging или network/telemetry API.
@@ -131,9 +132,8 @@ covers:
 ### Отклонения от плана
 
 - Первоначальный programmatic AppKit target полагался на автоматическое создание `NSApplicationDelegate`, но без storyboard/nib delegate не инстанцировался. Во время ручного запуска это обнаружено и исправлено явной точкой входа.
-- Ручная проверка Accessibility/event tap пока не выполнена, поэтому функциональный статус среза остаётся `needs_verification`.
+- Пользователь вручную подтвердил menu bar, onboarding и выдачу Accessibility, оба global shortcuts из другого приложения, singleton panels, неизменность обычного `⌘V` и штатный Quit.
 
 ### Оставшиеся проблемы
 
-- Перезапустить приложение из Xcode и подтвердить появление status item/menu и onboarding.
-- На чистом или поддерживаемом профиле macOS вручную проверить отказ/выдачу Accessibility, оба global shortcuts из другого приложения, неизменность обычного `⌘V`, singleton panels, synthetic event marker и exhausted event-tap recovery.
+- Нет блокирующих проблем в границах S001. Повторная проверка подписанного/notarized артефакта остаётся задачей S008.

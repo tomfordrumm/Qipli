@@ -124,15 +124,43 @@ final class CGEventTapAdapter: GlobalInputEventAdapting {
             status = .unavailable("Qipli’s global input listener was disabled and could not be restored.")
             return
         }
+
+        recoverFromDisabledTap(
+            attemptRecovery: {
+                CGEvent.tapEnable(tap: tap, enable: true)
+                return CGEvent.tapIsEnabled(tap: tap)
+            },
+            scheduleRetry: { work in
+                DispatchQueue.main.async(execute: work)
+            }
+        )
+    }
+
+    #if DEBUG
+    /// Deterministic adapter seam for XCTest. It never creates, enables, or disables a real event tap.
+    func simulateDisabledTapForTesting(recoverySucceeds: @escaping () -> Bool) {
+        recoverFromDisabledTap(
+            attemptRecovery: recoverySucceeds,
+            scheduleRetry: { work in work() }
+        )
+    }
+    #endif
+
+    private func recoverFromDisabledTap(
+        attemptRecovery: @escaping () -> Bool,
+        scheduleRetry: @escaping (@escaping () -> Void) -> Void
+    ) {
         guard recoveryPolicy.permitsRecovery() else {
             status = .unavailable("macOS repeatedly disabled Qipli’s global input listener. Open Permission Status and try again.")
             return
         }
 
-        CGEvent.tapEnable(tap: tap, enable: true)
-        guard CGEvent.tapIsEnabled(tap: tap) else {
-            DispatchQueue.main.async { [weak self] in
-                self?.recoverFromDisabledTap()
+        guard attemptRecovery() else {
+            scheduleRetry { [weak self] in
+                self?.recoverFromDisabledTap(
+                    attemptRecovery: attemptRecovery,
+                    scheduleRetry: scheduleRetry
+                )
             }
             return
         }

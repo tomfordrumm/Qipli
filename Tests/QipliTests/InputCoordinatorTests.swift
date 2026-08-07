@@ -126,6 +126,32 @@ final class EventTapRecoveryPolicyTests: XCTestCase {
     }
 }
 
+final class CGEventTapAdapterRecoveryTests: XCTestCase {
+    func testDisabledTapRecoveryBecomesUnavailableAfterBoundedFailures() {
+        let adapter = CGEventTapAdapter()
+        var attempts = 0
+
+        adapter.simulateDisabledTapForTesting {
+            attempts += 1
+            return false
+        }
+
+        XCTAssertEqual(attempts, 2)
+        XCTAssertEqual(
+            adapter.status,
+            .unavailable("macOS repeatedly disabled Qipli’s global input listener. Open Permission Status and try again.")
+        )
+    }
+
+    func testDisabledTapRecoveryReturnsReadyWhenRetrySucceeds() {
+        let adapter = CGEventTapAdapter()
+
+        adapter.simulateDisabledTapForTesting { true }
+
+        XCTAssertEqual(adapter.status, .ready)
+    }
+}
+
 private final class FakePermissionService: AccessibilityPermissionChecking {
     var state: AccessibilityPermissionState
 
