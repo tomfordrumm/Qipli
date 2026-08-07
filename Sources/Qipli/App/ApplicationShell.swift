@@ -18,7 +18,7 @@ final class ApplicationShell: NSObject {
             eventAdapter: inputAdapter
         )
         panels = PanelController(permissionService: permissionService)
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
 
         inputCoordinator.onStatusChange = { [weak self] _ in
@@ -46,10 +46,24 @@ final class ApplicationShell: NSObject {
     }
 
     private func configureStatusItem() {
-        statusItem.button?.image = NSImage(
-            systemSymbolName: "clipboard",
-            accessibilityDescription: "Qipli"
-        )
+        statusItem.length = NSStatusItem.squareLength
+        statusItem.isVisible = true
+
+        if let button = statusItem.button {
+            button.toolTip = "Qipli"
+            if let image = NSImage(
+                systemSymbolName: "clipboard",
+                accessibilityDescription: "Qipli"
+            ) {
+                image.isTemplate = true
+                button.image = image
+                button.imagePosition = .imageOnly
+            } else {
+                button.image = nil
+                button.title = "Q"
+                button.font = .systemFont(ofSize: 13, weight: .semibold)
+            }
+        }
 
         let menu = NSMenu()
         menu.addItem(menuItem(title: "History", action: #selector(showHistory)))
