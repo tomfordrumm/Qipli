@@ -76,7 +76,7 @@ final class HistoryPasteExecutorTests: XCTestCase {
 
         XCTAssertEqual(writer.writtenTexts, [entry.text])
         XCTAssertEqual(registeredChanges, [41])
-        XCTAssertEqual(trace.events, ["write", "close", "activate", "dispatch"])
+        XCTAssertEqual(trace.events, ["write", "activate", "close", "dispatch"])
         XCTAssertNoThrow(try result?.get())
     }
 
@@ -118,13 +118,17 @@ final class HistoryPasteExecutorTests: XCTestCase {
         let executor = makeExecutor(writer: writer, dispatcher: dispatcher, register: { _ in })
         let target = FakeHistoryPasteTarget(trace: trace, activateResult: false)
         var result: Result<Void, HistoryPasteFailure>?
+        var completionCount = 0
 
         executor.paste(entry: sampleEntry, target: target, closePanel: { trace.events.append("close") }) {
             result = $0
+            completionCount += 1
         }
 
         XCTAssertEqual(result?.failureValue, .targetUnavailable)
-        XCTAssertEqual(trace.events, ["write", "close", "activate"])
+        XCTAssertEqual(trace.events, ["write", "activate"])
+        XCTAssertEqual(writer.writtenTexts.count, 1)
+        XCTAssertEqual(completionCount, 1)
     }
 
     func testDispatchFailureIsVisibleAndDoesNotDeleteTheEntry() {
@@ -139,7 +143,7 @@ final class HistoryPasteExecutorTests: XCTestCase {
         }
 
         XCTAssertEqual(result?.failureValue, .commandDispatchFailed)
-        XCTAssertEqual(trace.events, ["write", "close", "activate", "dispatch"])
+        XCTAssertEqual(trace.events, ["write", "activate", "close", "dispatch"])
     }
 
     func testPasteWaitsForTargetToBecomeActiveBeforeDispatching() {
@@ -155,7 +159,7 @@ final class HistoryPasteExecutorTests: XCTestCase {
         }
 
         XCTAssertNoThrow(try result?.get())
-        XCTAssertEqual(trace.events, ["write", "close", "activate", "dispatch"])
+        XCTAssertEqual(trace.events, ["write", "activate", "close", "dispatch"])
         XCTAssertEqual(target.activeCheckCount, 2)
     }
 
@@ -166,14 +170,18 @@ final class HistoryPasteExecutorTests: XCTestCase {
         let target = FakeHistoryPasteTarget(trace: trace, activeResults: [false, false, false])
         let executor = makeExecutor(writer: writer, dispatcher: dispatcher, register: { _ in })
         var result: Result<Void, HistoryPasteFailure>?
+        var completionCount = 0
 
         executor.paste(entry: sampleEntry, target: target, closePanel: { trace.events.append("close") }) {
             result = $0
+            completionCount += 1
         }
 
         XCTAssertEqual(result?.failureValue, .targetUnavailable)
-        XCTAssertEqual(trace.events, ["write", "close", "activate"])
+        XCTAssertEqual(trace.events, ["write", "activate"])
         XCTAssertEqual(target.activeCheckCount, 3)
+        XCTAssertEqual(writer.writtenTexts.count, 1)
+        XCTAssertEqual(completionCount, 1)
     }
 
     func testCancelCanReactivateCapturedTargetWithoutWritingOrDispatching() {
@@ -193,14 +201,24 @@ final class HistoryPasteExecutorTests: XCTestCase {
         permission: AccessibilityPermissionState = .granted,
         writer: FakeHistoryPasteboardWriter,
         dispatcher: FakePasteCommandDispatcher,
+        activationWaitPolicy: HistoryTargetActivationWaitPolicy = HistoryTargetActivationWaitPolicy(
+            retryInterval: 0.1,
+            timeout: 0.2
+        ),
         register: @escaping (Int) -> Void
     ) -> HistoryPasteExecutor {
-        HistoryPasteExecutor(
+        let clock = FakeActivationClock()
+        return HistoryPasteExecutor(
             permissionService: FakeHistoryPermissionService(state: permission),
             pasteboardWriter: writer,
             registerSelfWrite: register,
             commandDispatcher: dispatcher,
-            scheduleAfterActivation: { $0() }
+            activationWaitPolicy: activationWaitPolicy,
+            scheduleAfterActivation: { interval, work in
+                clock.advance(by: interval)
+                work()
+            },
+            now: { clock.now }
         )
     }
 }
@@ -393,6 +411,14 @@ private final class FakeHistoryPermissionService: AccessibilityPermissionCheckin
 
 private final class Trace {
     var events: [String] = []
+}
+
+private final class FakeActivationClock {
+    var now = Date(timeIntervalSinceReferenceDate: 0)
+
+    func advance(by interval: TimeInterval) {
+        now.addTimeInterval(interval)
+    }
 }
 
 private final class FakeHistoryPasteboardWriter: HistoryPasteboardWriting {

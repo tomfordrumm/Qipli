@@ -104,10 +104,11 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
 
 1. До активации history panel сохраняются frontmost application и контекст, достаточный для возврата.
 2. Явный `⌘⇧V`/menu action сначала делает History panel visible, затем через единственный AppKit adapter запрашивает strong user-initiated activation; после `isActive` panel вновь становится key и получает focus поиска. Legacy API допускается только в этом adapter, поскольку cooperative `activate()` не гарантирует keyboard focus accessory app.
-3. По `Enter` выбранный текст становится внутренней записью в system pasteboard.
-4. Панель закрывается, прежнее приложение активируется, затем отправляется синтетический `⌘V`.
-5. UI сообщает только об отправке команды; реальное принятие текста сторонним приложением наблюдать надёжно нельзя.
-6. При отказе активации или отсутствии разрешения команда не считается успешной, запись не удаляется.
+3. По `Enter` immutable selected text становится внутренней записью в system pasteboard, а exact final `changeCount` сразу регистрируется как self-write.
+4. Пока Qipli ещё active, оно yield/request-activates прежнее приложение. Если macOS немедленно отклоняет запрос, History остаётся visible, команда не отправляется и UI показывает retryable error.
+5. History остаётся visible, пока Qipli ждёт bounded deadline с main-run-loop retries для обновления `NSRunningApplication.isActive`; только при active target panel закрывается непосредственно перед synthetic `⌘V`.
+6. После accepted-but-exhausted activation History остаётся in place с ошибкой; после dispatch failure закрытая panel повторно открывается. В обоих случаях pasteboard не переписывается и команда не дублируется.
+7. UI сообщает только об отправке команды; реальное принятие текста сторонним приложением наблюдать надёжно нельзя.
 
 ### Вставка из Paste Stack
 

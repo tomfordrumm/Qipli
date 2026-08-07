@@ -110,7 +110,7 @@ final class PanelController {
     }
 
     private func reopenHistoryAfterPasteFailure() {
-        guard let historyPanel else { return }
+        guard let historyPanel, !historyPanel.isVisible else { return }
         present(historyPanel, requestSearchFocus: true, requiresStrongUserActivation: true)
     }
 

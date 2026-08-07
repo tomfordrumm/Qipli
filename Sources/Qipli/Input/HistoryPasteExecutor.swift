@@ -90,6 +90,26 @@ enum HistoryPasteFailure: Error, Equatable {
     }
 }
 
+/// `NSRunningApplication` updates dynamic activation state on the main run loop.
+/// This deadline-based policy lets a user-initiated handoff settle without
+/// sleeping or spinning the event loop.
+struct HistoryTargetActivationWaitPolicy: Equatable {
+    static let userInitiated = HistoryTargetActivationWaitPolicy(
+        retryInterval: 0.05,
+        timeout: 1.0
+    )
+
+    let retryInterval: TimeInterval
+    let timeout: TimeInterval
+
+    init(retryInterval: TimeInterval, timeout: TimeInterval) {
+        precondition(retryInterval > 0)
+        precondition(timeout >= retryInterval)
+        self.retryInterval = retryInterval
+        self.timeout = timeout
+    }
+}
+
 enum HistoryFocusRestorer {
     /// Uses the same target activation contract as paste cancellation, but has no pasteboard or event side effect.
     static func returnToCapturedTarget(_ target: HistoryPasteTarget?) -> Bool {
@@ -105,25 +125,31 @@ final class HistoryPasteExecutor {
     private let pasteboardWriter: HistoryPasteboardWriting
     private let registerSelfWrite: (Int) -> Void
     private let commandDispatcher: TaggedPasteCommandDispatching
-    private let scheduleAfterActivation: (@escaping () -> Void) -> Void
-    private let maximumActivationChecks: Int
+    private let scheduleAfterActivation: (TimeInterval, @escaping () -> Void) -> Void
+    private let now: () -> Date
+    private let activationWaitPolicy: HistoryTargetActivationWaitPolicy
 
     init(
         permissionService: AccessibilityPermissionChecking,
         pasteboardWriter: HistoryPasteboardWriting,
         registerSelfWrite: @escaping (Int) -> Void,
         commandDispatcher: TaggedPasteCommandDispatching,
-        maximumActivationChecks: Int = 3,
-        scheduleAfterActivation: @escaping (@escaping () -> Void) -> Void = { work in
-            RunLoop.main.perform(inModes: [.common]) { work() }
-        }
+        activationWaitPolicy: HistoryTargetActivationWaitPolicy = .userInitiated,
+        scheduleAfterActivation: @escaping (TimeInterval, @escaping () -> Void) -> Void = { interval, work in
+            let timer = Timer(timeInterval: interval, repeats: false) { _ in
+                work()
+            }
+            RunLoop.main.add(timer, forMode: .common)
+        },
+        now: @escaping () -> Date = Date.init
     ) {
         self.permissionService = permissionService
         self.pasteboardWriter = pasteboardWriter
         self.registerSelfWrite = registerSelfWrite
         self.commandDispatcher = commandDispatcher
-        self.maximumActivationChecks = maximumActivationChecks
+        self.activationWaitPolicy = activationWaitPolicy
         self.scheduleAfterActivation = scheduleAfterActivation
+        self.now = now
     }
 
     func paste(
@@ -151,22 +177,25 @@ final class HistoryPasteExecutor {
             return
         }
 
-        closePanel()
         guard !target.isTerminated, target.activate() else {
             completion(.failure(.targetUnavailable))
             return
         }
 
+        // Yield Qipli's active state while History remains visible. macOS 14's
+        // cooperative handoff requires the yielding app to still be active.
         dispatchWhenTargetIsActive(
             target: target,
-            remainingChecks: maximumActivationChecks,
+            deadline: now().addingTimeInterval(activationWaitPolicy.timeout),
+            closePanel: closePanel,
             completion: completion
         )
     }
 
     private func dispatchWhenTargetIsActive(
         target: HistoryPasteTarget,
-        remainingChecks: Int,
+        deadline: Date,
+        closePanel: @escaping () -> Void,
         completion: @escaping (Result<Void, HistoryPasteFailure>) -> Void
     ) {
         guard !target.isTerminated else {
@@ -174,23 +203,25 @@ final class HistoryPasteExecutor {
             return
         }
         guard target.isActive else {
-            guard remainingChecks > 1 else {
+            guard now() < deadline else {
                 completion(.failure(.targetUnavailable))
                 return
             }
-            scheduleAfterActivation { [weak self, weak target] in
+            scheduleAfterActivation(activationWaitPolicy.retryInterval) { [weak self, weak target] in
                 guard let self, let target else {
                     completion(.failure(.targetUnavailable))
                     return
                 }
                 self.dispatchWhenTargetIsActive(
                     target: target,
-                    remainingChecks: remainingChecks - 1,
+                    deadline: deadline,
+                    closePanel: closePanel,
                     completion: completion
                 )
             }
             return
         }
+        closePanel()
         guard commandDispatcher.postTaggedCommandV() else {
             completion(.failure(.commandDispatchFailed))
             return
