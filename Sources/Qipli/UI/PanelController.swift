@@ -9,6 +9,7 @@ final class PanelController {
     private let historyPasteExecutor: HistoryPasteExecutor
     private let frontmostApplicationCapture: FrontmostApplicationCapturing
     private let openAccessibilitySettings: () -> Void
+    private let activationPresenter: PanelActivationPresenter
     private var historyPanel: NSPanel?
     private var stackPanel: NSPanel?
     private var permissionPanel: NSPanel?
@@ -19,6 +20,10 @@ final class PanelController {
         historyViewModel: HistoryViewModel,
         historyPasteExecutor: HistoryPasteExecutor,
         frontmostApplicationCapture: FrontmostApplicationCapturing = SystemFrontmostApplicationCapture(),
+        applicationActivator: QipliApplicationActivating? = nil,
+        activationScheduler: @escaping (@escaping () -> Void) -> Void = { action in
+            RunLoop.main.perform(inModes: [.common]) { action() }
+        },
         openAccessibilitySettings: @escaping () -> Void
     ) {
         self.permissionService = permissionService
@@ -26,6 +31,11 @@ final class PanelController {
         self.historyPasteExecutor = historyPasteExecutor
         self.frontmostApplicationCapture = frontmostApplicationCapture
         self.openAccessibilitySettings = openAccessibilitySettings
+        let resolvedApplicationActivator = applicationActivator ?? SystemQipliApplicationActivator()
+        activationPresenter = PanelActivationPresenter(
+            application: resolvedApplicationActivator,
+            scheduleNextMainRunLoop: activationScheduler
+        )
     }
 
     func showHistory() {
@@ -44,7 +54,7 @@ final class PanelController {
             )
         }
         historyPanel = panel
-        present(panel)
+        present(panel, requestSearchFocus: true)
     }
 
     func showPasteStack() {
@@ -101,8 +111,7 @@ final class PanelController {
 
     private func reopenHistoryAfterPasteFailure() {
         guard let historyPanel else { return }
-        NSApp.activate()
-        historyPanel.makeKeyAndOrderFront(nil)
+        present(historyPanel, requestSearchFocus: true)
     }
 
     private func makePanel<Content: View>(
@@ -129,9 +138,66 @@ final class PanelController {
         return panel
     }
 
-    private func present(_ panel: NSPanel) {
+    private func present(_ panel: NSPanel, requestSearchFocus: Bool = false) {
         panel.center()
+        activationPresenter.activateThenPerform { [weak self, weak panel] in
+            guard let panel else { return }
+            panel.makeKeyAndOrderFront(nil)
+            if requestSearchFocus {
+                panel.makeFirstResponder(nil)
+                self?.historyViewModel.requestSearchFocus()
+            }
+        }
+    }
+}
+
+@MainActor
+protocol QipliApplicationActivating: AnyObject {
+    var isActive: Bool { get }
+    func activate()
+}
+
+@MainActor
+final class SystemQipliApplicationActivator: QipliApplicationActivating {
+    var isActive: Bool { NSApp.isActive }
+
+    func activate() {
         NSApp.activate()
-        panel.makeKeyAndOrderFront(nil)
+    }
+}
+
+/// Waits for AppKit activation before making a keyboard-active panel key.
+@MainActor
+final class PanelActivationPresenter {
+    private let application: QipliApplicationActivating
+    private let scheduleNextMainRunLoop: (@escaping () -> Void) -> Void
+    private let maximumChecks: Int
+
+    init(
+        application: QipliApplicationActivating,
+        maximumChecks: Int = 3,
+        scheduleNextMainRunLoop: @escaping (@escaping () -> Void) -> Void = { action in
+            RunLoop.main.perform(inModes: [.common]) { action() }
+        }
+    ) {
+        self.application = application
+        self.maximumChecks = maximumChecks
+        self.scheduleNextMainRunLoop = scheduleNextMainRunLoop
+    }
+
+    func activateThenPerform(_ action: @escaping () -> Void) {
+        application.activate()
+        performWhenActive(remainingChecks: maximumChecks, action: action)
+    }
+
+    private func performWhenActive(remainingChecks: Int, action: @escaping () -> Void) {
+        guard !application.isActive else {
+            action()
+            return
+        }
+        guard remainingChecks > 1 else { return }
+        scheduleNextMainRunLoop { [weak self] in
+            self?.performWhenActive(remainingChecks: remainingChecks - 1, action: action)
+        }
     }
 }

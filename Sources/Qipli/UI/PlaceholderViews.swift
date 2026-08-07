@@ -37,27 +37,39 @@ struct HistoryPanelView: View {
         .padding(20)
         .frame(width: 460, height: 340, alignment: .topLeading)
         .onAppear {
-            searchIsFocused = true
+            HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
+                searchIsFocused = true
+            }
         }
-        .onChange(of: viewModel.presentationID) { _, _ in
-            searchIsFocused = true
+        .onChange(of: viewModel.searchFocusRequestID) { _, _ in
+            HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
+                searchIsFocused = true
+            }
         }
         .onKeyPress(.upArrow) {
-            viewModel.moveSelection(by: -1)
+            HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
+                viewModel.moveSelection(by: -1)
+            }
             return .handled
         }
         .onKeyPress(.downArrow) {
-            viewModel.moveSelection(by: 1)
+            HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
+                viewModel.moveSelection(by: 1)
+            }
             return .handled
         }
         .onKeyPress(.return) {
-            if canPaste, viewModel.selectedEntry != nil {
-                pasteSelection()
+            HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
+                if canPaste, viewModel.selectedEntry != nil {
+                    pasteSelection()
+                }
             }
             return .handled
         }
         .onKeyPress(.escape) {
-            close()
+            HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
+                close()
+            }
             return .handled
         }
         .alert("Clear all Qipli history?", isPresented: $confirmsClearAll) {
@@ -146,6 +158,15 @@ struct HistoryPanelView: View {
 
     private var canPaste: Bool {
         permissionService.state == .granted
+    }
+}
+
+/// Keeps keyboard-driven state and window changes outside SwiftUI's current view-update transaction.
+private enum HistoryKeyboardActionScheduler {
+    static func deferToNextMainRunLoop(_ action: @escaping () -> Void) {
+        RunLoop.main.perform(inModes: [.common]) {
+            action()
+        }
     }
 }
 

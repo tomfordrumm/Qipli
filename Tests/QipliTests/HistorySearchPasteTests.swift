@@ -205,6 +205,43 @@ final class HistoryPasteExecutorTests: XCTestCase {
     }
 }
 
+@MainActor
+final class PanelActivationPresenterTests: XCTestCase {
+    func testPerformsPresentationAfterActivationBecomesActive() {
+        let application = FakeQipliApplication(activeResults: [false, true])
+        let presenter = PanelActivationPresenter(
+            application: application,
+            scheduleNextMainRunLoop: { $0() }
+        )
+        var presentationCount = 0
+
+        presenter.activateThenPerform {
+            presentationCount += 1
+        }
+
+        XCTAssertEqual(application.activateCount, 1)
+        XCTAssertEqual(application.activeCheckCount, 2)
+        XCTAssertEqual(presentationCount, 1)
+    }
+
+    func testDoesNotPresentWhenActivationNeverBecomesActive() {
+        let application = FakeQipliApplication(activeResults: [false, false, false])
+        let presenter = PanelActivationPresenter(
+            application: application,
+            scheduleNextMainRunLoop: { $0() }
+        )
+        var presentationCount = 0
+
+        presenter.activateThenPerform {
+            presentationCount += 1
+        }
+
+        XCTAssertEqual(application.activateCount, 1)
+        XCTAssertEqual(application.activeCheckCount, 3)
+        XCTAssertEqual(presentationCount, 0)
+    }
+}
+
 private final class InMemoryHistoryStore: HistoryStoring {
     var entries: [HistoryEntry]
 
@@ -309,6 +346,29 @@ private final class FakePasteCommandDispatcher: TaggedPasteCommandDispatching {
     func postTaggedCommandV() -> Bool {
         trace.events.append("dispatch")
         return result
+    }
+}
+
+@MainActor
+private final class FakeQipliApplication: QipliApplicationActivating {
+    private var activeResults: [Bool]
+    private(set) var activateCount = 0
+    private(set) var activeCheckCount = 0
+
+    init(activeResults: [Bool]) {
+        self.activeResults = activeResults
+    }
+
+    var isActive: Bool {
+        activeCheckCount += 1
+        if activeResults.count > 1 {
+            return activeResults.removeFirst()
+        }
+        return activeResults.first ?? false
+    }
+
+    func activate() {
+        activateCount += 1
     }
 }
 

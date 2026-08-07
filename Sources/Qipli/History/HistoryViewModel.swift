@@ -13,7 +13,7 @@ final class HistoryViewModel: ObservableObject {
     @Published private(set) var query = ""
     @Published private(set) var selectedEntryID: UUID?
     @Published private(set) var pasteFailure: HistoryPasteFailure?
-    @Published private(set) var presentationID = 0
+    @Published private(set) var searchFocusRequestID = 0
 
     private let service: HistoryService
     private var allEntries: [HistoryEntry] = []
@@ -32,11 +32,14 @@ final class HistoryViewModel: ObservableObject {
     }
 
     func prepareForPresentation() {
-        presentationID &+= 1
         query = ""
         selectedEntryID = nil
         pasteFailure = nil
         reload(selectFirstResult: true)
+    }
+
+    func requestSearchFocus() {
+        searchFocusRequestID &+= 1
     }
 
     func reload(selectFirstResult: Bool = false) {
