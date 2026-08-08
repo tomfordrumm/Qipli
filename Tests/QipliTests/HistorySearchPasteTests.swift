@@ -66,6 +66,23 @@ final class HistoryViewModelSearchTests: XCTestCase {
         XCTAssertEqual(store.entries, [entry])
     }
 
+    func testFreshPresentationViewportResetSignalIsIndependentFromSearchFocus() {
+        let first = makeEntry("first", offset: 2)
+        let second = makeEntry("second", offset: 1)
+        let viewModel = HistoryViewModel(service: HistoryService(store: InMemoryHistoryStore(entries: [first, second])))
+
+        viewModel.prepareForPresentation()
+        viewModel.requestPresentationViewportReset()
+
+        XCTAssertEqual(viewModel.selectedEntryID, first.id)
+        XCTAssertEqual(viewModel.presentationViewportResetRequestID, 1)
+        XCTAssertEqual(viewModel.searchFocusRequestID, 0)
+
+        viewModel.requestSearchFocus()
+        XCTAssertEqual(viewModel.presentationViewportResetRequestID, 1)
+        XCTAssertEqual(viewModel.searchFocusRequestID, 1)
+    }
+
     private func makeEntry(_ text: String, offset: TimeInterval) -> HistoryEntry {
         HistoryEntry(id: UUID(), text: text, activityAt: Date.now.addingTimeInterval(offset))
     }

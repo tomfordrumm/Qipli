@@ -8,6 +8,7 @@ struct HistoryPanelView: View {
     let close: () -> Void
     @State private var confirmsClearAll = false
     @FocusState private var searchIsFocused: Bool
+    @State private var handledPresentationViewportResetRequestID: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -118,9 +119,13 @@ struct HistoryPanelView: View {
                     .listStyle(.inset)
                     .onAppear {
                         scrollSelectionIntoView(using: proxy)
+                        resetViewportForFreshPresentation(using: proxy)
                     }
                     .onChange(of: viewModel.selectedEntryID) { _, _ in
                         scrollSelectionIntoView(using: proxy)
+                    }
+                    .onChange(of: viewModel.presentationViewportResetRequestID) { _, _ in
+                        resetViewportForFreshPresentation(using: proxy)
                     }
                 }
             }
@@ -190,6 +195,22 @@ struct HistoryPanelView: View {
             transaction.disablesAnimations = true
             withTransaction(transaction) {
                 proxy.scrollTo(selectedEntryID)
+            }
+        }
+    }
+
+    private func resetViewportForFreshPresentation(using proxy: ScrollViewProxy) {
+        let requestID = viewModel.presentationViewportResetRequestID
+        guard handledPresentationViewportResetRequestID != requestID,
+              let firstEntryID = viewModel.visibleEntries.first?.id
+        else { return }
+
+        handledPresentationViewportResetRequestID = requestID
+        HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                proxy.scrollTo(firstEntryID, anchor: .top)
             }
         }
     }

@@ -40,7 +40,8 @@ final class PanelController {
 
     func showHistory() {
         _ = permissionService.refresh()
-        if historyPanel?.isVisible != true {
+        let isFreshPresentation = historyPanel?.isVisible != true
+        if isFreshPresentation {
             historyPasteTarget = frontmostApplicationCapture.capturePriorApplication()
         }
         historyViewModel.prepareForPresentation()
@@ -54,7 +55,12 @@ final class PanelController {
             )
         }
         historyPanel = panel
-        present(panel, requestSearchFocus: true, requiresStrongUserActivation: true)
+        present(
+            panel,
+            requestSearchFocus: true,
+            requestHistoryViewportReset: isFreshPresentation,
+            requiresStrongUserActivation: true
+        )
     }
 
     func showPasteStack() {
@@ -141,6 +147,7 @@ final class PanelController {
     private func present(
         _ panel: NSPanel,
         requestSearchFocus: Bool = false,
+        requestHistoryViewportReset: Bool = false,
         requiresStrongUserActivation: Bool = false
     ) {
         panel.center()
@@ -149,8 +156,11 @@ final class PanelController {
         // it before waiting for the active-only keyboard follow-up.
         activationPresenter.presentImmediatelyThenWhenActive(
             requiresStrongUserActivation: requiresStrongUserActivation,
-            present: { [weak panel] in
+            present: { [weak self, weak panel] in
                 panel?.makeKeyAndOrderFront(nil)
+                if requestHistoryViewportReset {
+                    self?.historyViewModel.requestPresentationViewportReset()
+                }
             },
             whenActive: { [weak self, weak panel] in
                 guard let panel else { return }

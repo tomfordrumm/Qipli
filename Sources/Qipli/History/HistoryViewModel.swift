@@ -14,6 +14,7 @@ final class HistoryViewModel: ObservableObject {
     @Published private(set) var selectedEntryID: UUID?
     @Published private(set) var pasteFailure: HistoryPasteFailure?
     @Published private(set) var searchFocusRequestID = 0
+    @Published private(set) var presentationViewportResetRequestID = 0
 
     private let service: HistoryService
     private var allEntries: [HistoryEntry] = []
@@ -40,6 +41,13 @@ final class HistoryViewModel: ObservableObject {
 
     func requestSearchFocus() {
         searchFocusRequestID &+= 1
+    }
+
+    /// A fresh History presentation is visible before this signal is requested.
+    /// It deliberately remains separate from search focus and selection changes
+    /// so a reusable panel can restore its list viewport without affecting retry.
+    func requestPresentationViewportReset() {
+        presentationViewportResetRequestID &+= 1
     }
 
     func reload(selectFirstResult: Bool = false) {
