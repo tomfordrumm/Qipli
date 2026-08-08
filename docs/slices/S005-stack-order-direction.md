@@ -1,7 +1,7 @@
 ---
 id: S005
 title: Порядок и направление обхода
-status: needs_verification
+status: done
 depends_on:
   - S004
 covers:
@@ -76,12 +76,12 @@ covers:
 - [x] Unit tests direct/reverse для 0/1/N элементов и одинаковых текстов.
 - [x] Unit test invalid reorder не выполняет частичную мутацию.
 - [x] Deterministic UI intent/model seam покрывает native drag reorder, accessible move up/down fallback, direction toggle, next marker labels и disabled control state; XCUI gesture loop не добавлялся.
-- [ ] Ручная проверка длинных/multiline previews и VoiceOver labels основных controls.
+- [x] Ручная проверка длинных/multiline previews, VoiceOver labels, clean console и full-width native separators основных controls.
 
 ## Definition of Done
 
-- [x] Все acceptance criteria выполнены автоматической проверкой; ожидается ручная macOS matrix.
-- [ ] Автоматические и ручные проверки пройдены.
+- [x] Все acceptance criteria выполнены.
+- [x] Автоматические и ручные проверки пройдены.
 - [x] Приложение собирается без новой регрессии.
 - [x] `STATE.md` и frontmatter синхронно обновлены.
 - [x] Новые значимые решения не требуются: контракт следует BR-005 и существующему in-memory lifecycle.
@@ -111,7 +111,7 @@ covers:
 - SwiftPM `swift test`: 68 tests, 0 failures, включая deferred intent/race matrix.
 - Xcode Debug XCTest (`Qipli`, macOS): 68 tests, 0 failures; native macOS `List.onMove` compiles in the app target.
 - Xcode Release universal `arm64+x86_64` build: successful with `CODE_SIGNING_ALLOWED=NO`.
-- Ручная S005 matrix (drag/direction/Next, duplicate/multiline, accessible controls and source focus) пройдена; console уже чистая. Остаётся один combined final retest: чистая console плюс full-width native separators при Next сверху/снизу, multiline и disabled arrows.
+- Ручная S005 matrix пройдена: drag/direction/Next, duplicate/multiline, accessible controls, source focus, VoiceOver labels, clean console и full-width native separators при Next сверху/снизу и disabled arrows.
 
 ### Отклонения от плана
 
@@ -119,4 +119,4 @@ covers:
 
 ### Оставшиеся проблемы
 
-Остаётся только final clean-console + separator visual retest; S006/S007 behavior намеренно не добавлялся.
+Нет для S005; S006/S007 behavior намеренно не добавлялся.

@@ -6,11 +6,11 @@
 
 ## Текущее положение
 
-- S001–S004 завершены: автоматические и ручные проверки пройдены; S005 реализован и ожидает ручную macOS verification.
+- S001–S005 завершены: автоматические и ручные проверки пройдены.
 - Milestone M1 — рабочая локальная история — завершён.
-- Milestone M2 — Paste Stack — начат; S004 завершён.
-- Завершённые срезы: [`S001 — Скелет приложения и системное разрешение`](slices/S001-foundation-permissions.md), [`S002 — Захват, хранение и удаление истории`](slices/S002-history-capture-retention.md), [`S003 — Поиск и повторная вставка из истории`](slices/S003-history-search-paste.md) и [`S004 — Сбор и визуальная панель Paste Stack`](slices/S004-stack-collection.md).
-- Точный следующий шаг: выполнить один final manual retest [`S005 — Порядок и направление обхода`](slices/S005-stack-order-direction.md): clean console и full-width separators при Next сверху/снизу, multiline и disabled arrows; после подтверждения перевести slice в `done`.
+- Milestone M2 — Paste Stack — в работе; S005 завершён.
+- Завершённые срезы: [`S001 — Скелет приложения и системное разрешение`](slices/S001-foundation-permissions.md), [`S002 — Захват, хранение и удаление истории`](slices/S002-history-capture-retention.md), [`S003 — Поиск и повторная вставка из истории`](slices/S003-history-search-paste.md), [`S004 — Сбор и визуальная панель Paste Stack`](slices/S004-stack-collection.md) и [`S005 — Порядок и направление обхода`](slices/S005-stack-order-direction.md).
+- Точный следующий шаг: непосредственно перед реализацией перепроверить зависимости и контракты [`S006 — Последовательная вставка и прогресс`](slices/S006-stack-sequential-paste.md), затем перевести его из `planned` в `ready` отдельным статусным изменением.
 
 ## Статусы срезов
 
@@ -20,14 +20,14 @@
 | S002 | Захват, хранение и удаление истории | `done` | S001 |
 | S003 | Поиск и повторная вставка из истории | `done` | S002 |
 | S004 | Сбор и визуальная панель Paste Stack | `done` | S002 |
-| S005 | Порядок и направление обхода | `needs_verification` | S004 |
+| S005 | Порядок и направление обхода | `done` | S004 |
 | S006 | Последовательная вставка и прогресс | `planned` | S001, S005 |
 | S007 | Повторная активация и отмена | `planned` | S006 |
 | S008 | Приватность и релиз через GitHub | `planned` | S003, S007 |
 
 ## Блокеры и recheck points
 
-Активных блокеров для S001–S004 нет.
+Активных блокеров для S001–S005 нет.
 
 - Перед S008 подтвердить доступ к Apple Developer Program, Developer ID Application certificate и notarization credentials.
 - В S008 повторить подтверждённый в S001 Accessibility/event-tap flow на чистой минимально поддерживаемой macOS 14 с подписанным release artifact.
@@ -44,9 +44,9 @@
 - S002 добавил локальную Core Data/SQLite history, changeCount monitor, retention и базовую панель; SwiftPM и Xcode XCTest прошли по 20 тестов, Xcode Release build прошёл.
 - Пользователь вручную подтвердил exact text/Unicode/multiline capture, duplicates, игнорирование non-text, restart persistence, durable delete, clear-all confirmation, неизменность system pasteboard и отсутствие clipboard payload в логах.
 - S003 реализован: keyboard-active History panel с локализованной strong user-initiated activation, read-only entries/single-select/double-click paste, local search/ID selection, non-animated selection auto-scroll и fresh-show top viewport reset, durable exact-occurrence activity recency, safe history paste executor с target activation before close и bounded main-run-loop wait, active exact-hotkey filtering, deferred keyboard state/window actions и retryable failures. SwiftPM и Xcode XCTest прошли по 45 тестов; Xcode Debug/Release builds прошли. Пользователь подтвердил реальные focus/paste/failure/recency/viewport paths и clean-console keyboard navigation.
-- S001–S004 имеют статус `done`; S005 — `needs_verification`, S006–S008 остаются `planned`.
+- S001–S005 имеют статус `done`; S006–S008 остаются `planned`.
 - S004 добавил временную in-memory StackSession: exact `⌘⇧C` начинает либо сохраняет collection session, показывает nonactivating panel и dispatch-ит tagged ordinary `⌘C` в остающееся active source app; resulting source-owned copy попадает в Stack только после durable History capture и сохраняет duplicate/Unicode occurrences. Menu Start остаётся пустым. Cancel/close/exact global Escape очищают только session; ordinary `⌘V` остаётся не перехваченным. SwiftPM и Xcode Debug XCTest: 59 tests, 0 errors; universal Release arm64+x86_64 собран. Пользователь подтвердил полную ручную matrix: source focus, copies/duplicates/Unicode/multiline, repeat hotkey, Escape/Cancel/red close, History retention, new empty Stack, second display и full-screen/Space.
-- S005 добавил in-memory base-order/direction state machine: UUID-only atomic reorder, direct/reverse next, append-at-end after reorder и narrow traversal lock for S006. Compact nonactivating panel показывает direction/Next и native drag plus accessible Move Up/Down intents without changing ordinary `⌘V`. После ручной regression report direction/drag mutations перенесены за common-mode RunLoop boundary с exact-ID snapshot; SwiftPM и Xcode Debug XCTest: 68 tests, 0 errors; universal Release arm64+x86_64 собран. Console теперь чистая; остаётся final separator visual retest.
+- S005 добавил in-memory base-order/direction state machine: UUID-only atomic reorder, direct/reverse next, append-at-end after reorder и narrow traversal lock for S006. Compact nonactivating panel показывает direction/Next и native drag plus accessible Move Up/Down intents without changing ordinary `⌘V`. После ручной regression report direction/drag mutations перенесены за common-mode RunLoop boundary с exact-ID snapshot; SwiftPM и Xcode Debug XCTest: 68 tests, 0 errors; universal Release arm64+x86_64 собран. Пользователь подтвердил полную manual matrix, включая clean console и full-width separators.
 
 ## Журнал переходов
 
@@ -68,3 +68,4 @@
 | 2026-08-08 | S005 реализован и переведён в `needs_verification`. | SwiftPM и Xcode Debug XCTest: 65 tests, 0 errors; universal Release `arm64+x86_64` собран. Требуется ручная macOS проверка drag/direction/Next/VoiceOver/source focus; S006–S007 behavior не добавлялся. |
 | 2026-08-08 | Исправлена S005 SwiftUI layout/publication regression. | Direction, drag и accessible reorder intents deferred через common-mode RunLoop с exact candidate UUID snapshot и execution-time domain validation; SwiftPM/Xcode XCTest: 68 tests, 0 errors; universal Release собран. Manual paths passed, требуется только повтор чистой консоли/layout warning проверки. |
 | 2026-08-08 | Исправлено выравнивание separators S005 List. | Native separator guides закреплены к full-width row HStack, чтобы conditional Next/multiline/disabled controls не сужали separator. SwiftPM и Xcode Debug XCTest: 68 tests, 0 errors; остаётся final clean-console + visual separator retest. |
+| 2026-08-08 | S005 переведён в `done`. | Пользователь подтвердил финальную manual matrix: clean console и full-width separators вместе с ранее пройденными drag/direction/Next/accessibility/source-focus checks; автоматическая матрица остаётся 68 tests без ошибок. |
