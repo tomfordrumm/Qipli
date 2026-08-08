@@ -1,3 +1,4 @@
+import CoreData
 import Foundation
 import XCTest
 @testable import Qipli
@@ -33,6 +34,24 @@ final class HistoryStoreTests: XCTestCase {
         store.close()
     }
 
+    func testExistingCapturedAtSchemaStoreRemainsReadableWithoutMigration() throws {
+        let storeURL = directory.appendingPathComponent("History.sqlite")
+        let id = UUID()
+        let activityAt = Date(timeIntervalSinceReferenceDate: 8_500_000)
+        try writeLegacyCapturedAtStore(
+            at: storeURL,
+            id: id,
+            text: "legacy occurrence",
+            activityAt: activityAt
+        )
+
+        let upgradedDomainStore = try CoreDataHistoryStore(storeURL: storeURL)
+        let entries = try upgradedDomainStore.fetchCurrent(since: .distantPast)
+
+        XCTAssertEqual(entries, [HistoryEntry(id: id, text: "legacy occurrence", activityAt: activityAt)])
+        upgradedDomainStore.close()
+    }
+
     func testRetentionHidesAndPurgesBoundaryEntries() throws {
         let now = Date(timeIntervalSinceReferenceDate: 9_000_000)
         let clock = MutableClock(now: now)
@@ -40,12 +59,55 @@ final class HistoryStoreTests: XCTestCase {
         let service = HistoryService(store: store, clock: clock)
         let cutoff = now.addingTimeInterval(-HistoryService.retention)
 
-        _ = try store.create(text: "old", capturedAt: cutoff.addingTimeInterval(-1))
-        _ = try store.create(text: "boundary", capturedAt: cutoff)
-        let recent = try store.create(text: "recent", capturedAt: cutoff.addingTimeInterval(1))
+        _ = try store.create(text: "old", activityAt: cutoff.addingTimeInterval(-1))
+        _ = try store.create(text: "boundary", activityAt: cutoff)
+        let recent = try store.create(text: "recent", activityAt: cutoff.addingTimeInterval(1))
 
         XCTAssertEqual(try service.entries().map(\.id), [recent.id])
         XCTAssertEqual(try store.fetchCurrent(since: cutoff).map(\.id), [recent.id])
+        store.close()
+    }
+
+    func testMarkUsedPromotesExactOccurrenceAndPersistsAcrossRestart() throws {
+        let clock = MutableClock(now: Date(timeIntervalSinceReferenceDate: 9_500_000))
+        let store = try makeStore()
+        let service = HistoryService(store: store, clock: clock)
+        let first = try service.capture(text: "same occurrence text")
+        clock.now = clock.now.addingTimeInterval(1)
+        let second = try service.capture(text: "same occurrence text")
+        clock.now = clock.now.addingTimeInterval(1)
+
+        try service.markUsed(id: first.id)
+
+        let promoted = try service.entries()
+        XCTAssertEqual(promoted.map(\.id), [first.id, second.id])
+        XCTAssertEqual(promoted.map(\.text), ["same occurrence text", "same occurrence text"])
+        XCTAssertEqual(promoted.first?.activityAt, clock.now)
+        XCTAssertEqual(promoted.count, 2)
+
+        let restarted = try CoreDataHistoryStore(storeURL: directory.appendingPathComponent("History.sqlite"))
+        let afterRestart = try restarted.fetchCurrent(since: clock.now.addingTimeInterval(-HistoryService.retention))
+        XCTAssertEqual(afterRestart.map(\.id), [first.id, second.id])
+        XCTAssertEqual(afterRestart.first?.activityAt, clock.now)
+        XCTAssertEqual(afterRestart.count, 2)
+        restarted.close()
+        store.close()
+    }
+
+    func testSuccessfulUseExtendsRetentionFromActivityTime() throws {
+        let clock = MutableClock(now: Date(timeIntervalSinceReferenceDate: 9_750_000))
+        let store = try makeStore()
+        let service = HistoryService(store: store, clock: clock)
+        let old = try store.create(
+            text: "old occurrence",
+            activityAt: clock.now.addingTimeInterval(-HistoryService.retention - 1)
+        )
+
+        try service.markUsed(id: old.id)
+        XCTAssertEqual(try service.entries().map(\.id), [old.id])
+
+        clock.now = clock.now.addingTimeInterval(HistoryService.retention)
+        XCTAssertTrue(try service.entries().isEmpty)
         store.close()
     }
 
@@ -84,6 +146,12 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertThrowsError(try retrying.fetchCurrent(since: .distantPast))
         XCTAssertTrue(try retrying.fetchCurrent(since: .distantPast).isEmpty)
         XCTAssertEqual(attempts, 2)
+
+        let initialActivity = Date(timeIntervalSinceReferenceDate: 11_000_000)
+        let usedActivity = initialActivity.addingTimeInterval(1)
+        let entry = try retrying.create(text: "retrying occurrence", activityAt: initialActivity)
+        try retrying.markUsed(id: entry.id, activityAt: usedActivity)
+        XCTAssertEqual(try retrying.fetchCurrent(since: .distantPast).first?.activityAt, usedActivity)
         underlying.close()
     }
 
@@ -98,6 +166,61 @@ final class HistoryStoreTests: XCTestCase {
         try service.clearAll()
         XCTAssertTrue(try service.entries().isEmpty)
         store.close()
+    }
+
+    private func writeLegacyCapturedAtStore(
+        at storeURL: URL,
+        id: UUID,
+        text: String,
+        activityAt: Date
+    ) throws {
+        let model = NSManagedObjectModel()
+        let entry = NSEntityDescription()
+        entry.name = "HistoryEntry"
+        entry.managedObjectClassName = NSStringFromClass(NSManagedObject.self)
+
+        let idAttribute = NSAttributeDescription()
+        idAttribute.name = "id"
+        idAttribute.attributeType = .UUIDAttributeType
+        idAttribute.isOptional = false
+
+        let textAttribute = NSAttributeDescription()
+        textAttribute.name = "text"
+        textAttribute.attributeType = .stringAttributeType
+        textAttribute.isOptional = false
+
+        let capturedAtAttribute = NSAttributeDescription()
+        capturedAtAttribute.name = "capturedAt"
+        capturedAtAttribute.attributeType = .dateAttributeType
+        capturedAtAttribute.isOptional = false
+
+        entry.properties = [idAttribute, textAttribute, capturedAtAttribute]
+        entry.indexes = [NSFetchIndexDescription(
+            name: "capturedAtIndex",
+            elements: [NSFetchIndexElementDescription(property: capturedAtAttribute, collationType: .binary)]
+        )]
+        model.entities = [entry]
+
+        let container = NSPersistentContainer(name: "QipliHistory", managedObjectModel: model)
+        let description = NSPersistentStoreDescription(url: storeURL)
+        description.type = NSSQLiteStoreType
+        container.persistentStoreDescriptions = [description]
+        var loadError: Error?
+        container.loadPersistentStores { _, error in
+            loadError = error
+        }
+        if let loadError { throw loadError }
+
+        try container.viewContext.performAndWait {
+            let object = NSEntityDescription.insertNewObject(forEntityName: "HistoryEntry", into: container.viewContext)
+            object.setValue(id, forKey: "id")
+            object.setValue(text, forKey: "text")
+            object.setValue(activityAt, forKey: "capturedAt")
+            try container.viewContext.save()
+        }
+        for persistentStore in container.persistentStoreCoordinator.persistentStores {
+            try container.persistentStoreCoordinator.remove(persistentStore)
+        }
     }
 }
 

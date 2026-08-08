@@ -65,8 +65,8 @@ covers:
 
 ## Данные и контракты
 
-- `HistoryEntry(id, text, capturedAt)` по контракту `TECHNICAL.md`.
-- `capturedAt` задаётся один раз на capture boundary; retention использует контролируемые clock/date зависимости в тестах.
+- `HistoryEntry(id, text, activityAt)` по текущему контракту `TECHNICAL.md`; Core Data/SQLite key остаётся legacy `capturedAt` для совместимости user stores.
+- `activityAt` initially задаётся на capture boundary, а S003 обновляет его только после successful history paste; retention использует контролируемые clock/date зависимости в тестах.
 - Self-write registry связан с точным внутренним pasteboard change, а не с дедупликацией по тексту.
 - Clear all не очищает system pasteboard и явно сообщает это в confirmation copy.
 

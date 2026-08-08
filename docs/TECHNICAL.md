@@ -65,7 +65,7 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
 ### HistoryService
 
 - является единственной точкой записи, поиска, удаления и retention cleanup;
-- не отдаёт записи с возрастом 30 дней и более, даже если фоновая очистка ещё не завершилась;
+- не отдаёт записи, чья последняя активность старше или равна 30 дням, даже если фоновая очистка ещё не завершилась;
 - поддерживает отдельные одинаковые события;
 - выполняет очистку при запуске, перед выдачей результатов и периодически при длительной работе;
 - при «Очистить всё» уничтожает/пересоздаёт persistent store либо эквивалентно удаляет основную БД и sidecar-файлы после закрытия соединений.
@@ -108,7 +108,8 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
 4. Пока Qipli ещё active, оно yield/request-activates прежнее приложение. Если macOS немедленно отклоняет запрос, History остаётся visible, команда не отправляется и UI показывает retryable error.
 5. History остаётся visible, пока Qipli ждёт bounded deadline с main-run-loop retries для обновления `NSRunningApplication.isActive`; только при active target panel закрывается непосредственно перед synthetic `⌘V`.
 6. После accepted-but-exhausted activation History остаётся in place с ошибкой; после dispatch failure закрытая panel повторно открывается. В обоих случаях pasteboard не переписывается и команда не дублируется.
-7. UI сообщает только об отправке команды; реальное принятие текста сторонним приложением наблюдать надёжно нельзя.
+7. Только после успешной отправки tagged `⌘V` `PanelController` неблокирующе обновляет activity exact selected ID. Ошибка этого durable update не меняет уже успешный результат paste и не вызывает повторную отправку.
+8. UI сообщает только об отправке команды; реальное принятие текста сторонним приложением наблюдать надёжно нельзя.
 
 ### Вставка из Paste Stack
 
@@ -130,9 +131,9 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
 |---|---|
 | `id` | стабильный локальный UUID записи |
 | `text` | исходная строка без нормализации |
-| `capturedAt` | момент захвата для порядка и retention |
+| `activityAt` | последняя активность: initial capture либо успешно отправленная history paste-команда; задаёт порядок и retention |
 
-Индекс по `capturedAt` обязателен. Дополнительное поисковое поле или индекс допустимы после профилирования, но не должны менять исходный `text`. Метаданные приложения-источника в MVP не сохраняются.
+Domain property называется `activityAt`, но SQLite/Core Data attribute key остаётся `capturedAt` для совместимости с уже созданными user stores; он хранит то же activity значение и не требует migration. Индекс по legacy key `capturedAt` обязателен. Дополнительное поисковое поле или индекс допустимы после профилирования, но не должны менять исходный `text`. Метаданные приложения-источника в MVP не сохраняются.
 
 ### StackOccurrence — только память
 
@@ -201,9 +202,9 @@ QipliUITests/         in-app keyboard and panel flows
 
 ### Автоматически
 
-- unit: retention boundary, duplicate events, order/reverse traversal, reactivation priority, cancel/finish transitions;
+- unit: retention boundary from capture-or-use, duplicate events, order/reverse traversal, reactivation priority, cancel/finish transitions;
 - unit: self-write suppression и отсутствие рекурсивного synthetic event;
-- repository: create/search/delete/delete-all на временном Core Data store;
+- repository: create/search/promote/delete/delete-all и durable restart на временном Core Data store;
 - integration с fake adapters: history Enter flow, permission denied, activation failure, event tap disabled;
 - UI: focus поиска, arrows, selection, empty/no-results, stack states и drag reorder внутри Qipli;
 - build: Debug и Release для deployment target macOS 14.

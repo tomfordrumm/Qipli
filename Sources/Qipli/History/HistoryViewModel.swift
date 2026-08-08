@@ -83,6 +83,13 @@ final class HistoryViewModel: ObservableObject {
         pasteFailure = nil
     }
 
+    /// Paste dispatch already succeeded when this is called. A recency persistence
+    /// failure is intentionally non-fatal: it must not report a false paste failure
+    /// or cause a second dispatch.
+    func markUsedAfterSuccessfulPaste(id: UUID) {
+        try? service.markUsed(id: id)
+    }
+
     func recordExternalText(_ text: String) {
         do {
             _ = try service.capture(text: text)

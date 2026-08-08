@@ -26,7 +26,11 @@ final class HistoryService {
 
     @discardableResult
     func capture(text: String) throws -> HistoryEntry {
-        try store.create(text: text, capturedAt: clock.now)
+        try store.create(text: text, activityAt: clock.now)
+    }
+
+    func markUsed(id: UUID) throws {
+        try store.markUsed(id: id, activityAt: clock.now)
     }
 
     func delete(id: UUID) throws {

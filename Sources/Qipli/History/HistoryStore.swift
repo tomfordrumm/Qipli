@@ -3,7 +3,8 @@ import Foundation
 
 protocol HistoryStoring: AnyObject {
     func fetchCurrent(since cutoff: Date) throws -> [HistoryEntry]
-    func create(text: String, capturedAt: Date) throws -> HistoryEntry
+    func create(text: String, activityAt: Date) throws -> HistoryEntry
+    func markUsed(id: UUID, activityAt: Date) throws
     func delete(id: UUID) throws
     func clearAll() throws
 }
@@ -53,15 +54,30 @@ final class CoreDataHistoryStore: HistoryStoring {
         }
     }
 
-    func create(text: String, capturedAt: Date) throws -> HistoryEntry {
+    func create(text: String, activityAt: Date) throws -> HistoryEntry {
         try contextSync { context in
             let id = UUID()
             let object = NSEntityDescription.insertNewObject(forEntityName: Self.entityName, into: context)
             object.setValue(id, forKey: "id")
             object.setValue(text, forKey: "text")
-            object.setValue(capturedAt, forKey: "capturedAt")
+            // Keep this legacy SQLite/Core Data key so existing user stores load without migration.
+            object.setValue(activityAt, forKey: "capturedAt")
             try context.save()
-            return HistoryEntry(id: id, text: text, capturedAt: capturedAt)
+            return HistoryEntry(id: id, text: text, activityAt: activityAt)
+        }
+    }
+
+    func markUsed(id: UUID, activityAt: Date) throws {
+        try contextSync { context in
+            let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
+            request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+            for object in try context.fetch(request) {
+                // See create(_:activityAt:): the persisted key intentionally remains `capturedAt`.
+                object.setValue(activityAt, forKey: "capturedAt")
+            }
+            if context.hasChanges {
+                try context.save()
+            }
         }
     }
 
@@ -148,9 +164,9 @@ final class CoreDataHistoryStore: HistoryStoring {
     private static func entry(from object: NSManagedObject) -> HistoryEntry? {
         guard let id = object.value(forKey: "id") as? UUID,
               let text = object.value(forKey: "text") as? String,
-              let capturedAt = object.value(forKey: "capturedAt") as? Date
+              let activityAt = object.value(forKey: "capturedAt") as? Date
         else { return nil }
-        return HistoryEntry(id: id, text: text, capturedAt: capturedAt)
+        return HistoryEntry(id: id, text: text, activityAt: activityAt)
     }
 
     private static func makeContainer() -> NSPersistentContainer {
@@ -198,8 +214,12 @@ final class RetryingHistoryStore: HistoryStoring {
         try store().fetchCurrent(since: cutoff)
     }
 
-    func create(text: String, capturedAt: Date) throws -> HistoryEntry {
-        try store().create(text: text, capturedAt: capturedAt)
+    func create(text: String, activityAt: Date) throws -> HistoryEntry {
+        try store().create(text: text, activityAt: activityAt)
+    }
+
+    func markUsed(id: UUID, activityAt: Date) throws {
+        try store().markUsed(id: id, activityAt: activityAt)
     }
 
     func delete(id: UUID) throws {

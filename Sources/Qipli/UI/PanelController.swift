@@ -91,7 +91,7 @@ final class PanelController {
             completion: { [weak self] result in
                 switch result {
                 case .success:
-                    break
+                    self?.historyViewModel.markUsedAfterSuccessfulPaste(id: entry.id)
                 case let .failure(failure):
                     self?.historyViewModel.recordPasteFailure(failure)
                     self?.reopenHistoryAfterPasteFailure()

@@ -19,9 +19,9 @@ final class HistoryViewModelSearchTests: XCTestCase {
     }
 
     func testSelectionMovesWithinVisibleResultsAndResetsAfterQueryChange() {
-        let first = makeEntry("alpha", offset: 1)
+        let first = makeEntry("alpha", offset: 3)
         let second = makeEntry("alphabet", offset: 2)
-        let third = makeEntry("beta", offset: 3)
+        let third = makeEntry("beta", offset: 1)
         let viewModel = HistoryViewModel(service: HistoryService(store: InMemoryHistoryStore(entries: [first, second, third])))
 
         viewModel.reload(selectFirstResult: true)
@@ -37,9 +37,9 @@ final class HistoryViewModelSearchTests: XCTestCase {
     }
 
     func testDeletingSelectedFilteredEntrySelectsNearestVisibleEntry() {
-        let first = makeEntry("needle one", offset: 1)
+        let first = makeEntry("needle one", offset: 3)
         let second = makeEntry("needle two", offset: 2)
-        let third = makeEntry("needle three", offset: 3)
+        let third = makeEntry("needle three", offset: 1)
         let store = InMemoryHistoryStore(entries: [first, second, third])
         let viewModel = HistoryViewModel(service: HistoryService(store: store))
 
@@ -53,8 +53,21 @@ final class HistoryViewModelSearchTests: XCTestCase {
         XCTAssertFalse(store.entries.contains { $0.id == second.id })
     }
 
+    func testPromotionStorageFailureDoesNotClaimPasteFailureOrChangeOccurrence() {
+        let entry = makeEntry("stable", offset: 1)
+        let store = InMemoryHistoryStore(entries: [entry], markUsedError: HistoryStoreError.unavailable)
+        let viewModel = HistoryViewModel(service: HistoryService(store: store))
+
+        viewModel.reload(selectFirstResult: true)
+        viewModel.markUsedAfterSuccessfulPaste(id: entry.id)
+
+        XCTAssertEqual(viewModel.selectedEntry, entry)
+        XCTAssertNil(viewModel.pasteFailure)
+        XCTAssertEqual(store.entries, [entry])
+    }
+
     private func makeEntry(_ text: String, offset: TimeInterval) -> HistoryEntry {
-        HistoryEntry(id: UUID(), text: text, capturedAt: Date.now.addingTimeInterval(offset))
+        HistoryEntry(id: UUID(), text: text, activityAt: Date.now.addingTimeInterval(offset))
     }
 }
 
@@ -67,12 +80,10 @@ final class HistoryPasteExecutorTests: XCTestCase {
         let dispatcher = FakePasteCommandDispatcher(trace: trace, result: true)
         var registeredChanges: [Int] = []
         let executor = makeExecutor(writer: writer, dispatcher: dispatcher, register: { registeredChanges.append($0) })
-        let entry = HistoryEntry(id: UUID(), text: "line α\nline β", capturedAt: .now)
+        let entry = HistoryEntry(id: UUID(), text: "line α\nline β", activityAt: .now)
         var result: Result<Void, HistoryPasteFailure>?
 
-        executor.paste(entry: entry, target: target, closePanel: { trace.events.append("close") }) {
-            result = $0
-        }
+        executor.paste(entry: entry, target: target, closePanel: { trace.events.append("close") }) { result = $0 }
 
         XCTAssertEqual(writer.writtenTexts, [entry.text])
         XCTAssertEqual(registeredChanges, [41])
@@ -138,9 +149,7 @@ final class HistoryPasteExecutorTests: XCTestCase {
         let executor = makeExecutor(writer: writer, dispatcher: dispatcher, register: { _ in })
         var result: Result<Void, HistoryPasteFailure>?
 
-        executor.paste(entry: sampleEntry, target: FakeHistoryPasteTarget(trace: trace), closePanel: { trace.events.append("close") }) {
-            result = $0
-        }
+        executor.paste(entry: sampleEntry, target: FakeHistoryPasteTarget(trace: trace), closePanel: { trace.events.append("close") }) { result = $0 }
 
         XCTAssertEqual(result?.failureValue, .commandDispatchFailed)
         XCTAssertEqual(trace.events, ["write", "activate", "close", "dispatch"])
@@ -194,7 +203,7 @@ final class HistoryPasteExecutorTests: XCTestCase {
     }
 
     private var sampleEntry: HistoryEntry {
-        HistoryEntry(id: UUID(), text: "safe fixture", capturedAt: .now)
+        HistoryEntry(id: UUID(), text: "safe fixture", activityAt: .now)
     }
 
     private func makeExecutor(
@@ -336,7 +345,7 @@ final class HistoryPanelIntentTests: XCTestCase {
     }
 
     private func makeEntry(_ text: String, offset: TimeInterval) -> HistoryEntry {
-        HistoryEntry(id: UUID(), text: text, capturedAt: Date.now.addingTimeInterval(offset))
+        HistoryEntry(id: UUID(), text: text, activityAt: Date.now.addingTimeInterval(offset))
     }
 
     private func makeExecutor(trace: HistoryPanelIntentTrace) -> HistoryPanelIntentExecutor {
@@ -373,19 +382,35 @@ private final class HistoryPanelIntentTrace {
 
 private final class InMemoryHistoryStore: HistoryStoring {
     var entries: [HistoryEntry]
+    var markUsedError: Error?
 
-    init(entries: [HistoryEntry] = []) {
+    init(entries: [HistoryEntry] = [], markUsedError: Error? = nil) {
         self.entries = entries
+        self.markUsedError = markUsedError
     }
 
     func fetchCurrent(since cutoff: Date) throws -> [HistoryEntry] {
-        entries.filter { $0.capturedAt > cutoff }
+        entries
+            .filter { $0.activityAt > cutoff }
+            .sorted {
+                if $0.activityAt != $1.activityAt {
+                    return $0.activityAt > $1.activityAt
+                }
+                return $0.id.uuidString > $1.id.uuidString
+            }
     }
 
-    func create(text: String, capturedAt: Date) throws -> HistoryEntry {
-        let entry = HistoryEntry(id: UUID(), text: text, capturedAt: capturedAt)
+    func create(text: String, activityAt: Date) throws -> HistoryEntry {
+        let entry = HistoryEntry(id: UUID(), text: text, activityAt: activityAt)
         entries.append(entry)
         return entry
+    }
+
+    func markUsed(id: UUID, activityAt: Date) throws {
+        if let markUsedError { throw markUsedError }
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        let entry = entries[index]
+        entries[index] = HistoryEntry(id: entry.id, text: entry.text, activityAt: activityAt)
     }
 
     func delete(id: UUID) throws {
