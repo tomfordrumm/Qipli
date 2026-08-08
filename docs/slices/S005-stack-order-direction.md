@@ -96,6 +96,7 @@ covers:
 - `markTraversalStarted()` — узкая граница для S006: она блокирует direction/reorder, но не добавляет перехват `⌘V`, used-state, actual paste, reactivation или persistence.
 - Compact nonactivating panel показывает segmented direct/reverse state, текстовое объяснение top/bottom next и явный Next marker. Native macOS `List.onMove` даёт drag reorder; accessible Move Up/Down controls с ясными labels используют те же occurrence-ID intents. Locked/single-item rows остаются читаемыми, а movement controls отключаются.
 - Все direction/drag/accessibility intents пересекают один common-mode main RunLoop boundary. Exact candidate occurrence-ID permutation snapshot-ится до defer, а session повторно валидирует его при исполнении, поэтому append/cancel/lock race не может переставить новый список по устаревшим индексам.
+- Native List separator leading/trailing alignment guides теперь закреплены к полному row HStack, поэтому conditional Next marker, multiline height и disabled arrows не меняют ширину separator.
 
 ### Изменённые файлы
 
@@ -110,7 +111,7 @@ covers:
 - SwiftPM `swift test`: 68 tests, 0 failures, включая deferred intent/race matrix.
 - Xcode Debug XCTest (`Qipli`, macOS): 68 tests, 0 failures; native macOS `List.onMove` compiles in the app target.
 - Xcode Release universal `arm64+x86_64` build: successful with `CODE_SIGNING_ALLOWED=NO`.
-- Ручная S005 matrix (drag/direction/Next, duplicate/multiline, accessible controls and source focus) пройдена, но после regression fix нужен повтор clean-console/layout check: `layoutSubtreeIfNeeded` и `Publishing changes from within view updates` не должны вернуться.
+- Ручная S005 matrix (drag/direction/Next, duplicate/multiline, accessible controls and source focus) пройдена; console уже чистая. Остаётся один combined final retest: чистая console плюс full-width native separators при Next сверху/снизу, multiline и disabled arrows.
 
 ### Отклонения от плана
 
@@ -118,4 +119,4 @@ covers:
 
 ### Оставшиеся проблемы
 
-Остаётся только повтор ручной clean-console/layout проверки после RunLoop scheduling fix; S006/S007 behavior намеренно не добавлялся.
+Остаётся только final clean-console + separator visual retest; S006/S007 behavior намеренно не добавлялся.

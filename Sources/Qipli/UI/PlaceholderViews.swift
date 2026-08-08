@@ -394,6 +394,15 @@ struct PasteStackPanelView: View {
             }
         }
         .padding(.vertical, 2)
+        // Keep the native separator tied to the row bounds, not the conditional
+        // Next label or trailing move controls.
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .alignmentGuide(.listRowSeparatorLeading) { dimensions in
+            dimensions[.leading]
+        }
+        .alignmentGuide(.listRowSeparatorTrailing) { dimensions in
+            dimensions[.trailing]
+        }
         .accessibilityElement(children: .contain)
     }
 
