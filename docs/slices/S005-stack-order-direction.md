@@ -95,6 +95,7 @@ covers:
 - Reorder безопасен для duplicate text; text/historyEntryID не меняются. Внешний copy append после reorder добавляется в конец base order.
 - `markTraversalStarted()` — узкая граница для S006: она блокирует direction/reorder, но не добавляет перехват `⌘V`, used-state, actual paste, reactivation или persistence.
 - Compact nonactivating panel показывает segmented direct/reverse state, текстовое объяснение top/bottom next и явный Next marker. Native macOS `List.onMove` даёт drag reorder; accessible Move Up/Down controls с ясными labels используют те же occurrence-ID intents. Locked/single-item rows остаются читаемыми, а movement controls отключаются.
+- Все direction/drag/accessibility intents пересекают один common-mode main RunLoop boundary. Exact candidate occurrence-ID permutation snapshot-ится до defer, а session повторно валидирует его при исполнении, поэтому append/cancel/lock race не может переставить новый список по устаревшим индексам.
 
 ### Изменённые файлы
 
@@ -106,10 +107,10 @@ covers:
 
 ### Выполненная проверка
 
-- SwiftPM `swift test`: 65 tests, 0 failures.
-- Xcode Debug XCTest (`Qipli`, macOS): 65 tests, 0 failures; native macOS `List.onMove` compiles in the app target.
+- SwiftPM `swift test`: 68 tests, 0 failures, включая deferred intent/race matrix.
+- Xcode Debug XCTest (`Qipli`, macOS): 68 tests, 0 failures; native macOS `List.onMove` compiles in the app target.
 - Xcode Release universal `arm64+x86_64` build: successful with `CODE_SIGNING_ALLOWED=NO`.
-- Остаются ручные проверки: real drag, visible direct/reverse/next for empty/single/multiple and duplicate/multiline values, VoiceOver labels and Move Up/Down behavior, plus source-focus preservation while Stack collects.
+- Ручная S005 matrix (drag/direction/Next, duplicate/multiline, accessible controls and source focus) пройдена, но после regression fix нужен повтор clean-console/layout check: `layoutSubtreeIfNeeded` и `Publishing changes from within view updates` не должны вернуться.
 
 ### Отклонения от плана
 
@@ -117,4 +118,4 @@ covers:
 
 ### Оставшиеся проблемы
 
-Нет; S006/S007 behavior намеренно не добавлялся.
+Остаётся только повтор ручной clean-console/layout проверки после RunLoop scheduling fix; S006/S007 behavior намеренно не добавлялся.

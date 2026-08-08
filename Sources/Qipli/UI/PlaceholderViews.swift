@@ -434,7 +434,8 @@ struct PasteStackPanelView: View {
             occurrences: { sessionController.occurrences },
             canAdjustTraversal: { sessionController.canAdjustTraversal },
             setTraversalDirection: sessionController.setTraversalDirection,
-            reorder: sessionController.reorder
+            reorder: sessionController.reorder,
+            schedule: PasteStackPanelIntentScheduler.schedule
         )
         .execute(intent)
     }
@@ -454,19 +455,31 @@ struct PasteStackPanelIntentExecutor {
     let canAdjustTraversal: () -> Bool
     let setTraversalDirection: (StackTraversalDirection) -> Bool
     let reorder: ([UUID]) -> Bool
+    let schedule: (@escaping () -> Void) -> Void
 
     func execute(_ intent: PasteStackPanelIntent) {
         guard canAdjustTraversal() else { return }
 
         switch intent {
         case let .setTraversalDirection(direction):
-            _ = setTraversalDirection(direction)
+            schedule { _ = setTraversalDirection(direction) }
         case let .moveOccurrence(id, offset):
             guard let ids = PasteStackOrdering.moving(id: id, by: offset, in: occurrences()) else { return }
-            _ = reorder(ids)
+            schedule { _ = reorder(ids) }
         case let .moveOccurrences(source, destination):
             guard let ids = PasteStackOrdering.moving(source: source, to: destination, in: occurrences()) else { return }
-            _ = reorder(ids)
+            schedule { _ = reorder(ids) }
+        }
+    }
+}
+
+/// Defers SwiftUI callbacks until the surrounding List or Picker update has
+/// finished. Reorder IDs are captured before this boundary, then validated by
+/// the state machine at execution time against its current session snapshot.
+enum PasteStackPanelIntentScheduler {
+    static func schedule(_ action: @escaping () -> Void) {
+        RunLoop.main.perform(inModes: [.common]) {
+            action()
         }
     }
 }

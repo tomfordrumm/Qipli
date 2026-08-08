@@ -187,7 +187,8 @@ final class StackSessionControllerTests: XCTestCase {
             occurrences: { controller.occurrences },
             canAdjustTraversal: { controller.canAdjustTraversal },
             setTraversalDirection: controller.setTraversalDirection,
-            reorder: controller.reorder
+            reorder: controller.reorder,
+            schedule: { action in action() }
         )
 
         executor.execute(.moveOccurrence(initial[1].id, by: -1))
@@ -209,6 +210,59 @@ final class StackSessionControllerTests: XCTestCase {
         XCTAssertFalse(PasteStackPanelControlState(occurrenceCount: 1, canAdjustTraversal: true).canReorder)
         XCTAssertTrue(PasteStackPanelControlState(occurrenceCount: 3, canAdjustTraversal: true).canMove(position: 1, by: -1))
         XCTAssertFalse(PasteStackPanelControlState(occurrenceCount: 3, canAdjustTraversal: false).canMove(position: 1, by: 1))
+    }
+
+    func testStackPanelIntentsDeferEachControllerPublicationUntilScheduledActionRuns() {
+        let controller = configuredController(with: ["one", "two"])
+        let scheduler = QueuedStackIntentScheduler()
+        let executor = makeIntentExecutor(controller: controller, scheduler: scheduler)
+        let original = controller.occurrences
+
+        executor.execute(.setTraversalDirection(.reverse))
+        XCTAssertEqual(scheduler.pendingCount, 1)
+        XCTAssertEqual(controller.traversalDirection, .direct)
+        scheduler.runNext()
+        XCTAssertEqual(controller.traversalDirection, .reverse)
+
+        executor.execute(.moveOccurrence(original[1].id, by: -1))
+        XCTAssertEqual(scheduler.pendingCount, 1)
+        XCTAssertEqual(controller.occurrences.map(\.id), original.map(\.id))
+        scheduler.runNext()
+        XCTAssertEqual(controller.occurrences.map(\.id), [original[1].id, original[0].id])
+    }
+
+    func testDeferredReorderUsesCapturedIDsAndRejectsAppendRaceAtomically() {
+        let controller = configuredController(with: ["one", "two"])
+        let scheduler = QueuedStackIntentScheduler()
+        let executor = makeIntentExecutor(controller: controller, scheduler: scheduler)
+        let original = controller.occurrences
+
+        executor.execute(.moveOccurrence(original[1].id, by: -1))
+        controller.appendPersistedHistoryEntry(makeEntry("external"), observedChangeCount: 13, for: controller.captureContext)
+        let afterAppend = controller.occurrences
+        scheduler.runNext()
+
+        XCTAssertEqual(controller.occurrences, afterAppend)
+        XCTAssertEqual(controller.occurrences.map(\.id), [original[0].id, original[1].id, afterAppend[2].id])
+    }
+
+    func testDeferredIntentsAreRejectedWhenTraversalLocksOrSessionCancelsFirst() {
+        let lockedController = configuredController(with: ["one", "two"])
+        let lockedScheduler = QueuedStackIntentScheduler()
+        let lockedExecutor = makeIntentExecutor(controller: lockedController, scheduler: lockedScheduler)
+        lockedExecutor.execute(.setTraversalDirection(.reverse))
+        XCTAssertTrue(lockedController.markTraversalStarted())
+        lockedScheduler.runNext()
+        XCTAssertEqual(lockedController.traversalDirection, .direct)
+
+        let canceledController = configuredController(with: ["one", "two"])
+        let canceledScheduler = QueuedStackIntentScheduler()
+        let canceledExecutor = makeIntentExecutor(controller: canceledController, scheduler: canceledScheduler)
+        canceledExecutor.execute(.moveOccurrence(canceledController.occurrences[1].id, by: -1))
+        canceledController.cancel()
+        canceledScheduler.runNext()
+        XCTAssertFalse(canceledController.isActive)
+        XCTAssertTrue(canceledController.occurrences.isEmpty)
     }
 
     func testClipboardChangeBeforeStartButPolledAfterStartStaysHistoryOnly() {
@@ -351,6 +405,19 @@ final class StackSessionControllerTests: XCTestCase {
         }
         return controller
     }
+
+    private func makeIntentExecutor(
+        controller: StackSessionController,
+        scheduler: QueuedStackIntentScheduler
+    ) -> PasteStackPanelIntentExecutor {
+        PasteStackPanelIntentExecutor(
+            occurrences: { controller.occurrences },
+            canAdjustTraversal: { controller.canAdjustTraversal },
+            setTraversalDirection: controller.setTraversalDirection,
+            reorder: controller.reorder,
+            schedule: scheduler.schedule
+        )
+    }
 }
 
 final class FloatingPanelPlacementTests: XCTestCase {
@@ -423,6 +490,21 @@ private final class StackTestPasteboard: PasteboardReading {
 
 private final class StackStartTrace {
     var events: [String] = []
+}
+
+private final class QueuedStackIntentScheduler {
+    private var actions: [() -> Void] = []
+
+    var pendingCount: Int { actions.count }
+
+    func schedule(_ action: @escaping () -> Void) {
+        actions.append(action)
+    }
+
+    func runNext() {
+        guard !actions.isEmpty else { return }
+        actions.removeFirst()()
+    }
 }
 
 private final class FakeCopyCommandDispatcher: TaggedCopyCommandDispatching {
