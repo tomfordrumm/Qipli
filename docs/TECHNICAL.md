@@ -25,9 +25,9 @@ Qipli — нативное menu bar приложение на Swift. Интер�
 
 ### Авторитетные источники
 
-- Apple, [`NSPasteboard`](https://developer.apple.com/documentation/appkit/nspasteboard) и [`changeCount`](https://developer.apple.com/documentation/appkit/nspasteboard/changecount).
+- Apple, [`NSPasteboard`](https://developer.apple.com/documentation/appkit/nspasteboard), [`changeCount`](https://developer.apple.com/documentation/appkit/nspasteboard/changecount) и [`clearContents()`](https://developer.apple.com/documentation/appkit/nspasteboard/clearcontents()): ownership changes advance `changeCount`, while `clearContents()` returns the resulting count.
 - Apple, [`CGEvent`](https://developer.apple.com/documentation/coregraphics/cgevent), включая event taps, и [`tapEnable`](https://developer.apple.com/documentation/coregraphics/cgevent/tapenable(tap:enable:)).
-- Apple, [`CGEventTapOptions.defaultTap`](https://developer.apple.com/documentation/coregraphics/cgeventtapoptions/defaulttap): active filter может возвращать `nil`, чтобы потребить exact event.
+- Apple, [`CGEventTapOptions.defaultTap`](https://developer.apple.com/documentation/coregraphics/cgeventtapoptions/defaulttap): active filter может возвращать `nil`, чтобы потребить exact event; passive tap не может менять stream. Callback вызывается на run loop, а разрешение/маска могут сделать создание tap недоступным.
 - Apple, [`CGEvent.post(tap:)`](https://developer.apple.com/documentation/coregraphics/cgevent/post(tap:)): tagged synthetic Copy входит в Quartz event stream перед taps в выбранной позиции; [`eventSourceUserData`](https://developer.apple.com/documentation/coregraphics/cgeventfield/eventsourcuserdata) содержит 64-bit marker, а [`CGEventSource`](https://developer.apple.com/documentation/coregraphics/cgeventsource) описывает state generated/posted events.
 - Apple, [`NSWindow.CollectionBehavior.canJoinAllSpaces`](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/canjoinallspaces) и [`fullScreenAuxiliary`](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/fullscreenauxiliary): вспомогательная panel показывается во всех Spaces и рядом с full-screen window.
 - Apple, [`NSScreen`](https://developer.apple.com/documentation/appkit/nsscreen): список displays и `visibleFrame` для placement временной panel.
@@ -35,7 +35,7 @@ Qipli — нативное menu bar приложение на Swift. Интер�
 - Apple, [Protecting user data with App Sandbox](https://developer.apple.com/documentation/security/protecting-user-data-with-app-sandbox) и [App Sandbox](https://developer.apple.com/documentation/security/app-sandbox).
 - Apple, [Preparing your app for distribution](https://developer.apple.com/documentation/xcode/preparing-your-app-for-distribution), [Hardened Runtime](https://developer.apple.com/documentation/security/hardened-runtime) и [Notarizing macOS software before distribution](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
 
-Базовые ссылки и выводы проверены 2026-08-06. S004 повторно сверил только input/panel contracts выше 2026-08-08: `.defaultTap` как active filter, tagged `CGEvent.post(tap:)`/`eventSourceUserData`/`CGEventSource`, `canJoinAllSpaces`/`fullScreenAuxiliary` и screen `visibleFrame`. Release, sandbox/entitlements и остальные platform sources этим recheck не подтверждаются и должны быть перепроверены перед изменением соответствующих контрактов и перед S008.
+Базовые ссылки и выводы проверены 2026-08-06. S006 повторно сверил input/pasteboard contracts 2026-08-08: `.defaultTap` как active filter (только он может вернуть `nil` и удалить event), callback run-loop delivery, permission/mask failure, 64-bit `eventSourceUserData`, ownership `changeCount` и `clearContents()` result. Release, sandbox/entitlements и остальные platform sources этим recheck не подтверждаются и должны быть перепроверены перед изменением соответствующих контрактов и перед S008.
 
 ## 3. Компоненты и ответственность
 
@@ -85,9 +85,10 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
 ### InputCoordinator и PasteExecutor
 
 - регистрируют глобальные сочетания и event tap только в разрешённом состоянии, включая `Esc` как отмену только при активном стеке;
-- active event tap потребляет только exact untagged `⌘⇧V` и `⌘⇧C` keyDown и untagged `Esc` без semantic Shift/Control/Option/Command при active stack; deferred `⌘⇧C` action posts tagged ordinary `⌘C`, который marker пропускает обратно к source app. Обычные `⌘C`/`⌘V`, keyUp, другие modifiers и Qipli synthetic events проходят без изменения;
-- не модифицируют обычный `⌘V`, когда стек не активен;
-- перед внутренней записью помечают ожидаемый `changeCount`/операцию, чтобы монитор пропустил self-write;
+- active event tap потребляет exact untagged `⌘⇧V` и `⌘⇧C` keyDown, untagged `Esc` без semantic Shift/Control/Option/Command при active stack и, только при active Stack с pending/reserved occurrence, exact untagged ordinary `⌘V` keyDown. Tagged synthetic events, keyUp и other modifier variants проходят stack path без изменения; deferred `⌘⇧C` action posts tagged ordinary `⌘C`, который marker пропускает обратно к source app;
+- synchronous callback только atomically reserve/pass/consume decision; pasteboard work и dispatch deferred. Повтор input при existing reservation потребляется без second transaction;
+- не модифицируют ordinary `⌘V`, когда стек не активен, исчерпан или закрыт;
+- сразу после synchronous internal write регистрируют returned exact final `changeCount`, до следующего run-loop poll, чтобы монитор пропустил self-write;
 - быстро подготавливают следующий текст в pasteboard и отправляют/пропускают событие вставки, не блокируя event tap тяжёлой работой;
 - помечают элемент used после отправки команды вставки, а не после недоступного подтверждения целевого поля;
 - распознают собственное синтетическое событие, чтобы избежать рекурсии;
@@ -127,11 +128,12 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
 
 ### Вставка из Paste Stack
 
-1. Event tap получает пользовательский `⌘V` при активной сессии.
-2. Coordinator атомарно запрашивает у state machine следующий occurrence.
-3. Текст записывается в pasteboard как self-write, затем `⌘V` передаётся цели без рекурсивного перехвата.
-4. Occurrence помечается used; панель показывает его disabled.
-5. Если ожидающих элементов не осталось, сессия завершается и панель закрывается.
+1. Active event tap получает exact untagged ordinary `⌘V` keyDown. Если Stack inactive, завершён, пуст или input tagged/modified, он возвращает original event. При accepted input `StackSession` synchronously reserves exact pending occurrence UUID by direct/reverse traversal and locks direction/order; repeat while reserved is consumed without another transaction.
+2. Deferred main-run-loop executor publishes processing state, rechecks the same session UUID/reservation and Accessibility trust, then writes the immutable exact text to system pasteboard.
+3. Writer returns the exact final `changeCount`; monitor receives that count as a self-write before control returns to its next poll, so the write cannot re-enter History/Stack capture.
+4. Executor posts tagged synthetic ordinary `⌘V`. Only a successful dispatch converts the exact reservation to used; a permission, writer, dispatch or input-listener failure releases it back to pending and publishes a retryable non-payload error.
+5. Used occurrences remain visible and disabled; next marker advances among pending occurrences. Append/cancel/deferred UI intents validate the current session/UUID domain atomically.
+6. After the last successful dispatch, all occurrences are first published as used. One deterministic deferred turn then verifies that the same session is still complete, releases it, closes the nonactivating panel and restores the menu Start state. It does not reactivate a target app (S007 remains separate).
 
 При гонке с внешней сменой pasteboard предпочтение отдаётся безопасности: не вставлять неизвестное значение как элемент стека, показать сбой и сохранить текущую сессию для повтора.
 

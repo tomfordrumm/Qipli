@@ -282,7 +282,7 @@ struct PasteStackPanelView: View {
                 Text("Paste Stack")
                     .font(.headline)
                 Spacer()
-                Text(sessionController.traversalHasStarted ? "Traversal started" : "Collecting")
+                Text(stackStatus)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -318,7 +318,12 @@ struct PasteStackPanelView: View {
                 .listStyle(.inset)
             }
 
-            if sessionController.hasCopyCommandDispatchFailure {
+            if let pasteFailure = sessionController.pasteFailure {
+                Text(pasteFailure.message)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if sessionController.hasCopyCommandDispatchFailure {
                 Text("Qipli could not send Copy to the active app. Try the Paste Stack shortcut again.")
                     .font(.caption)
                     .foregroundStyle(.red)
@@ -358,6 +363,7 @@ struct PasteStackPanelView: View {
     private func occurrenceRow(_ occurrence: StackOccurrence) -> some View {
         let index = occurrence.position
         let isNext = sessionController.nextOccurrence?.id == occurrence.id
+        let isUsed = occurrence.state == .used
 
         return HStack(alignment: .top, spacing: 8) {
             Text("\(index + 1).")
@@ -365,6 +371,16 @@ struct PasteStackPanelView: View {
             Text(StackPreview.text(for: occurrence.text))
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if occurrence.state == .processing {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Preparing paste")
+            } else if isUsed {
+                Label("Used", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Used item")
+            }
             if isNext {
                 Label("Next", systemImage: "arrow.right.circle.fill")
                     .font(.caption)
@@ -378,7 +394,7 @@ struct PasteStackPanelView: View {
                     Image(systemName: "arrow.up")
                 }
                 .buttonStyle(.borderless)
-                .disabled(!controlState.canMove(position: index, by: -1))
+                .disabled(isUsed || !controlState.canMove(position: index, by: -1))
                 .accessibilityLabel(PasteStackPanelAccessibility.moveLabel(position: index, direction: .up))
                 .accessibilityHint("Alternative to dragging this stack item.")
 
@@ -388,12 +404,13 @@ struct PasteStackPanelView: View {
                     Image(systemName: "arrow.down")
                 }
                 .buttonStyle(.borderless)
-                .disabled(!controlState.canMove(position: index, by: 1))
+                .disabled(isUsed || !controlState.canMove(position: index, by: 1))
                 .accessibilityLabel(PasteStackPanelAccessibility.moveLabel(position: index, direction: .down))
                 .accessibilityHint("Alternative to dragging this stack item.")
             }
         }
         .padding(.vertical, 2)
+        .opacity(isUsed ? 0.55 : 1)
         // Keep the native separator tied to the row bounds, not the conditional
         // Next label or trailing move controls.
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -422,7 +439,13 @@ struct PasteStackPanelView: View {
     }
 
     private var nextExplanation: String {
-        switch sessionController.traversalDirection {
+        if sessionController.occurrences.contains(where: { $0.state == .processing }) {
+            return "Preparing the selected stack item."
+        }
+        guard sessionController.nextOccurrence != nil else {
+            return "All stack items were sent."
+        }
+        return switch sessionController.traversalDirection {
         case .direct: "Direct: the top item is next."
         case .reverse: "Reverse: the bottom item is next."
         }
@@ -436,6 +459,13 @@ struct PasteStackPanelView: View {
         } else {
             "Drag rows or use arrows."
         }
+    }
+
+    private var stackStatus: String {
+        if sessionController.occurrences.contains(where: { $0.state == .processing }) {
+            return "Processing"
+        }
+        return sessionController.traversalHasStarted ? "Traversal started" : "Collecting"
     }
 
     private func execute(_ intent: PasteStackPanelIntent) {

@@ -6,7 +6,9 @@ import Foundation
 final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispatching, TaggedCopyCommandDispatching {
     var onHotKey: ((GlobalHotKey) -> Void)?
     var onEscape: (() -> Void)?
+    var onStackPaste: (() -> Void)?
     var shouldConsumeEscape: (() -> Bool)?
+    var stackPasteInterception: (() -> StackPasteInputDisposition)?
     var onStatusChange: ((GlobalInputStatus) -> Void)?
 
     private var recoveryPolicy = EventTapRecoveryPolicy(maximumAttempts: 2)
@@ -90,7 +92,8 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         let action = consumedAction(
             type: type,
             event: event,
-            stackSessionIsActive: adapter.shouldConsumeEscape?() ?? false
+            stackSessionIsActive: adapter.shouldConsumeEscape?() ?? false,
+            stackPasteInterception: adapter.stackPasteInterception
         )
         adapter.handle(type: type, event: event, action: action)
         return action == nil ? Unmanaged.passUnretained(event) : nil
@@ -111,6 +114,10 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
                     self?.onHotKey?(hotKey)
                 case .cancelPasteStack:
                     self?.onEscape?()
+                case .pasteStackItem:
+                    self?.onStackPaste?()
+                case .consumePasteStackItem:
+                    break
                 }
             }
         default:
@@ -143,7 +150,7 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         }
     }
 
-    /// This is the full active-filter contract: only the two Qipli shortcuts are removed from the target app's stream.
+    /// This is the full active-filter contract before stack traversal starts.
     static func consumedHotKey(type: CGEventType, event: CGEvent) -> GlobalHotKey? {
         guard case let .hotKey(hotKey) = consumedAction(type: type, event: event, stackSessionIsActive: false) else {
             return nil
@@ -156,7 +163,8 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
     static func consumedAction(
         type: CGEventType,
         event: CGEvent,
-        stackSessionIsActive: Bool
+        stackSessionIsActive: Bool,
+        stackPasteInterception: (() -> StackPasteInputDisposition)? = nil
     ) -> GlobalInputAction? {
         guard type == .keyDown,
               !SyntheticEventMarker.isQipliSynthetic(
@@ -170,6 +178,17 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
             return .hotKey(hotKey)
         }
 
+        if isExactOrdinaryCommandV(event) {
+            switch stackPasteInterception?() ?? .passThrough {
+            case .passThrough:
+                return nil
+            case .consume:
+                return .consumePasteStackItem
+            case .consumeAndDispatch:
+                return .pasteStackItem
+            }
+        }
+
         guard stackSessionIsActive,
               event.getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_Escape),
               event.flags.intersection([.maskShift, .maskControl, .maskAlternate, .maskCommand]).isEmpty
@@ -177,6 +196,13 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
             return nil
         }
         return .cancelPasteStack
+    }
+
+    private static func isExactOrdinaryCommandV(_ event: CGEvent) -> Bool {
+        let flags = event.flags
+        return event.getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_ANSI_V)
+            && flags.contains(.maskCommand)
+            && flags.intersection([.maskShift, .maskControl, .maskAlternate]).isEmpty
     }
 
     private func recoverFromDisabledTap() {

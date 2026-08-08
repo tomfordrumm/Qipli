@@ -1,6 +1,14 @@
 import Combine
 import Foundation
 
+/// The UI state of one exact in-memory occurrence. A processing reservation is
+/// deliberately separate from `used`: Qipli has not sent a paste command yet.
+enum StackOccurrenceState: Equatable, Sendable {
+    case pending
+    case processing
+    case used
+}
+
 /// One in-memory reference to a successfully persisted clipboard occurrence.
 /// Duplicate text is intentionally represented by separate IDs.
 struct StackOccurrence: Identifiable, Equatable, Sendable {
@@ -9,6 +17,21 @@ struct StackOccurrence: Identifiable, Equatable, Sendable {
     let text: String
     /// The contiguous base visible order for this session.
     let position: Int
+    let state: StackOccurrenceState
+
+    init(
+        id: UUID,
+        historyEntryID: UUID,
+        text: String,
+        position: Int,
+        state: StackOccurrenceState = .pending
+    ) {
+        self.id = id
+        self.historyEntryID = historyEntryID
+        self.text = text
+        self.position = position
+        self.state = state
+    }
 }
 
 /// The direction used to choose the next pending occurrence from the visible base order.
@@ -31,6 +54,13 @@ struct StackCaptureContext: Equatable, Sendable {
     let captureAfterChangeCount: Int
 }
 
+/// Immutable snapshot handed from the synchronous event-tap reservation to
+/// deferred paste production. It contains no mutable UI state.
+struct StackPasteReservation: Equatable, Sendable {
+    let sessionID: UUID
+    let occurrence: StackOccurrence
+}
+
 /// In-memory Stack state machine. Its base order and traversal direction are
 /// configurable only before S006 starts traversal; it has no paste side effects.
 final class StackSession {
@@ -38,12 +68,21 @@ final class StackSession {
     private(set) var occurrences: [StackOccurrence] = []
     private(set) var traversalDirection: StackTraversalDirection = .direct
     private(set) var traversalHasStarted = false
+    private(set) var reservedOccurrenceID: UUID?
 
     var nextOccurrence: StackOccurrence? {
-        switch traversalDirection {
-        case .direct: occurrences.first
-        case .reverse: occurrences.last
+        let pending = occurrences.filter { $0.state == .pending }
+        return switch traversalDirection {
+        case .direct: pending.first
+        case .reverse: pending.last
         }
+    }
+
+    var hasPendingOccurrence: Bool { nextOccurrence != nil }
+    var canConsumePasteInput: Bool { hasPendingOccurrence || reservedOccurrenceID != nil }
+    var reservedOccurrence: StackOccurrence? {
+        guard let reservedOccurrenceID else { return nil }
+        return occurrence(id: reservedOccurrenceID)
     }
 
     var canAdjustTraversal: Bool { !traversalHasStarted }
@@ -67,6 +106,40 @@ final class StackSession {
         return occurrence
     }
 
+    /// Atomically selects exactly one pending occurrence and locks traversal.
+    /// The caller must either complete or release this reservation.
+    func reserveNextOccurrenceForPaste() -> StackOccurrence? {
+        guard reservedOccurrenceID == nil, let nextOccurrence else { return nil }
+        traversalHasStarted = true
+        reservedOccurrenceID = nextOccurrence.id
+        updateOccurrence(id: nextOccurrence.id, state: .processing)
+        return occurrence(id: nextOccurrence.id)
+    }
+
+    @discardableResult
+    func completeReservation(id: UUID) -> Bool {
+        guard reservedOccurrenceID == id else { return false }
+        updateOccurrence(id: id, state: .used)
+        reservedOccurrenceID = nil
+        return true
+    }
+
+    @discardableResult
+    func releaseReservation(id: UUID) -> Bool {
+        guard reservedOccurrenceID == id else { return false }
+        updateOccurrence(id: id, state: .pending)
+        reservedOccurrenceID = nil
+        return true
+    }
+
+    func isReservationCurrent(_ id: UUID) -> Bool {
+        reservedOccurrenceID == id
+    }
+
+    var isCompleted: Bool {
+        reservedOccurrenceID == nil && !occurrences.isEmpty && occurrences.allSatisfy { $0.state == .used }
+    }
+
     /// Replaces the base order atomically. Exact occurrence IDs, rather than
     /// text, make duplicate clipboard values safe to move independently.
     @discardableResult
@@ -84,7 +157,8 @@ final class StackSession {
                 id: occurrence.id,
                 historyEntryID: occurrence.historyEntryID,
                 text: occurrence.text,
-                position: position
+                position: position,
+                state: occurrence.state
             )
         }
         return true
@@ -105,6 +179,42 @@ final class StackSession {
         traversalHasStarted = true
         return true
     }
+
+    private func occurrence(id: UUID) -> StackOccurrence? {
+        occurrences.first { $0.id == id }
+    }
+
+    private func updateOccurrence(id: UUID, state: StackOccurrenceState) {
+        guard let index = occurrences.firstIndex(where: { $0.id == id }) else { return }
+        let occurrence = occurrences[index]
+        occurrences[index] = StackOccurrence(
+            id: occurrence.id,
+            historyEntryID: occurrence.historyEntryID,
+            text: occurrence.text,
+            position: occurrence.position,
+            state: state
+        )
+    }
+}
+
+enum StackPasteFailure: Equatable {
+    case accessibilityRequired
+    case pasteboardWriteFailed
+    case commandDispatchFailed
+    case inputUnavailable
+
+    var message: String {
+        switch self {
+        case .accessibilityRequired:
+            "Accessibility access is required before Qipli can send the next stack item. Restore access and try again."
+        case .pasteboardWriteFailed:
+            "Qipli could not prepare the system clipboard. Try the next stack item again."
+        case .commandDispatchFailed:
+            "Qipli could not send the paste command. The stack item is still pending; try again."
+        case .inputUnavailable:
+            "Qipli’s global input listener is unavailable. Restore Accessibility access and try again."
+        }
+    }
 }
 
 /// UI-facing lifetime owner for the one optional StackSession.
@@ -115,12 +225,18 @@ final class StackSessionController: ObservableObject {
     @Published private(set) var traversalHasStarted = false
     @Published private(set) var hasCaptureError = false
     @Published private(set) var hasCopyCommandDispatchFailure = false
+    @Published private(set) var pasteFailure: StackPasteFailure?
 
     private(set) var session: StackSession?
 
     var isActive: Bool { session != nil }
     var nextOccurrence: StackOccurrence? { session?.nextOccurrence }
     var canAdjustTraversal: Bool { session?.canAdjustTraversal ?? false }
+    var hasPendingOccurrence: Bool { session?.hasPendingOccurrence ?? false }
+    var currentPasteReservation: StackPasteReservation? {
+        guard let session, let occurrence = session.reservedOccurrence else { return nil }
+        return StackPasteReservation(sessionID: session.captureContext.sessionID, occurrence: occurrence)
+    }
     /// Snapshot this on the pasteboard-observation turn before deferred work.
     /// It prevents older observations from entering a later session.
     var captureContext: StackCaptureContext? { session?.captureContext }
@@ -133,6 +249,7 @@ final class StackSessionController: ObservableObject {
         publishSessionState()
         hasCaptureError = false
         hasCopyCommandDispatchFailure = false
+        setPasteFailure(nil)
         return true
     }
 
@@ -196,17 +313,85 @@ final class StackSessionController: ObservableObject {
         return true
     }
 
+    /// This is called synchronously by the active event tap. It changes only
+    /// private domain state; the deferred executor publishes the processing
+    /// UI state after the current event-loop turn.
+    func acceptNextPasteInput() -> StackPasteInputDisposition {
+        guard let session, session.canConsumePasteInput else { return .passThrough }
+        guard session.reservedOccurrenceID == nil else { return .consume }
+        guard session.reserveNextOccurrenceForPaste() != nil else { return .consume }
+        return .consumeAndDispatch
+    }
+
+    func publishReservedPasteState() {
+        guard session?.reservedOccurrenceID != nil else { return }
+        setPasteFailure(nil)
+        publishSessionState()
+    }
+
+    func isPasteReservationCurrent(_ reservation: StackPasteReservation) -> Bool {
+        guard session?.captureContext.sessionID == reservation.sessionID else { return false }
+        return session?.isReservationCurrent(reservation.occurrence.id) ?? false
+    }
+
+    func completePasteReservation(_ reservation: StackPasteReservation) -> Bool {
+        guard session?.captureContext.sessionID == reservation.sessionID,
+              let session,
+              session.completeReservation(id: reservation.occurrence.id)
+        else { return false }
+        setPasteFailure(nil)
+        publishSessionState()
+        return true
+    }
+
+    func releasePasteReservation(_ reservation: StackPasteReservation, failure: StackPasteFailure) {
+        guard session?.captureContext.sessionID == reservation.sessionID,
+              let session,
+              session.releaseReservation(id: reservation.occurrence.id)
+        else { return }
+        setPasteFailure(failure)
+        publishSessionState()
+    }
+
+    func recordInputUnavailable() {
+        guard let session else { return }
+        if let reservationID = session.reservedOccurrenceID {
+            _ = session.releaseReservation(id: reservationID)
+        }
+        setPasteFailure(.inputUnavailable)
+        publishSessionState()
+    }
+
+    /// Called one deferred turn after publishing the final all-used snapshot.
+    @discardableResult
+    func finishCompletedSession(sessionID: UUID) -> Bool {
+        guard session?.captureContext.sessionID == sessionID, session?.isCompleted == true else { return false }
+        cancel()
+        return true
+    }
+
     func cancel() {
         session = nil
         publishSessionState()
         hasCaptureError = false
         hasCopyCommandDispatchFailure = false
+        setPasteFailure(nil)
     }
 
     private func publishSessionState() {
-        occurrences = session?.occurrences ?? []
-        traversalDirection = session?.traversalDirection ?? .direct
-        traversalHasStarted = session?.traversalHasStarted ?? false
+        let newOccurrences = session?.occurrences ?? []
+        let newDirection = session?.traversalDirection ?? .direct
+        let newTraversalHasStarted = session?.traversalHasStarted ?? false
+        if occurrences != newOccurrences { occurrences = newOccurrences }
+        if traversalDirection != newDirection { traversalDirection = newDirection }
+        if traversalHasStarted != newTraversalHasStarted {
+            traversalHasStarted = newTraversalHasStarted
+        }
+    }
+
+    private func setPasteFailure(_ newValue: StackPasteFailure?) {
+        guard pasteFailure != newValue else { return }
+        pasteFailure = newValue
     }
 }
 

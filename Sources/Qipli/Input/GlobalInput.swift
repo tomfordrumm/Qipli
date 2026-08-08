@@ -8,6 +8,18 @@ enum GlobalHotKey: Equatable {
 enum GlobalInputAction: Equatable {
     case hotKey(GlobalHotKey)
     case cancelPasteStack
+    case pasteStackItem
+    /// The current stack input is already reserved. Consume key repeat without
+    /// scheduling a second transaction.
+    case consumePasteStackItem
+}
+
+/// The synchronous decision returned to the active event tap for ordinary
+/// Command-V while a Stack session exists.
+enum StackPasteInputDisposition: Equatable {
+    case passThrough
+    case consume
+    case consumeAndDispatch
 }
 
 enum GlobalInputStatus: Equatable {
@@ -41,9 +53,11 @@ protocol GlobalInputEventAdapting: AnyObject {
     var status: GlobalInputStatus { get }
     var onHotKey: ((GlobalHotKey) -> Void)? { get set }
     var onEscape: (() -> Void)? { get set }
+    var onStackPaste: (() -> Void)? { get set }
     /// The adapter reads this synchronously from its active event filter so it
     /// can consume Escape only while a Stack session exists.
     var shouldConsumeEscape: (() -> Bool)? { get set }
+    var stackPasteInterception: (() -> StackPasteInputDisposition)? { get set }
     var onStatusChange: ((GlobalInputStatus) -> Void)? { get set }
 
     @discardableResult func start() -> GlobalInputStatus
@@ -60,7 +74,9 @@ final class InputCoordinator {
     }
     var onHotKey: ((GlobalHotKey) -> Void)?
     var onEscape: (() -> Void)?
+    var onStackPaste: (() -> Void)?
     var shouldConsumeEscape: (() -> Bool)?
+    var stackPasteInterception: (() -> StackPasteInputDisposition)?
     var onStatusChange: ((GlobalInputStatus) -> Void)?
 
     init(permissionService: AccessibilityPermissionChecking, eventAdapter: GlobalInputEventAdapting) {
@@ -75,6 +91,12 @@ final class InputCoordinator {
         }
         eventAdapter.shouldConsumeEscape = { [weak self] in
             self?.shouldConsumeEscape?() ?? false
+        }
+        eventAdapter.stackPasteInterception = { [weak self] in
+            self?.stackPasteInterception?() ?? .passThrough
+        }
+        eventAdapter.onStackPaste = { [weak self] in
+            self?.onStackPaste?()
         }
         eventAdapter.onStatusChange = { [weak self] status in
             self?.status = status

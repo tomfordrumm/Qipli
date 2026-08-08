@@ -10,6 +10,7 @@ final class ApplicationShell: NSObject {
     private let stackSessionController: StackSessionController
     private let stackCaptureCoordinator: StackCollectionCaptureCoordinator
     private let stackCollectionStarter: StackCollectionStarter
+    private let stackSequentialPasteExecutor: StackSequentialPasteExecutor
     private let pasteboardMonitor: PasteboardMonitor
     private var retentionTimer: Timer?
     private let statusItem: NSStatusItem
@@ -76,6 +77,16 @@ final class ApplicationShell: NSObject {
             }
         )
         panels = panelController
+        stackSequentialPasteExecutor = StackSequentialPasteExecutor(
+            permissionService: permissionService,
+            pasteboardWriter: SystemHistoryPasteboardWriter(),
+            registerSelfWrite: { [weak pasteboardMonitor] changeCount in
+                pasteboardMonitor?.registerSelfWrite(changeCount: changeCount)
+            },
+            commandDispatcher: commandDispatcher,
+            sessionController: stackSessionController,
+            finishPresentation: { panelController.finishPasteStackAfterCompletion() }
+        )
         let resolvedCopyCommandDispatcher = copyCommandDispatcher
             ?? (inputAdapter as? TaggedCopyCommandDispatching)
             ?? UnavailableCopyCommandDispatcher()
@@ -88,8 +99,15 @@ final class ApplicationShell: NSObject {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
 
-        inputCoordinator.onStatusChange = { [weak self] _ in
-            self?.updatePermissionMenuTitle()
+        inputCoordinator.onStatusChange = { [weak self] status in
+            guard let self else { return }
+            self.updatePermissionMenuTitle()
+            switch status {
+            case .permissionRequired, .unavailable:
+                self.stackSessionController.recordInputUnavailable()
+            case .stopped, .ready:
+                break
+            }
         }
         inputCoordinator.onHotKey = { [weak self] hotKey in
             switch hotKey {
@@ -101,6 +119,12 @@ final class ApplicationShell: NSObject {
         }
         inputCoordinator.shouldConsumeEscape = { [weak stackSessionController] in
             stackSessionController?.isActive ?? false
+        }
+        inputCoordinator.stackPasteInterception = { [weak stackSessionController] in
+            stackSessionController?.acceptNextPasteInput() ?? .passThrough
+        }
+        inputCoordinator.onStackPaste = { [weak stackSequentialPasteExecutor] in
+            stackSequentialPasteExecutor?.executeReservedPaste()
         }
         inputCoordinator.onEscape = { [weak self] in
             self?.cancelPasteStack()
@@ -211,12 +235,22 @@ final class ApplicationShell: NSObject {
             showPermissionStatus()
             return
         }
+        refreshInputAvailability()
+        guard inputCoordinator.status == .ready else {
+            showPermissionStatus()
+            return
+        }
         stackCollectionStarter.startFromHotKey()
         updatePasteStackMenuTitle()
     }
 
     private func startPasteStackFromMenu() {
         guard permissionService.refresh() == .granted else {
+            showPermissionStatus()
+            return
+        }
+        refreshInputAvailability()
+        guard inputCoordinator.status == .ready else {
             showPermissionStatus()
             return
         }

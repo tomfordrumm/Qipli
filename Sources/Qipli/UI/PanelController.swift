@@ -90,6 +90,13 @@ final class PanelController {
         onPasteStackCancelled?()
     }
 
+    /// S006 has already published the all-used state before this deferred
+    /// presentation cleanup. Do not reactivate the former target here.
+    func finishPasteStackAfterCompletion() {
+        stackPanel?.orderOut(nil)
+        onPasteStackCancelled?()
+    }
+
     func showPermission(requestAccess: @escaping () -> Void, openSettings: @escaping () -> Void) {
         let panel = permissionPanel ?? makePanel(title: "Accessibility Permission") {
             PermissionStatusView(

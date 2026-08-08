@@ -144,6 +144,50 @@ final class CGEventTapAdapterClassificationTests: XCTestCase {
         XCTAssertEqual(CGEventTapAdapter.eventTapOptions, .defaultTap)
     }
 
+    func testOrdinaryCommandVIsConsumedOnlyWhenStackAdmissionSaysSo() throws {
+        let ordinaryPaste = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
+        let modifiedPaste = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_V), flags: [.maskCommand, .maskAlternate])
+        let taggedPaste = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
+        taggedPaste.setIntegerValueField(.eventSourceUserData, value: SyntheticEventMarker.sourceUserData)
+
+        XCTAssertNil(CGEventTapAdapter.consumedAction(
+            type: .keyDown,
+            event: ordinaryPaste,
+            stackSessionIsActive: true,
+            stackPasteInterception: { .passThrough }
+        ))
+        XCTAssertEqual(CGEventTapAdapter.consumedAction(
+            type: .keyDown,
+            event: ordinaryPaste,
+            stackSessionIsActive: true,
+            stackPasteInterception: { .consumeAndDispatch }
+        ), .pasteStackItem)
+        XCTAssertEqual(CGEventTapAdapter.consumedAction(
+            type: .keyDown,
+            event: ordinaryPaste,
+            stackSessionIsActive: true,
+            stackPasteInterception: { .consume }
+        ), .consumePasteStackItem)
+        XCTAssertNil(CGEventTapAdapter.consumedAction(
+            type: .keyUp,
+            event: ordinaryPaste,
+            stackSessionIsActive: true,
+            stackPasteInterception: { .consumeAndDispatch }
+        ))
+        XCTAssertNil(CGEventTapAdapter.consumedAction(
+            type: .keyDown,
+            event: modifiedPaste,
+            stackSessionIsActive: true,
+            stackPasteInterception: { .consumeAndDispatch }
+        ))
+        XCTAssertNil(CGEventTapAdapter.consumedAction(
+            type: .keyDown,
+            event: taggedPaste,
+            stackSessionIsActive: true,
+            stackPasteInterception: { .consumeAndDispatch }
+        ))
+    }
+
     private func makeKeyEvent(keyCode: CGKeyCode, flags: CGEventFlags) throws -> CGEvent {
         let event = try XCTUnwrap(CGEvent(
             keyboardEventSource: CGEventSource(stateID: .combinedSessionState),
@@ -210,7 +254,9 @@ private final class FakeInputAdapter: GlobalInputEventAdapting {
     private(set) var status: GlobalInputStatus = .stopped
     var onHotKey: ((GlobalHotKey) -> Void)?
     var onEscape: (() -> Void)?
+    var onStackPaste: (() -> Void)?
     var shouldConsumeEscape: (() -> Bool)?
+    var stackPasteInterception: (() -> StackPasteInputDisposition)?
     var onStatusChange: ((GlobalInputStatus) -> Void)?
     private var startResults: [GlobalInputStatus]
     private(set) var startCount = 0
