@@ -1,7 +1,7 @@
 ---
 id: S008
 title: Приватность и релиз через GitHub
-status: planned
+status: blocked
 depends_on:
   - S003
   - S007
@@ -114,4 +114,4 @@ covers:
 
 ### Оставшиеся проблемы
 
-Зависит от S003 и S007; перед началом нужны signing/notarization credentials.
+Заблокировано 2026-08-08: у пользователя пока нет платного Apple Developer Program membership, Developer ID Application certificate и notarization credentials. Локальная разработка и S009 могут продолжаться независимо.

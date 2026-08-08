@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import Qipli
 
@@ -359,6 +360,139 @@ final class HistoryPanelIntentTests: XCTestCase {
         XCTAssertEqual(trace.deletedIDs, [entry.id])
         XCTAssertTrue(trace.selectedIDs.isEmpty)
         XCTAssertEqual(trace.pasteCount, 0)
+    }
+
+    func testEmptyQueryAdmitsTheExactSelectedEntryForSearchDelete() {
+        let selected = makeEntry("selected fixture", offset: 1)
+        let other = makeEntry("other fixture", offset: 2)
+
+        let admitted = HistorySearchDeleteAdmission.selectedEntry(
+            query: "",
+            state: .list([selected, other]),
+            selectedEntry: selected
+        )
+
+        XCTAssertEqual(admitted?.id, selected.id)
+    }
+
+    func testNonEmptyQueryNoSelectionAndNonListStatePassSearchDeleteThrough() {
+        let entry = makeEntry("fixture", offset: 1)
+
+        XCTAssertNil(HistorySearchDeleteAdmission.selectedEntry(
+            query: "f",
+            state: .list([entry]),
+            selectedEntry: entry
+        ))
+        XCTAssertNil(HistorySearchDeleteAdmission.selectedEntry(
+            query: "",
+            state: .list([entry]),
+            selectedEntry: nil
+        ))
+        XCTAssertNil(HistorySearchDeleteAdmission.selectedEntry(
+            query: "",
+            state: .empty,
+            selectedEntry: entry
+        ))
+    }
+
+    func testLocalDeleteMonitorAdmissionRequiresFocusedKeyWindowAndPhysicalUnmodifiedNonrepeatDelete() {
+        let entry = makeEntry("selected fixture", offset: 1)
+        let sharedContext: (query: String, state: HistoryViewState, selectedEntry: HistoryEntry?) = (
+            "",
+            .list([entry]),
+            entry
+        )
+        let backward = HistorySearchDeleteEvent(key: .backward, hasDisallowedModifiers: false, isRepeat: false)
+        let forward = HistorySearchDeleteEvent(key: .forward, hasDisallowedModifiers: false, isRepeat: false)
+
+        XCTAssertEqual(HistorySearchDeleteAdmission.selectedEntry(
+            for: backward,
+            isSearchFocused: true,
+            isEventInKeyWindow: true,
+            query: sharedContext.query,
+            state: sharedContext.state,
+            selectedEntry: sharedContext.selectedEntry
+        )?.id, entry.id)
+        XCTAssertEqual(HistorySearchDeleteAdmission.selectedEntry(
+            for: forward,
+            isSearchFocused: true,
+            isEventInKeyWindow: true,
+            query: sharedContext.query,
+            state: sharedContext.state,
+            selectedEntry: sharedContext.selectedEntry
+        )?.id, entry.id)
+
+        let rejectedEvents = [
+            HistorySearchDeleteEvent(key: .backward, hasDisallowedModifiers: true, isRepeat: false),
+            HistorySearchDeleteEvent(key: .forward, hasDisallowedModifiers: false, isRepeat: true),
+            HistorySearchDeleteEvent(key: .other, hasDisallowedModifiers: false, isRepeat: false)
+        ]
+        for event in rejectedEvents {
+            XCTAssertNil(HistorySearchDeleteAdmission.selectedEntry(
+                for: event,
+                isSearchFocused: true,
+                isEventInKeyWindow: true,
+                query: sharedContext.query,
+                state: sharedContext.state,
+                selectedEntry: sharedContext.selectedEntry
+            ))
+        }
+
+        XCTAssertNil(HistorySearchDeleteAdmission.selectedEntry(
+            for: backward,
+            isSearchFocused: false,
+            isEventInKeyWindow: true,
+            query: sharedContext.query,
+            state: sharedContext.state,
+            selectedEntry: sharedContext.selectedEntry
+        ))
+        XCTAssertNil(HistorySearchDeleteAdmission.selectedEntry(
+            for: backward,
+            isSearchFocused: true,
+            isEventInKeyWindow: false,
+            query: sharedContext.query,
+            state: sharedContext.state,
+            selectedEntry: sharedContext.selectedEntry
+        ))
+    }
+
+    func testPhysicalDeleteEventNormalizationAcceptsCapsFnAndNumericPadButRejectsShortcutModifiers() throws {
+        let backward = HistorySearchDeleteEvent(event: try makeKeyEvent(keyCode: 51))
+        let forward = HistorySearchDeleteEvent(event: try makeKeyEvent(keyCode: 117))
+        let other = HistorySearchDeleteEvent(event: try makeKeyEvent(keyCode: 0))
+        let modified = HistorySearchDeleteEvent(event: try makeKeyEvent(
+            keyCode: 51,
+            modifierFlags: [.command, .capsLock, .function, .numericPad]
+        ))
+        let acceptedFlags = HistorySearchDeleteEvent(event: try makeKeyEvent(
+            keyCode: 51,
+            modifierFlags: [.capsLock, .function, .numericPad]
+        ))
+
+        XCTAssertEqual(backward.key, .backward)
+        XCTAssertEqual(forward.key, .forward)
+        XCTAssertEqual(other.key, .other)
+        XCTAssertFalse(acceptedFlags.hasDisallowedModifiers)
+        XCTAssertTrue(modified.hasDisallowedModifiers)
+    }
+
+    private func makeKeyEvent(
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags = [],
+        isARepeat: Bool = false
+    ) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: isARepeat,
+            keyCode: keyCode
+        ))
     }
 
     private func makeEntry(_ text: String, offset: TimeInterval) -> HistoryEntry {

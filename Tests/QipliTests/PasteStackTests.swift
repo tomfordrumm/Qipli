@@ -202,8 +202,6 @@ final class StackSessionControllerTests: XCTestCase {
 
         XCTAssertEqual(PasteStackPanelAccessibility.directionLabel, "Traversal direction")
         XCTAssertEqual(PasteStackPanelAccessibility.nextItemLabel, "Next item")
-        XCTAssertEqual(PasteStackPanelAccessibility.moveLabel(position: 1, direction: .up), "Move item 2 up")
-        XCTAssertEqual(PasteStackPanelAccessibility.moveLabel(position: 1, direction: .down), "Move item 2 down")
 
         XCTAssertEqual(PasteStackPanelControlState(occurrenceCount: 0, canAdjustTraversal: true), .init(occurrenceCount: 0, canAdjustTraversal: true))
         XCTAssertFalse(PasteStackPanelControlState(occurrenceCount: 0, canAdjustTraversal: true).canReorder)
@@ -211,6 +209,38 @@ final class StackSessionControllerTests: XCTestCase {
         XCTAssertFalse(PasteStackPanelControlState(occurrenceCount: 1, canAdjustTraversal: true).canReorder)
         XCTAssertTrue(PasteStackPanelControlState(occurrenceCount: 3, canAdjustTraversal: true).canMove(position: 1, by: -1))
         XCTAssertFalse(PasteStackPanelControlState(occurrenceCount: 3, canAdjustTraversal: false).canMove(position: 1, by: 1))
+    }
+
+    func testDirectionToggleAndAccessibleMoveAdmissionDescribeOnlyAvailableActions() {
+        XCTAssertEqual(
+            PasteStackDirectionToggleConfiguration.resolve(direction: .direct),
+            .init(
+                iconSystemName: "arrow.down",
+                nextDirection: .reverse,
+                accessibilityValue: "Top to bottom",
+                accessibilityHint: "Switches to bottom to top"
+            )
+        )
+        XCTAssertEqual(
+            PasteStackDirectionToggleConfiguration.resolve(direction: .reverse),
+            .init(
+                iconSystemName: "arrow.up",
+                nextDirection: .direct,
+                accessibilityValue: "Bottom to top",
+                accessibilityHint: "Switches to top to bottom"
+            )
+        )
+
+        let adjustable = PasteStackPanelControlState(occurrenceCount: 3, canAdjustTraversal: true)
+        XCTAssertEqual(adjustable.accessibilityMoveDirections(position: 0), [.down])
+        XCTAssertEqual(adjustable.accessibilityMoveDirections(position: 1), [.up, .down])
+        XCTAssertEqual(adjustable.accessibilityMoveDirections(position: 2), [.up])
+        XCTAssertTrue(PasteStackPanelControlState(
+            occurrenceCount: 3,
+            canAdjustTraversal: false
+        ).accessibilityMoveDirections(position: 1).isEmpty)
+        XCTAssertEqual(PasteStackPanelAccessibility.moveActionLabel(direction: .up), "Move Up")
+        XCTAssertEqual(PasteStackPanelAccessibility.moveActionLabel(direction: .down), "Move Down")
     }
 
     func testStackPanelIntentsDeferEachControllerPublicationUntilScheduledActionRuns() {

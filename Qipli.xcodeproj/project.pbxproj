@@ -31,6 +31,8 @@
 		A00100000000000000000022 /* PasteStackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000026 /* PasteStackTests.swift */; };
 		A00100000000000000000023 /* StackCollectionStarter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000027 /* StackCollectionStarter.swift */; };
 		A00100000000000000000024 /* StackSequentialPasteExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000028 /* StackSequentialPasteExecutor.swift */; };
+		A00100000000000000000029 /* PanelMaterialProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000029 /* PanelMaterialProvider.swift */; };
+		A00100000000000000000030 /* PanelMaterialProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000030 /* PanelMaterialProviderTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -72,6 +74,8 @@
 		A00200000000000000000026 /* PasteStackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteStackTests.swift; sourceTree = "<group>"; };
 		A00200000000000000000027 /* StackCollectionStarter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackCollectionStarter.swift; sourceTree = "<group>"; };
 		A00200000000000000000028 /* StackSequentialPasteExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackSequentialPasteExecutor.swift; sourceTree = "<group>"; };
+		A00200000000000000000029 /* PanelMaterialProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelMaterialProvider.swift; sourceTree = "<group>"; };
+		A00200000000000000000030 /* PanelMaterialProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelMaterialProviderTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -142,6 +146,7 @@
 			children = (
 				A00200000000000000000006 /* PanelController.swift */,
 				A00200000000000000000007 /* PlaceholderViews.swift */,
+				A00200000000000000000029 /* PanelMaterialProvider.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -154,6 +159,7 @@
 				A00200000000000000000021 /* HistoryStoreTests.swift */,
 				A00200000000000000000023 /* HistorySearchPasteTests.swift */,
 				A00200000000000000000026 /* PasteStackTests.swift */,
+				A00200000000000000000030 /* PanelMaterialProviderTests.swift */,
 			);
 			path = Tests/QipliTests;
 			sourceTree = "<group>";
@@ -314,6 +320,7 @@
 				A00100000000000000000018 /* HistoryPasteExecutor.swift in Sources */,
 				A00100000000000000000006 /* PanelController.swift in Sources */,
 				A00100000000000000000007 /* PlaceholderViews.swift in Sources */,
+				A00100000000000000000029 /* PanelMaterialProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -326,6 +333,7 @@
 				A00100000000000000000017 /* HistoryStoreTests.swift in Sources */,
 				A00100000000000000000019 /* HistorySearchPasteTests.swift in Sources */,
 				A00100000000000000000022 /* PasteStackTests.swift in Sources */,
+				A00100000000000000000030 /* PanelMaterialProviderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

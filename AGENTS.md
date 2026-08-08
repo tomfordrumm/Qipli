@@ -17,6 +17,7 @@
 - `docs/slices/S006-stack-sequential-paste.md` — последовательная вставка, used-state и auto-finish.
 - `docs/slices/S007-stack-recovery-cancel.md` — reactivation и отмена стека.
 - `docs/slices/S008-release-hardening.md` — privacy hardening и подписанный GitHub-релиз.
+- `docs/slices/S009-adaptive-glass-panels.md` — адаптивные стеклянные панели для macOS 14+.
 
 ### Выбор контекста по задаче
 

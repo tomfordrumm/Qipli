@@ -1,6 +1,6 @@
 # Qipli — журнал решений
 
-Дата актуализации: 2026-08-07
+Дата актуализации: 2026-08-08
 
 Статусы: `accepted` — подтверждённое решение; `proposed` — рабочее предложение агента, которое можно заменить до зависимого среза; `assumption` — видимое предположение; `superseded` — заменённое решение.
 
@@ -153,3 +153,13 @@
 - Решение: exact untagged `⌘⇧Z` при active Stack и хотя бы одном successfully dispatched occurrence повторно активирует только последний such UUID как one-shot Next. Он не вставляет немедленно; пользователь нажимает обычный `⌘V`. До первой successful dispatch, вне active Stack, для tagged/keyUp/other modifiers shortcut проходит без изменения. Повтор до новой successful dispatch идемпотентен, а manual Reactivate может быть заменён этим priority.
 - Причина: UUID priority сохраняет traversal cursor, не требует отслеживать target app и оставляет system Redo нетронутым вне narrow Stack contract.
 - Последствия: StackSession хранит one reactivation priority и last successfully dispatched UUID; failure rollback оставляет reactivation used/priority retryable, cancel/finish освобождает оба значения.
+
+## D-016 — Адаптивный regular glass без повышения deployment target
+
+- Статус: `accepted`
+- Дата: 2026-08-08
+- Источник: пользователь; Apple HIG Materials и AppKit API перепроверены 2026-08-08
+- Контекст: History, Paste Stack и Permission должны выглядеть как прозрачные стеклянные overlay-панели на новых macOS, но первая версия продолжает поддерживать macOS 14+.
+- Решение: все три панели используют общий material boundary. На macOS 26+ он оборачивает content в один `NSGlassEffectView` со style `regular`; на macOS 14–25 использует один семантический `NSVisualEffectView` fallback. Нативные title bar, close control и window dragging сохраняются; `clear` и полностью borderless chrome не входят в S009.
+- Причина: настоящий Liquid Glass доступен только с macOS 26. `regular` рекомендован для поверхностей с большим количеством текста, лучше сохраняет читаемость и системно адаптируется к accessibility settings. Один effect container на panel снижает rendering cost и визуальный шум.
+- Последствия: deployment target остаётся macOS 14; реализация компилируется latest SDK с availability branch, не меняет focus/nonactivating behavior и требует ручной visual/accessibility matrix на macOS 26 и fallback-проверку на macOS 14–25.

@@ -29,6 +29,8 @@ Qipli — нативное menu bar приложение на Swift. Интер�
 - Apple, [`CGEvent`](https://developer.apple.com/documentation/coregraphics/cgevent), включая event taps, и [`tapEnable`](https://developer.apple.com/documentation/coregraphics/cgevent/tapenable(tap:enable:)).
 - Apple, [`CGEventTapOptions.defaultTap`](https://developer.apple.com/documentation/coregraphics/cgeventtapoptions/defaulttap): active filter может возвращать `nil`, чтобы потребить exact event; passive tap не может менять stream. Callback вызывается на run loop, а разрешение/маска могут сделать создание tap недоступным.
 - Apple, [`NSWindowDelegate.windowShouldClose(_:)`](https://developer.apple.com/documentation/appkit/nswindowdelegate/windowshouldclose(_:)) и [`NSWindow.orderOut(_:)`](https://developer.apple.com/documentation/appkit/nswindow/orderout(_:)): delegate перехватывает user close reusable panel, а `orderOut` скрывает её без release.
+- Apple, [Human Interface Guidelines: Materials](https://developer.apple.com/design/human-interface-guidelines/materials) и [Adopting Liquid Glass](https://developer.apple.com/documentation/TechnologyOverviews/adopting-liquid-glass): Liquid Glass образует функциональный слой, применяется умеренно, а `regular` предпочтителен для text-heavy surfaces и системно адаптируется к Reduce Transparency/Increase Contrast.
+- Apple, [`NSGlassEffectView`](https://developer.apple.com/documentation/appkit/nsglasseffectview) и [`NSVisualEffectView`](https://developer.apple.com/documentation/appkit/nsvisualeffectview): настоящий AppKit glass доступен с macOS 26, тогда как semantic visual-effect material является fallback для deployment target macOS 14.
 - Apple, [`CGEvent.post(tap:)`](https://developer.apple.com/documentation/coregraphics/cgevent/post(tap:)): tagged synthetic Copy входит в Quartz event stream перед taps в выбранной позиции; [`eventSourceUserData`](https://developer.apple.com/documentation/coregraphics/cgeventfield/eventsourcuserdata) содержит 64-bit marker, а [`CGEventSource`](https://developer.apple.com/documentation/coregraphics/cgeventsource) описывает state generated/posted events.
 - Apple, [`NSWindow.CollectionBehavior.canJoinAllSpaces`](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/canjoinallspaces) и [`fullScreenAuxiliary`](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/fullscreenauxiliary): вспомогательная panel показывается во всех Spaces и рядом с full-screen window.
 - Apple, [`NSScreen`](https://developer.apple.com/documentation/appkit/nsscreen): список displays и `visibleFrame` для placement временной panel.
@@ -36,7 +38,7 @@ Qipli — нативное menu bar приложение на Swift. Интер�
 - Apple, [Protecting user data with App Sandbox](https://developer.apple.com/documentation/security/protecting-user-data-with-app-sandbox) и [App Sandbox](https://developer.apple.com/documentation/security/app-sandbox).
 - Apple, [Preparing your app for distribution](https://developer.apple.com/documentation/xcode/preparing-your-app-for-distribution), [Hardened Runtime](https://developer.apple.com/documentation/security/hardened-runtime) и [Notarizing macOS software before distribution](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
 
-Базовые ссылки и выводы проверены 2026-08-06. S006/S007 повторно сверили scoped input/panel contracts 2026-08-08: `.defaultTap` как active filter (только он может вернуть `nil` и удалить exact event), callback run-loop delivery, permission/mask failure, 64-bit `eventSourceUserData`, ownership `changeCount` и `clearContents()` result; `windowShouldClose(_:)` как user-close interception и `orderOut(_:)` для hiding reusable nonactivating panel. Release, sandbox/entitlements и остальные platform sources этим recheck не подтверждаются и должны быть перепроверены перед изменением соответствующих контрактов и перед S008.
+Базовые ссылки и выводы проверены 2026-08-06. S006/S007 повторно сверили scoped input/panel contracts 2026-08-08: `.defaultTap` как active filter (только он может вернуть `nil` и удалить exact event), callback run-loop delivery, permission/mask failure, 64-bit `eventSourceUserData`, ownership `changeCount` и `clearContents()` result; `windowShouldClose(_:)` как user-close interception и `orderOut(_:)` для hiding reusable nonactivating panel. S009 design recheck 2026-08-08 подтвердил HIG material hierarchy и local macOS 26 SDK availability `NSGlassEffectView` при сохранении `NSVisualEffectView` fallback. Release, sandbox/entitlements и остальные platform sources этим recheck не подтверждаются и должны быть перепроверены перед изменением соответствующих контрактов и перед S008.
 
 ## 3. Компоненты и ответственность
 
@@ -94,6 +96,17 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
 - помечают элемент used после отправки команды вставки, а не после недоступного подтверждения целевого поля;
 - распознают собственное синтетическое событие, чтобы избежать рекурсии;
 - реагируют на системное отключение event tap, пытаются безопасно переустановить его и показывают ошибку при неуспехе.
+
+### Panel material boundary
+
+- `PanelController` сохраняет ownership, lifecycle, activation, focus, close delegate, level, Spaces/full-screen и display-placement contracts; material wrapper не принимает feature decisions;
+- один AppKit factory/provider оборачивает existing `NSHostingView` каждой History/Paste Stack/Permission panel в ровно один outer material surface;
+- на macOS 26+ provider использует `NSGlassEffectView` style `regular`; вызов закрыт `#available(macOS 26.0, *)`, поэтому deployment target остаётся macOS 14;
+- на macOS 14–25 provider использует `NSVisualEffectView` с semantic `.popover` material, `.behindWindow` blending и system-managed state; implementation не имитирует Liquid Glass custom blur/shader;
+- panel использует `.fullSizeContentView` вместе с clear nonopaque background и transparent title bar, поэтому outer material покрывает native title bar; feature-owned `NSHostingView` constraint’ится к `contentLayoutGuide`, чтобы не попасть под traffic lights/toolbar area при сохранённых titled/closable chrome, dragging и accessibility semantics;
+- Lists, rows и individual controls не получают отдельные custom glass layers. На macOS 26 standard controls принимают актуальное системное оформление автоматически;
+- system labels/selection colors и accessibility settings определяют contrast. Reduce Transparency может сделать surface непрозрачнее, и код не пытается обходить этот выбор пользователя;
+- capability selection имеет injected deterministic seam, но ни tests, ни provider не читают clipboard payload.
 
 ## 4. Критические последовательности
 
@@ -227,6 +240,7 @@ QipliUITests/         in-app keyboard and panel flows
 - UI: focus поиска, arrows, selection, empty/no-results, stack states и drag reorder внутри Qipli;
 - S004: session uniqueness/duplicates/release, save-before-append, stale deferred capture token/start watermark, hotkey start → panel → tagged source-Copy ordering/repeat/menu-empty/failure, Escape active-filter contract и pure multi-display placement clamp;
 - S005: 0/1/N direct/reverse next, exact-ID reorder with duplicate text, contiguous positions, invalid atomic rejection, append after reorder, traversal lock and drag/accessibility intent seam;
+- S009: capability/provider selection, one-surface-per-panel configuration и неизменность History activation/Paste Stack nonactivation/window lifecycle contracts;
 - build: Debug и Release для deployment target macOS 14.
 
 ### Вручную на чистой системе
@@ -237,6 +251,7 @@ QipliUITests/         in-app keyboard and panel flows
 - sleep/wake, повторный запуск, отключение event tap системой;
 - удаление истории и проверка отсутствия её записей после перезапуска;
 - запуск подписанного notarized артефакта, Gatekeeper и повторная проверка разрешения после обновления.
+- S009 visual matrix на macOS 26+ и fallback macOS 14–25: все панели, Light/Dark, Reduce Transparency, Increase Contrast, разные desktop backgrounds, focus/nonactivation и clean console.
 
 ## 10. Сборка и распространение
 

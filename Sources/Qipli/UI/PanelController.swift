@@ -12,6 +12,7 @@ final class PanelController {
     private let screenProvider: PanelScreenProviding
     private let openAccessibilitySettings: () -> Void
     private let activationPresenter: PanelActivationPresenter
+    private let materialProvider: PanelMaterialProvider
     private var historyPanel: NSPanel?
     private var stackPanel: NSPanel?
     private var permissionPanel: NSPanel?
@@ -29,6 +30,7 @@ final class PanelController {
         frontmostApplicationCapture: FrontmostApplicationCapturing = SystemFrontmostApplicationCapture(),
         screenProvider: PanelScreenProviding = SystemPanelScreenProvider(),
         applicationActivator: QipliApplicationActivating? = nil,
+        materialProvider: PanelMaterialProvider? = nil,
         activationScheduler: @escaping (@escaping () -> Void) -> Void = { action in
             RunLoop.main.perform(inModes: [.common]) { action() }
         },
@@ -41,6 +43,7 @@ final class PanelController {
         self.frontmostApplicationCapture = frontmostApplicationCapture
         self.screenProvider = screenProvider
         self.openAccessibilitySettings = openAccessibilitySettings
+        self.materialProvider = materialProvider ?? PanelMaterialProvider()
         let resolvedApplicationActivator = applicationActivator ?? SystemQipliApplicationActivator()
         activationPresenter = PanelActivationPresenter(
             application: resolvedApplicationActivator,
@@ -55,7 +58,7 @@ final class PanelController {
             historyPasteTarget = frontmostApplicationCapture.capturePriorApplication()
         }
         historyViewModel.prepareForPresentation()
-        let panel = historyPanel ?? makePanel(title: "History", acceptsKeyboardInput: true) {
+        let panel = historyPanel ?? makePanel(kind: .history) {
             HistoryPanelView(
                 viewModel: self.historyViewModel,
                 permissionService: self.permissionService,
@@ -75,10 +78,7 @@ final class PanelController {
 
     func showPasteStack() {
         let panel = stackPanel ?? makeStackPanel {
-            PasteStackPanelView(
-                sessionController: self.stackSessionController,
-                cancel: { [weak self] in self?.cancelPasteStack() }
-            )
+            PasteStackPanelView(sessionController: self.stackSessionController)
         }
         stackPanel = panel
         present(panel, activatesApplication: false, placeOnCurrentScreen: true)
@@ -98,7 +98,7 @@ final class PanelController {
     }
 
     func showPermission(requestAccess: @escaping () -> Void, openSettings: @escaping () -> Void) {
-        let panel = permissionPanel ?? makePanel(title: "Accessibility Permission") {
+        let panel = permissionPanel ?? makePanel(kind: .permission) {
             PermissionStatusView(
                 permissionService: self.permissionService,
                 requestAccess: requestAccess,
@@ -148,42 +148,31 @@ final class PanelController {
     }
 
     private func makePanel<Content: View>(
-        title: String,
-        acceptsKeyboardInput: Bool = false,
+        kind: PanelKind,
         @ViewBuilder content: () -> Content
     ) -> NSPanel {
-        var styleMask: NSWindow.StyleMask = [.titled, .closable, .utilityWindow]
-        if !acceptsKeyboardInput {
-            styleMask.insert(.nonactivatingPanel)
-        }
+        let configuration = PanelWindowConfiguration.make(for: kind)
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
-            styleMask: styleMask,
+            contentRect: configuration.contentRect,
+            styleMask: configuration.styleMask,
             backing: .buffered,
             defer: false
         )
-        panel.title = title
-        panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.hidesOnDeactivate = false
-        panel.contentView = NSHostingView(rootView: content())
+        configuration.applyPresentation(to: panel)
+        materialProvider.install(content: NSHostingView(rootView: content()), in: panel)
         return panel
     }
 
     private func makeStackPanel<Content: View>(@ViewBuilder content: () -> Content) -> NSPanel {
+        let configuration = PanelWindowConfiguration.make(for: .pasteStack)
         let panel = NonActivatingStackPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 360),
-            styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
+            contentRect: configuration.contentRect,
+            styleMask: configuration.styleMask,
             backing: .buffered,
             defer: false
         )
-        panel.title = "Paste Stack"
-        panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.hidesOnDeactivate = false
-        panel.contentView = NSHostingView(rootView: content())
+        configuration.applyPresentation(to: panel)
+        materialProvider.install(content: NSHostingView(rootView: content()), in: panel)
 
         let closeDelegate = StackPanelCloseDelegate { [weak self] in
             self?.cancelPasteStack()

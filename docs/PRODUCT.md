@@ -2,7 +2,7 @@
 
 Статус: согласованный план MVP
 
-Дата актуализации: 2026-08-06
+Дата актуализации: 2026-08-08
 
 Источник исходного замысла: [`../PROJECT_BRIEF.md`](../PROJECT_BRIEF.md)
 
@@ -96,6 +96,7 @@ Qipli — бесплатное open-source приложение для macOS, к
 | FR-014 | После обработки всех активных элементов стек автоматически завершается и панель закрывается. | Бриф |
 | FR-015 | Пока стек активен, глобальный `Esc` или закрытие панели завершает незавершённый стек, но не удаляет соответствующие записи истории. | Бриф |
 | FR-016 | При отсутствии Accessibility-разрешения Qipli объясняет ограничение, помогает открыть системные настройки и не имитирует успешную вставку. | Необходимое следствие платформы |
+| FR-017 | History, Paste Stack и Permission используют единый адаптивный нативный material: настоящий regular Liquid Glass на macOS 26+ и семантический standard material на macOS 14–25, сохраняя нативные title bar, close и window dragging. | Подтверждено пользователем 2026-08-08 |
 
 ## 5. Бизнес-правила
 
@@ -124,6 +125,7 @@ Qipli — бесплатное open-source приложение для macOS, к
 | NFR-006 | Отказ хранения, разрешения или системной вставки приводит к видимому состоянию с возможностью повторить действие; приложение не заявляет об успехе молча. |
 | NFR-007 | Публичный бинарник подписан Developer ID, использует Hardened Runtime, проходит notarization и проверяется на чистой поддерживаемой macOS. |
 | NFR-008 | Тестируемая бизнес-логика отделена от AppKit/Core Graphics адаптеров; автоматические тесты не должны требовать реального содержимого пользовательского буфера. |
+| NFR-009 | Материалы панелей сохраняют читаемость и системную адаптацию в Light/Dark Mode, Reduce Transparency и Increase Contrast; прозрачность или цвет не являются единственным сигналом состояния. |
 
 ## 7. Состояния и ошибки интерфейса
 
@@ -132,6 +134,8 @@ Qipli — бесплатное open-source приложение для macOS, к
 - загрузка локального хранилища;
 - пустая история;
 - результаты и текущий keyboard selection;
+- нативный title bar — единственный заголовок History; Search и Clear All находятся в одной верхней строке, а видимой нижней кнопки Paste нет: Enter и double-click выбранной exact occurrence остаются способами вставки; Search использует compact neutral system shell без меняющегося blue focus outline, но сохраняет native caret/focus и VoiceOver hint для фильтра и Up/Down selection;
+- удаление конкретной occurrence доступно отдельной нативной кнопкой с символом `trash`, доступным именем и help «Delete»; при пустом Search и выбранной occurrence локальный `⌫`/Delete удаляет только эту occurrence, а при непустом Search остаётся обычным text editing и ничего не удаляет из history; выделенная строка имеет ненавязчивую rounded surface и outline системного accent color, не конкурируя с Search shell;
 - нет совпадений;
 - ошибка чтения/удаления;
 - Accessibility-разрешение отсутствует: просмотр и удаление доступны, вставка недоступна с объяснением;
@@ -142,11 +146,22 @@ Qipli — бесплатное open-source приложение для macOS, к
 - пустой активный стек («скопируйте первый текст»);
 - сбор элементов;
 - готовность к вставке с явным следующим элементом и направлением;
+- native title bar — единственный заголовок Paste Stack; List является основной поверхностью без in-content status/cancel/direction/reorder текста;
+- compact direction icon toggle показывает `arrow.down` для direct/top-to-bottom и `arrow.up` для reverse/bottom-to-top, меняет только direction через существующий deferred intent и disabled после traversal lock; его доступные label/value/hint сообщают текущее направление и результат toggle;
+- pending rows при доступном reorder сохраняют native drag и получают только decorative drag handle; VoiceOver получает Move Up/Move Down actions с теми же UUID и bounds, а next row отличима не только цветом — compact icon plus subtle rounded system-accent surface;
 - процесс вставки: pending/next/used-disabled;
 - повторно активированный элемент;
 - отсутствие разрешения или временно недоступный event tap;
 - завершение после последнего элемента;
 - отмена пользователем.
+
+### Accessibility Permission
+
+- native title bar — единственный заголовок Permission panel; content содержит ровно одно краткое status sentence и одну релевантную кнопку без дублирующего menu description;
+- `notRequested`: «Enable Accessibility for global shortcuts and paste.» и `Allow Access`, который запрашивает существующее системное разрешение;
+- `denied`: «Accessibility access is off.» и `Open System Settings`;
+- `granted`: «Accessibility access is enabled.» и `Open System Settings` для управления или отзыва разрешения;
+- панель компактна, но сохраняет native close, system material, nonactivation и Spaces/full-screen contracts.
 
 ## 8. Владение, видимость и приватность
 
