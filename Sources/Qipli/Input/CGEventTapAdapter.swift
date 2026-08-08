@@ -7,8 +7,10 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
     var onHotKey: ((GlobalHotKey) -> Void)?
     var onEscape: (() -> Void)?
     var onStackPaste: (() -> Void)?
+    var onReactivatePrevious: (() -> Void)?
     var shouldConsumeEscape: (() -> Bool)?
     var stackPasteInterception: (() -> StackPasteInputDisposition)?
+    var reactivationPreviousInterception: (() -> StackReactivationInputDisposition)?
     var onStatusChange: ((GlobalInputStatus) -> Void)?
 
     private var recoveryPolicy = EventTapRecoveryPolicy(maximumAttempts: 2)
@@ -93,7 +95,8 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
             type: type,
             event: event,
             stackSessionIsActive: adapter.shouldConsumeEscape?() ?? false,
-            stackPasteInterception: adapter.stackPasteInterception
+            stackPasteInterception: adapter.stackPasteInterception,
+            reactivationPreviousInterception: adapter.reactivationPreviousInterception
         )
         adapter.handle(type: type, event: event, action: action)
         return action == nil ? Unmanaged.passUnretained(event) : nil
@@ -117,6 +120,10 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
                 case .pasteStackItem:
                     self?.onStackPaste?()
                 case .consumePasteStackItem:
+                    break
+                case .reactivatePreviousStackItem:
+                    self?.onReactivatePrevious?()
+                case .consumeReactivatePreviousStackItem:
                     break
                 }
             }
@@ -164,7 +171,8 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         type: CGEventType,
         event: CGEvent,
         stackSessionIsActive: Bool,
-        stackPasteInterception: (() -> StackPasteInputDisposition)? = nil
+        stackPasteInterception: (() -> StackPasteInputDisposition)? = nil,
+        reactivationPreviousInterception: (() -> StackReactivationInputDisposition)? = nil
     ) -> GlobalInputAction? {
         guard type == .keyDown,
               !SyntheticEventMarker.isQipliSynthetic(
@@ -176,6 +184,17 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
 
         if let hotKey = hotKey(for: event) {
             return .hotKey(hotKey)
+        }
+
+        if isExactCommandShiftZ(event) {
+            switch reactivationPreviousInterception?() ?? .passThrough {
+            case .passThrough:
+                return nil
+            case .consume:
+                return .consumeReactivatePreviousStackItem
+            case .consumeAndReactivate:
+                return .reactivatePreviousStackItem
+            }
         }
 
         if isExactOrdinaryCommandV(event) {
@@ -203,6 +222,14 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         return event.getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_ANSI_V)
             && flags.contains(.maskCommand)
             && flags.intersection([.maskShift, .maskControl, .maskAlternate]).isEmpty
+    }
+
+    private static func isExactCommandShiftZ(_ event: CGEvent) -> Bool {
+        let flags = event.flags
+        return event.getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_ANSI_Z)
+            && flags.contains(.maskCommand)
+            && flags.contains(.maskShift)
+            && flags.intersection([.maskControl, .maskAlternate]).isEmpty
     }
 
     private func recoverFromDisabledTap() {

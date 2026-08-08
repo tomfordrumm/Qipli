@@ -188,6 +188,50 @@ final class CGEventTapAdapterClassificationTests: XCTestCase {
         ))
     }
 
+    func testReactivatePreviousConsumesOnlyExactAdmittedCommandShiftZ() throws {
+        let reactivate = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_Z), flags: [.maskCommand, .maskShift])
+        let modified = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_Z), flags: [.maskCommand, .maskShift, .maskAlternate])
+        let tagged = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_Z), flags: [.maskCommand, .maskShift])
+        tagged.setIntegerValueField(.eventSourceUserData, value: SyntheticEventMarker.sourceUserData)
+
+        XCTAssertNil(CGEventTapAdapter.consumedAction(
+            type: .keyDown,
+            event: reactivate,
+            stackSessionIsActive: true,
+            reactivationPreviousInterception: { .passThrough }
+        ))
+        XCTAssertEqual(CGEventTapAdapter.consumedAction(
+            type: .keyDown,
+            event: reactivate,
+            stackSessionIsActive: true,
+            reactivationPreviousInterception: { .consumeAndReactivate }
+        ), .reactivatePreviousStackItem)
+        XCTAssertEqual(CGEventTapAdapter.consumedAction(
+            type: .keyDown,
+            event: reactivate,
+            stackSessionIsActive: true,
+            reactivationPreviousInterception: { .consume }
+        ), .consumeReactivatePreviousStackItem)
+        XCTAssertNil(CGEventTapAdapter.consumedAction(
+            type: .keyUp,
+            event: reactivate,
+            stackSessionIsActive: true,
+            reactivationPreviousInterception: { .consumeAndReactivate }
+        ))
+        XCTAssertNil(CGEventTapAdapter.consumedAction(
+            type: .keyDown,
+            event: modified,
+            stackSessionIsActive: true,
+            reactivationPreviousInterception: { .consumeAndReactivate }
+        ))
+        XCTAssertNil(CGEventTapAdapter.consumedAction(
+            type: .keyDown,
+            event: tagged,
+            stackSessionIsActive: true,
+            reactivationPreviousInterception: { .consumeAndReactivate }
+        ))
+    }
+
     private func makeKeyEvent(keyCode: CGKeyCode, flags: CGEventFlags) throws -> CGEvent {
         let event = try XCTUnwrap(CGEvent(
             keyboardEventSource: CGEventSource(stateID: .combinedSessionState),
@@ -255,8 +299,10 @@ private final class FakeInputAdapter: GlobalInputEventAdapting {
     var onHotKey: ((GlobalHotKey) -> Void)?
     var onEscape: (() -> Void)?
     var onStackPaste: (() -> Void)?
+    var onReactivatePrevious: (() -> Void)?
     var shouldConsumeEscape: (() -> Bool)?
     var stackPasteInterception: (() -> StackPasteInputDisposition)?
+    var reactivationPreviousInterception: (() -> StackReactivationInputDisposition)?
     var onStatusChange: ((GlobalInputStatus) -> Void)?
     private var startResults: [GlobalInputStatus]
     private(set) var startCount = 0

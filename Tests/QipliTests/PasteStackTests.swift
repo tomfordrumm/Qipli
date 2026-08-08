@@ -232,6 +232,32 @@ final class StackSessionControllerTests: XCTestCase {
         XCTAssertEqual(controller.occurrences.map(\.id), [original[1].id, original[0].id])
     }
 
+    func testReactivateIntentIsUUIDBasedDeferredAndAccessible() {
+        let controller = configuredController(with: ["used", "pending"])
+        let usedID = controller.occurrences[0].id
+        XCTAssertTrue(controller.markTraversalStarted())
+        XCTAssertEqual(controller.acceptNextPasteInput(), .consumeAndDispatch)
+        XCTAssertTrue(controller.completePasteReservation(try! XCTUnwrap(controller.currentPasteReservation)))
+
+        let scheduler = QueuedStackIntentScheduler()
+        let executor = PasteStackPanelIntentExecutor(
+            occurrences: { controller.occurrences },
+            canAdjustTraversal: { controller.canAdjustTraversal },
+            setTraversalDirection: controller.setTraversalDirection,
+            reorder: controller.reorder,
+            reactivate: controller.reactivateOccurrence,
+            schedule: scheduler.schedule
+        )
+        executor.execute(.reactivate(usedID))
+        XCTAssertNil(controller.reactivationPriorityID)
+        XCTAssertEqual(scheduler.pendingCount, 1)
+        scheduler.runNext()
+        XCTAssertEqual(controller.reactivationPriorityID, usedID)
+        XCTAssertEqual(PasteStackPanelAccessibility.reactivatedNextItemLabel, "Reactivated item is next")
+        XCTAssertEqual(PasteStackPanelAccessibility.reactivatingItemLabel, "Preparing reactivated item")
+        XCTAssertEqual(PasteStackPanelAccessibility.reactivateLabel(position: 1), "Reactivate used item 2")
+    }
+
     func testDeferredReorderUsesCapturedIDsAndRejectsAppendRaceAtomically() {
         let controller = configuredController(with: ["one", "two"])
         let scheduler = QueuedStackIntentScheduler()
@@ -508,6 +534,284 @@ final class StackSessionControllerTests: XCTestCase {
         XCTAssertEqual(controller.nextOccurrence?.text, "two")
     }
 
+    func testReactivationPriorityPreservesDirectAndReverseTraversalCursors() {
+        let direct = configuredController(with: ["direct first", "direct next"])
+        let directWriter = StackPasteWriter(changeCount: 10)
+        let directExecutor = makeSequentialExecutor(
+            controller: direct,
+            writer: directWriter,
+            dispatcher: StackPasteDispatcher(results: [true, true])
+        )
+        let directFirstID = direct.nextOccurrence?.id
+        XCTAssertEqual(direct.acceptNextPasteInput(), .consumeAndDispatch)
+        directExecutor.executeReservedPaste()
+        let directTraversalNextID = direct.nextOccurrence?.id
+        XCTAssertTrue(direct.reactivateOccurrence(id: try! XCTUnwrap(directFirstID)))
+        XCTAssertEqual(direct.nextOccurrence?.id, directFirstID)
+        XCTAssertEqual(direct.acceptNextPasteInput(), .consumeAndDispatch)
+        directExecutor.executeReservedPaste()
+        XCTAssertNil(direct.reactivationPriorityID)
+        XCTAssertEqual(direct.nextOccurrence?.id, directTraversalNextID)
+
+        let reverse = configuredController(with: ["reverse last", "reverse next"])
+        XCTAssertTrue(reverse.setTraversalDirection(.reverse))
+        let reverseWriter = StackPasteWriter(changeCount: 20)
+        let reverseExecutor = makeSequentialExecutor(
+            controller: reverse,
+            writer: reverseWriter,
+            dispatcher: StackPasteDispatcher(results: [true, true])
+        )
+        let reverseFirstID = reverse.nextOccurrence?.id
+        XCTAssertEqual(reverse.acceptNextPasteInput(), .consumeAndDispatch)
+        reverseExecutor.executeReservedPaste()
+        let reverseTraversalNextID = reverse.nextOccurrence?.id
+        XCTAssertTrue(reverse.reactivateOccurrence(id: try! XCTUnwrap(reverseFirstID)))
+        XCTAssertEqual(reverse.acceptNextPasteInput(), .consumeAndDispatch)
+        reverseExecutor.executeReservedPaste()
+        XCTAssertEqual(reverse.nextOccurrence?.id, reverseTraversalNextID)
+    }
+
+    func testReactivationReplacementRepeatAndFailureRollbackKeepUsedPriorityRetryable() {
+        let controller = configuredController(with: ["first", "second", "pending"])
+        let writer = StackPasteWriter(changeCount: 30)
+        let executor = makeSequentialExecutor(
+            controller: controller,
+            writer: writer,
+            dispatcher: StackPasteDispatcher(results: [true, true, true])
+        )
+        let firstID = controller.occurrences[0].id
+        let secondID = controller.occurrences[1].id
+        let pendingID = controller.occurrences[2].id
+
+        for _ in 0 ..< 2 {
+            XCTAssertEqual(controller.acceptNextPasteInput(), .consumeAndDispatch)
+            executor.executeReservedPaste()
+        }
+        XCTAssertEqual(controller.nextOccurrence?.id, pendingID)
+
+        XCTAssertTrue(controller.reactivateOccurrence(id: firstID))
+        XCTAssertEqual(controller.reactivationPriorityID, firstID)
+        XCTAssertTrue(controller.reactivateOccurrence(id: secondID))
+        XCTAssertEqual(controller.reactivationPriorityID, secondID)
+        XCTAssertTrue(controller.reactivateOccurrence(id: secondID))
+
+        writer.shouldFail = true
+        XCTAssertEqual(controller.acceptNextPasteInput(), .consumeAndDispatch)
+        XCTAssertEqual(controller.currentPasteReservation?.origin, .reactivation)
+        executor.executeReservedPaste()
+        XCTAssertEqual(controller.occurrences.first(where: { $0.id == secondID })?.state, .used)
+        XCTAssertEqual(controller.reactivationPriorityID, secondID)
+        XCTAssertEqual(controller.nextOccurrence?.id, secondID)
+        XCTAssertEqual(controller.pasteFailure, .pasteboardWriteFailed)
+
+        writer.shouldFail = false
+        XCTAssertEqual(controller.acceptNextPasteInput(), .consumeAndDispatch)
+        executor.executeReservedPaste()
+        XCTAssertNil(controller.reactivationPriorityID)
+        XCTAssertEqual(controller.nextOccurrence?.id, pendingID)
+        XCTAssertEqual(writer.texts, ["first", "second", "second"])
+    }
+
+    func testReactivatePreviousUsesLastSuccessDoesNotPasteImmediatelyAndIsIdempotent() {
+        let controller = configuredController(with: ["previous", "pending"])
+        let writer = StackPasteWriter(changeCount: 40)
+        let dispatcher = StackPasteDispatcher(results: [true, true])
+        let executor = makeSequentialExecutor(controller: controller, writer: writer, dispatcher: dispatcher)
+        let previousID = controller.occurrences[0].id
+        let pendingID = controller.occurrences[1].id
+
+        XCTAssertEqual(controller.acceptReactivatePreviousInput(), .passThrough)
+        XCTAssertEqual(controller.acceptNextPasteInput(), .consumeAndDispatch)
+        executor.executeReservedPaste()
+        XCTAssertEqual(controller.nextOccurrence?.id, pendingID)
+
+        var publicationCount = 0
+        let observation = controller.objectWillChange.sink { _ in publicationCount += 1 }
+        defer { observation.cancel() }
+
+        XCTAssertEqual(controller.acceptReactivatePreviousInput(), .consumeAndReactivate)
+        controller.publishAcceptedReactivatePreviousState()
+        XCTAssertEqual(controller.reactivationPriorityID, previousID)
+        XCTAssertEqual(writer.texts, ["previous"])
+        XCTAssertEqual(publicationCount, 1)
+        XCTAssertEqual(controller.acceptReactivatePreviousInput(), .consumeAndReactivate)
+        controller.publishAcceptedReactivatePreviousState()
+        XCTAssertEqual(controller.reactivationPriorityID, previousID)
+        XCTAssertEqual(writer.texts, ["previous"])
+        XCTAssertEqual(publicationCount, 1)
+
+        XCTAssertEqual(controller.acceptNextPasteInput(), .consumeAndDispatch)
+        executor.executeReservedPaste()
+        XCTAssertEqual(writer.texts, ["previous", "previous"])
+        XCTAssertNil(controller.reactivationPriorityID)
+        XCTAssertEqual(controller.nextOccurrence?.id, pendingID)
+    }
+
+    func testReactivatePreviousReplacesManualPriorityAndLeavesInFlightReservationUnchanged() {
+        let controller = configuredController(with: ["manual", "previous", "pending"])
+        let writer = StackPasteWriter(changeCount: 50)
+        let executor = makeSequentialExecutor(
+            controller: controller,
+            writer: writer,
+            dispatcher: StackPasteDispatcher(results: [true, true, true])
+        )
+        let manualID = controller.occurrences[0].id
+        let previousID = controller.occurrences[1].id
+
+        for _ in 0 ..< 2 {
+            XCTAssertEqual(controller.acceptNextPasteInput(), .consumeAndDispatch)
+            executor.executeReservedPaste()
+        }
+        XCTAssertTrue(controller.reactivateOccurrence(id: manualID))
+        XCTAssertEqual(controller.reactivationPriorityID, manualID)
+        XCTAssertEqual(controller.acceptReactivatePreviousInput(), .consumeAndReactivate)
+        controller.publishAcceptedReactivatePreviousState()
+        XCTAssertEqual(controller.reactivationPriorityID, previousID)
+
+        XCTAssertEqual(controller.acceptNextPasteInput(), .consumeAndDispatch)
+        let reservationID = controller.currentPasteReservation?.occurrence.id
+        XCTAssertEqual(controller.acceptReactivatePreviousInput(), .consume)
+        XCTAssertEqual(controller.currentPasteReservation?.occurrence.id, reservationID)
+        executor.executeReservedPaste()
+    }
+
+    func testUsedReactivationDuringTraversalProcessingKeepsReservationAndBecomesNext() {
+        let controller = configuredController(with: ["used", "processing", "later"])
+        let writer = StackPasteWriter(changeCount: 55)
+        let production = QueuedFinishScheduler()
+        let executor = makeSequentialExecutor(
+            controller: controller,
+            writer: writer,
+            dispatcher: StackPasteDispatcher(results: [true, true]),
+            productionSchedule: production.schedule
+        )
+        let usedID = controller.occurrences[0].id
+        let processingID = controller.occurrences[1].id
+
+        XCTAssertEqual(controller.acceptNextPasteInput(), .consumeAndDispatch)
+        executor.executeReservedPaste()
+        production.runNext()
+        XCTAssertEqual(controller.acceptNextPasteInput(), .consumeAndDispatch)
+        XCTAssertEqual(controller.currentPasteReservation?.occurrence.id, processingID)
+        XCTAssertTrue(controller.reactivateOccurrence(id: usedID))
+        XCTAssertEqual(controller.reactivationPriorityID, usedID)
+        XCTAssertEqual(controller.currentPasteReservation?.occurrence.id, processingID)
+        executor.executeReservedPaste()
+        production.runNext()
+        XCTAssertEqual(controller.nextOccurrence?.id, usedID)
+    }
+
+    func testReactivateRejectsPendingProcessingAndStaleIDsWithoutPublishingExtraState() {
+        let controller = configuredController(with: ["used", "pending"])
+        let writer = StackPasteWriter(changeCount: 60)
+        let production = QueuedFinishScheduler()
+        let executor = makeSequentialExecutor(
+            controller: controller,
+            writer: writer,
+            dispatcher: StackPasteDispatcher(results: [true]),
+            productionSchedule: production.schedule
+        )
+        let usedID = controller.occurrences[0].id
+        let pendingID = controller.occurrences[1].id
+
+        XCTAssertFalse(controller.reactivateOccurrence(id: pendingID))
+        XCTAssertFalse(controller.reactivateOccurrence(id: UUID()))
+        XCTAssertEqual(controller.acceptNextPasteInput(), .consumeAndDispatch)
+        executor.executeReservedPaste()
+        production.runNext()
+        XCTAssertTrue(controller.reactivateOccurrence(id: usedID))
+        XCTAssertEqual(controller.acceptNextPasteInput(), .consumeAndDispatch)
+        XCTAssertFalse(controller.reactivateOccurrence(id: usedID))
+        controller.cancel()
+        XCTAssertFalse(controller.reactivateOccurrence(id: usedID))
+        XCTAssertEqual(controller.acceptReactivatePreviousInput(), .passThrough)
+    }
+
+    func testReactivationPreventsDeferredAutoFinishAndCancellationInvalidatesAllReservations() {
+        let controller = configuredController(with: ["finish fixture"])
+        let writer = StackPasteWriter(changeCount: 70)
+        let finish = QueuedFinishScheduler()
+        let executor = makeSequentialExecutor(
+            controller: controller,
+            writer: writer,
+            dispatcher: StackPasteDispatcher(results: [true]),
+            finishScheduler: finish
+        )
+        let itemID = controller.occurrences[0].id
+
+        XCTAssertEqual(controller.acceptNextPasteInput(), .consumeAndDispatch)
+        executor.executeReservedPaste()
+        XCTAssertEqual(finish.pendingCount, 1)
+        XCTAssertTrue(controller.reactivateOccurrence(id: itemID))
+        finish.runNext()
+        XCTAssertTrue(controller.isActive)
+        XCTAssertEqual(controller.reactivationPriorityID, itemID)
+
+        let production = QueuedFinishScheduler()
+        let canceledExecutor = makeSequentialExecutor(
+            controller: controller,
+            writer: writer,
+            dispatcher: StackPasteDispatcher(results: [true]),
+            productionSchedule: production.schedule
+        )
+        XCTAssertEqual(controller.acceptNextPasteInput(), .consumeAndDispatch)
+        canceledExecutor.executeReservedPaste()
+        controller.cancel()
+        controller.cancel()
+        XCTAssertEqual(controller.acceptNextPasteInput(), .passThrough)
+        XCTAssertEqual(controller.acceptReactivatePreviousInput(), .passThrough)
+        production.runNext()
+        XCTAssertEqual(writer.texts, ["finish fixture"])
+    }
+
+    func testCancelIsImmediateAndIdempotentForEmptyCollectingPartialPriorityAndProcessingSessions() {
+        let empty = StackSessionController()
+        XCTAssertTrue(empty.startIfNeeded(captureAfterChangeCount: 1))
+        empty.cancel()
+        empty.cancel()
+        XCTAssertFalse(empty.isActive)
+        XCTAssertEqual(empty.acceptNextPasteInput(), .passThrough)
+
+        let collecting = configuredController(with: ["collecting"])
+        collecting.cancel()
+        collecting.cancel()
+        XCTAssertFalse(collecting.isActive)
+        XCTAssertTrue(collecting.occurrences.isEmpty)
+
+        let partial = configuredController(with: ["used", "pending"])
+        let partialExecutor = makeSequentialExecutor(
+            controller: partial,
+            writer: StackPasteWriter(changeCount: 80),
+            dispatcher: StackPasteDispatcher(results: [true])
+        )
+        XCTAssertEqual(partial.acceptNextPasteInput(), .consumeAndDispatch)
+        partialExecutor.executeReservedPaste()
+        partial.cancel()
+        XCTAssertFalse(partial.isActive)
+
+        let priority = configuredController(with: ["priority", "pending"])
+        let priorityExecutor = makeSequentialExecutor(
+            controller: priority,
+            writer: StackPasteWriter(changeCount: 90),
+            dispatcher: StackPasteDispatcher(results: [true])
+        )
+        let priorityID = priority.occurrences[0].id
+        XCTAssertEqual(priority.acceptNextPasteInput(), .consumeAndDispatch)
+        priorityExecutor.executeReservedPaste()
+        XCTAssertTrue(priority.reactivateOccurrence(id: priorityID))
+        priority.cancel()
+        XCTAssertNil(priority.reactivationPriorityID)
+        XCTAssertFalse(priority.isActive)
+
+        let processing = configuredController(with: ["processing"])
+        XCTAssertEqual(processing.acceptNextPasteInput(), .consumeAndDispatch)
+        XCTAssertNotNil(processing.currentPasteReservation)
+        processing.cancel()
+        processing.cancel()
+        XCTAssertNil(processing.currentPasteReservation)
+        XCTAssertEqual(processing.acceptNextPasteInput(), .passThrough)
+    }
+
     func testPasteAdmissionPassesThroughForInactiveEmptyAndFinishedStacks() {
         let controller = StackSessionController()
         XCTAssertEqual(controller.acceptNextPasteInput(), .passThrough)
@@ -629,6 +933,37 @@ final class StackSessionControllerTests: XCTestCase {
         monitor.poll()
 
         XCTAssertEqual(writer.returnedChangeCounts, [11])
+        XCTAssertEqual(observed, 0)
+    }
+
+    func testReactivatedPasteAlsoRegistersOnlyItsExactSelfWritesWithoutHistoryDuplicate() {
+        let pasteboard = StackTestPasteboard(changeCount: 20)
+        let controller = configuredController(with: ["reactivation suppression fixture"])
+        var observed = 0
+        let monitor = PasteboardMonitor(pasteboard: pasteboard) { _ in observed += 1 }
+        let writer = StackPasteboardWriter(pasteboard: pasteboard)
+        let finish = QueuedFinishScheduler()
+        let executor = StackSequentialPasteExecutor(
+            permissionService: StackPastePermission(state: .granted),
+            pasteboardWriter: writer,
+            registerSelfWrite: monitor.registerSelfWrite,
+            commandDispatcher: StackPasteDispatcher(results: [true, true]),
+            sessionController: controller,
+            scheduleProduction: { $0() },
+            scheduleAutoFinish: finish.schedule,
+            finishPresentation: {}
+        )
+        let occurrenceID = controller.occurrences[0].id
+
+        XCTAssertEqual(controller.acceptNextPasteInput(), .consumeAndDispatch)
+        executor.executeReservedPaste()
+        monitor.poll()
+        XCTAssertTrue(controller.reactivateOccurrence(id: occurrenceID))
+        XCTAssertEqual(controller.acceptNextPasteInput(), .consumeAndDispatch)
+        executor.executeReservedPaste()
+        monitor.poll()
+
+        XCTAssertEqual(writer.returnedChangeCounts, [21, 22])
         XCTAssertEqual(observed, 0)
     }
 

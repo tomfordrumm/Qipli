@@ -123,8 +123,19 @@ final class ApplicationShell: NSObject {
         inputCoordinator.stackPasteInterception = { [weak stackSessionController] in
             stackSessionController?.acceptNextPasteInput() ?? .passThrough
         }
+        inputCoordinator.reactivationPreviousInterception = { [weak stackSessionController] in
+            stackSessionController?.acceptReactivatePreviousInput() ?? .passThrough
+        }
         inputCoordinator.onStackPaste = { [weak stackSequentialPasteExecutor] in
             stackSequentialPasteExecutor?.executeReservedPaste()
+        }
+        inputCoordinator.onReactivatePrevious = { [weak stackSessionController] in
+            // The event tap already made the UUID-only decision. Publish on the
+            // shared common-mode boundary so a SwiftUI List is never mutated
+            // during input handling or another view-update transaction.
+            PasteStackPanelIntentScheduler.schedule {
+                stackSessionController?.publishAcceptedReactivatePreviousState()
+            }
         }
         inputCoordinator.onEscape = { [weak self] in
             self?.cancelPasteStack()

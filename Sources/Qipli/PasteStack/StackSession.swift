@@ -54,11 +54,20 @@ struct StackCaptureContext: Equatable, Sendable {
     let captureAfterChangeCount: Int
 }
 
+/// The prior state to restore when deferred paste production cannot finish.
+/// A reactivation never becomes pending: it remains used and keeps its
+/// one-shot priority until a tagged command is successfully dispatched.
+enum StackPasteReservationOrigin: Equatable, Sendable {
+    case traversal
+    case reactivation
+}
+
 /// Immutable snapshot handed from the synchronous event-tap reservation to
 /// deferred paste production. It contains no mutable UI state.
 struct StackPasteReservation: Equatable, Sendable {
     let sessionID: UUID
     let occurrence: StackOccurrence
+    let origin: StackPasteReservationOrigin
 }
 
 /// In-memory Stack state machine. Its base order and traversal direction are
@@ -69,8 +78,21 @@ final class StackSession {
     private(set) var traversalDirection: StackTraversalDirection = .direct
     private(set) var traversalHasStarted = false
     private(set) var reservedOccurrenceID: UUID?
+    private(set) var reservedOccurrenceOrigin: StackPasteReservationOrigin?
+    /// At most one already-used occurrence can take precedence over traversal.
+    /// It intentionally survives a failed retry and is cleared only after its
+    /// tagged paste command dispatch completes.
+    private(set) var reactivationPriorityID: UUID?
+    /// This is deliberately a single exact UUID, not an undo history. It is
+    /// updated only after Qipli successfully dispatches tagged Command-V.
+    private(set) var lastSuccessfullyDispatchedOccurrenceID: UUID?
 
     var nextOccurrence: StackOccurrence? {
+        if let reactivationPriorityID,
+           let priority = occurrence(id: reactivationPriorityID),
+           priority.state == .used {
+            return priority
+        }
         let pending = occurrences.filter { $0.state == .pending }
         return switch traversalDirection {
         case .direct: pending.first
@@ -78,8 +100,8 @@ final class StackSession {
         }
     }
 
-    var hasPendingOccurrence: Bool { nextOccurrence != nil }
-    var canConsumePasteInput: Bool { hasPendingOccurrence || reservedOccurrenceID != nil }
+    var hasPendingOccurrence: Bool { occurrences.contains { $0.state == .pending } }
+    var canConsumePasteInput: Bool { nextOccurrence != nil || reservedOccurrenceID != nil }
     var reservedOccurrence: StackOccurrence? {
         guard let reservedOccurrenceID else { return nil }
         return occurrence(id: reservedOccurrenceID)
@@ -106,29 +128,39 @@ final class StackSession {
         return occurrence
     }
 
-    /// Atomically selects exactly one pending occurrence and locks traversal.
-    /// The caller must either complete or release this reservation.
+    /// Atomically selects either the one-shot reactivation priority or the
+    /// traversal next occurrence, then locks traversal. The caller must either
+    /// complete or release this reservation.
     func reserveNextOccurrenceForPaste() -> StackOccurrence? {
         guard reservedOccurrenceID == nil, let nextOccurrence else { return nil }
         traversalHasStarted = true
         reservedOccurrenceID = nextOccurrence.id
+        reservedOccurrenceOrigin = nextOccurrence.id == reactivationPriorityID
+            ? .reactivation
+            : .traversal
         updateOccurrence(id: nextOccurrence.id, state: .processing)
         return occurrence(id: nextOccurrence.id)
     }
 
     @discardableResult
     func completeReservation(id: UUID) -> Bool {
-        guard reservedOccurrenceID == id else { return false }
+        guard reservedOccurrenceID == id, let reservedOccurrenceOrigin else { return false }
         updateOccurrence(id: id, state: .used)
         reservedOccurrenceID = nil
+        self.reservedOccurrenceOrigin = nil
+        if reservedOccurrenceOrigin == .reactivation, reactivationPriorityID == id {
+            reactivationPriorityID = nil
+        }
+        lastSuccessfullyDispatchedOccurrenceID = id
         return true
     }
 
     @discardableResult
     func releaseReservation(id: UUID) -> Bool {
-        guard reservedOccurrenceID == id else { return false }
-        updateOccurrence(id: id, state: .pending)
+        guard reservedOccurrenceID == id, let reservedOccurrenceOrigin else { return false }
+        updateOccurrence(id: id, state: reservedOccurrenceOrigin == .reactivation ? .used : .pending)
         reservedOccurrenceID = nil
+        self.reservedOccurrenceOrigin = nil
         return true
     }
 
@@ -137,7 +169,33 @@ final class StackSession {
     }
 
     var isCompleted: Bool {
-        reservedOccurrenceID == nil && !occurrences.isEmpty && occurrences.allSatisfy { $0.state == .used }
+        reservedOccurrenceID == nil
+            && reactivationPriorityID == nil
+            && !occurrences.isEmpty
+            && occurrences.allSatisfy { $0.state == .used }
+    }
+
+    /// Makes one exact used occurrence the next paste without changing the
+    /// pending traversal cursor. Repeating the same request is safe.
+    @discardableResult
+    func reactivateOccurrence(id: UUID) -> Bool {
+        guard occurrence(id: id)?.state == .used
+        else { return false }
+        reactivationPriorityID = id
+        return true
+    }
+
+    /// Reactivates only the latest successfully dispatched occurrence. An
+    /// ordinary traversal reservation can continue unchanged while this becomes
+    /// its subsequent one-shot priority. A reactivation reservation itself is
+    /// processing (and therefore cannot be selected again).
+    @discardableResult
+    func reactivatePreviousOccurrence() -> StackReactivationInputDisposition {
+        guard lastSuccessfullyDispatchedOccurrenceID != nil else { return .passThrough }
+        guard let lastSuccessfullyDispatchedOccurrenceID,
+              reactivateOccurrence(id: lastSuccessfullyDispatchedOccurrenceID)
+        else { return .consume }
+        return .consumeAndReactivate
     }
 
     /// Replaces the base order atomically. Exact occurrence IDs, rather than
@@ -226,16 +284,25 @@ final class StackSessionController: ObservableObject {
     @Published private(set) var hasCaptureError = false
     @Published private(set) var hasCopyCommandDispatchFailure = false
     @Published private(set) var pasteFailure: StackPasteFailure?
+    @Published private(set) var reactivationPriorityID: UUID?
 
     private(set) var session: StackSession?
 
     var isActive: Bool { session != nil }
     var nextOccurrence: StackOccurrence? { session?.nextOccurrence }
+    var hasReactivationPriority: Bool { reactivationPriorityID != nil }
     var canAdjustTraversal: Bool { session?.canAdjustTraversal ?? false }
     var hasPendingOccurrence: Bool { session?.hasPendingOccurrence ?? false }
     var currentPasteReservation: StackPasteReservation? {
-        guard let session, let occurrence = session.reservedOccurrence else { return nil }
-        return StackPasteReservation(sessionID: session.captureContext.sessionID, occurrence: occurrence)
+        guard let session,
+              let occurrence = session.reservedOccurrence,
+              let origin = session.reservedOccurrenceOrigin
+        else { return nil }
+        return StackPasteReservation(
+            sessionID: session.captureContext.sessionID,
+            occurrence: occurrence,
+            origin: origin
+        )
     }
     /// Snapshot this on the pasteboard-observation turn before deferred work.
     /// It prevents older observations from entering a later session.
@@ -323,6 +390,28 @@ final class StackSessionController: ObservableObject {
         return .consumeAndDispatch
     }
 
+    /// The event tap calls this synchronously. It changes only domain state;
+    /// the callback schedules the observed-object update after the current
+    /// event-loop turn so List layout is never mutated in-place.
+    func acceptReactivatePreviousInput() -> StackReactivationInputDisposition {
+        guard let session else { return .passThrough }
+        return session.reactivatePreviousOccurrence()
+    }
+
+    /// Reactivate is exposed by UI only for used rows, but validates the exact
+    /// UUID again so stale/deferred List actions cannot change another row.
+    @discardableResult
+    func reactivateOccurrence(id: UUID) -> Bool {
+        guard let session, session.reactivateOccurrence(id: id) else { return false }
+        publishSessionState()
+        return true
+    }
+
+    func publishAcceptedReactivatePreviousState() {
+        guard session?.reactivationPriorityID != nil else { return }
+        publishSessionState()
+    }
+
     func publishReservedPasteState() {
         guard session?.reservedOccurrenceID != nil else { return }
         setPasteFailure(nil)
@@ -382,10 +471,14 @@ final class StackSessionController: ObservableObject {
         let newOccurrences = session?.occurrences ?? []
         let newDirection = session?.traversalDirection ?? .direct
         let newTraversalHasStarted = session?.traversalHasStarted ?? false
+        let newReactivationPriorityID = session?.reactivationPriorityID
         if occurrences != newOccurrences { occurrences = newOccurrences }
         if traversalDirection != newDirection { traversalDirection = newDirection }
         if traversalHasStarted != newTraversalHasStarted {
             traversalHasStarted = newTraversalHasStarted
+        }
+        if reactivationPriorityID != newReactivationPriorityID {
+            reactivationPriorityID = newReactivationPriorityID
         }
     }
 

@@ -28,6 +28,7 @@ Qipli — нативное menu bar приложение на Swift. Интер�
 - Apple, [`NSPasteboard`](https://developer.apple.com/documentation/appkit/nspasteboard), [`changeCount`](https://developer.apple.com/documentation/appkit/nspasteboard/changecount) и [`clearContents()`](https://developer.apple.com/documentation/appkit/nspasteboard/clearcontents()): ownership changes advance `changeCount`, while `clearContents()` returns the resulting count.
 - Apple, [`CGEvent`](https://developer.apple.com/documentation/coregraphics/cgevent), включая event taps, и [`tapEnable`](https://developer.apple.com/documentation/coregraphics/cgevent/tapenable(tap:enable:)).
 - Apple, [`CGEventTapOptions.defaultTap`](https://developer.apple.com/documentation/coregraphics/cgeventtapoptions/defaulttap): active filter может возвращать `nil`, чтобы потребить exact event; passive tap не может менять stream. Callback вызывается на run loop, а разрешение/маска могут сделать создание tap недоступным.
+- Apple, [`NSWindowDelegate.windowShouldClose(_:)`](https://developer.apple.com/documentation/appkit/nswindowdelegate/windowshouldclose(_:)) и [`NSWindow.orderOut(_:)`](https://developer.apple.com/documentation/appkit/nswindow/orderout(_:)): delegate перехватывает user close reusable panel, а `orderOut` скрывает её без release.
 - Apple, [`CGEvent.post(tap:)`](https://developer.apple.com/documentation/coregraphics/cgevent/post(tap:)): tagged synthetic Copy входит в Quartz event stream перед taps в выбранной позиции; [`eventSourceUserData`](https://developer.apple.com/documentation/coregraphics/cgeventfield/eventsourcuserdata) содержит 64-bit marker, а [`CGEventSource`](https://developer.apple.com/documentation/coregraphics/cgeventsource) описывает state generated/posted events.
 - Apple, [`NSWindow.CollectionBehavior.canJoinAllSpaces`](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/canjoinallspaces) и [`fullScreenAuxiliary`](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/fullscreenauxiliary): вспомогательная panel показывается во всех Spaces и рядом с full-screen window.
 - Apple, [`NSScreen`](https://developer.apple.com/documentation/appkit/nsscreen): список displays и `visibleFrame` для placement временной panel.
@@ -35,7 +36,7 @@ Qipli — нативное menu bar приложение на Swift. Интер�
 - Apple, [Protecting user data with App Sandbox](https://developer.apple.com/documentation/security/protecting-user-data-with-app-sandbox) и [App Sandbox](https://developer.apple.com/documentation/security/app-sandbox).
 - Apple, [Preparing your app for distribution](https://developer.apple.com/documentation/xcode/preparing-your-app-for-distribution), [Hardened Runtime](https://developer.apple.com/documentation/security/hardened-runtime) и [Notarizing macOS software before distribution](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
 
-Базовые ссылки и выводы проверены 2026-08-06. S006 повторно сверил input/pasteboard contracts 2026-08-08: `.defaultTap` как active filter (только он может вернуть `nil` и удалить event), callback run-loop delivery, permission/mask failure, 64-bit `eventSourceUserData`, ownership `changeCount` и `clearContents()` result. Release, sandbox/entitlements и остальные platform sources этим recheck не подтверждаются и должны быть перепроверены перед изменением соответствующих контрактов и перед S008.
+Базовые ссылки и выводы проверены 2026-08-06. S006/S007 повторно сверили scoped input/panel contracts 2026-08-08: `.defaultTap` как active filter (только он может вернуть `nil` и удалить exact event), callback run-loop delivery, permission/mask failure, 64-bit `eventSourceUserData`, ownership `changeCount` и `clearContents()` result; `windowShouldClose(_:)` как user-close interception и `orderOut(_:)` для hiding reusable nonactivating panel. Release, sandbox/entitlements и остальные platform sources этим recheck не подтверждаются и должны быть перепроверены перед изменением соответствующих контрактов и перед S008.
 
 ## 3. Компоненты и ответственность
 
@@ -85,7 +86,7 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
 ### InputCoordinator и PasteExecutor
 
 - регистрируют глобальные сочетания и event tap только в разрешённом состоянии, включая `Esc` как отмену только при активном стеке;
-- active event tap потребляет exact untagged `⌘⇧V` и `⌘⇧C` keyDown, untagged `Esc` без semantic Shift/Control/Option/Command при active stack и, только при active Stack с pending/reserved occurrence, exact untagged ordinary `⌘V` keyDown. Tagged synthetic events, keyUp и other modifier variants проходят stack path без изменения; deferred `⌘⇧C` action posts tagged ordinary `⌘C`, который marker пропускает обратно к source app;
+- active event tap потребляет exact untagged `⌘⇧V` и `⌘⇧C` keyDown, untagged `Esc` без semantic Shift/Control/Option/Command при active stack, exact untagged `⌘⇧Z` только при active Stack с successfully dispatched occurrence, и exact untagged ordinary `⌘V` только при active Stack с pending/reactivation-priority/reserved occurrence. `⌘⇧Z` только назначает последний successfully dispatched UUID одноразовым reactivation priority; tagged synthetic events, keyUp, other modifier variants и `⌘⇧Z` вне этого narrow admission проходят без изменения как system Redo. Deferred `⌘⇧C` action posts tagged ordinary `⌘C`, который marker пропускает обратно к source app;
 - synchronous callback только atomically reserve/pass/consume decision; pasteboard work и dispatch deferred. Повтор input при existing reservation потребляется без second transaction;
 - не модифицируют ordinary `⌘V`, когда стек не активен, исчерпан или закрыт;
 - сразу после synchronous internal write регистрируют returned exact final `changeCount`, до следующего run-loop poll, чтобы монитор пропустил self-write;
@@ -128,12 +129,12 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
 
 ### Вставка из Paste Stack
 
-1. Active event tap получает exact untagged ordinary `⌘V` keyDown. Если Stack inactive, завершён, пуст или input tagged/modified, он возвращает original event. При accepted input `StackSession` synchronously reserves exact pending occurrence UUID by direct/reverse traversal and locks direction/order; repeat while reserved is consumed without another transaction.
+1. Active event tap получает exact untagged ordinary `⌘V` keyDown. Если Stack inactive, завершён, пуст или input tagged/modified, он возвращает original event. При accepted input `StackSession` synchronously reserves exact pending UUID by direct/reverse traversal либо selected used reactivation-priority UUID and locks direction/order; repeat while reserved is consumed without another transaction. Exact `⌘⇧Z` может только назначить последнюю successfully dispatched occurrence priority и возвращает original event во всех остальных состояниях.
 2. Deferred main-run-loop executor publishes processing state, rechecks the same session UUID/reservation and Accessibility trust, then writes the immutable exact text to system pasteboard.
 3. Writer returns the exact final `changeCount`; monitor receives that count as a self-write before control returns to its next poll, so the write cannot re-enter History/Stack capture.
-4. Executor posts tagged synthetic ordinary `⌘V`. Only a successful dispatch converts the exact reservation to used; a permission, writer, dispatch or input-listener failure releases it back to pending and publishes a retryable non-payload error.
-5. Used occurrences remain visible and disabled; next marker advances among pending occurrences. Append/cancel/deferred UI intents validate the current session/UUID domain atomically.
-6. After the last successful dispatch, all occurrences are first published as used. One deterministic deferred turn then verifies that the same session is still complete, releases it, closes the nonactivating panel and restores the menu Start state. It does not reactivate a target app (S007 remains separate).
+4. Executor posts tagged synthetic ordinary `⌘V`. Only a successful dispatch converts the exact reservation to used; a permission, writer, dispatch or input-listener failure returns traversal reservation to pending but returns reactivation reservation to used while retaining priority, then publishes a retryable non-payload error.
+5. Used occurrences remain visible and disabled; one Reactivate action or `⌘⇧Z` priority is marked separately from traversal Next. Append/cancel/deferred UI intents validate the current session/UUID domain atomically.
+6. After the last successful dispatch, all occurrences are first published as used. One deterministic deferred turn verifies the same session is still complete and has no reactivation priority, then releases it, closes the nonactivating panel and restores the menu Start state. A reactivation before that turn prevents finish; it does not reactivate a target app.
 
 При гонке с внешней сменой pasteboard предпочтение отдаётся безопасности: не вставлять неизвестное значение как элемент стека, показать сбой и сохранить текущую сессию для повтора.
 
@@ -159,8 +160,9 @@ Domain property называется `activityAt`, но SQLite/Core Data attribu
 | `historyEntryID` | связь с успешно сохранённой записью истории |
 | `text` | неизменяемый снимок для вставки |
 | `position` | базовый видимый порядок |
-| `state` | pending, next или used |
+| `state` | pending, processing или used; next — derived traversal/priority marker, не отдельное durable state |
 | `reactivationPriority` | временный признак «вставить следующим» |
+| `lastSuccessfullyDispatchedOccurrenceID` | exact UUID для узкого Reactivate Previous; не является undo history и очищается вместе с session |
 
 ### Владение и жизненный цикл
 

@@ -143,3 +143,13 @@
 - Решение: global `⌘⇧C` начинает либо сохраняет текущую StackSession и отправляет tagged synthetic ordinary `⌘C` в остающееся active source app. Menu Start начинает пустую session и не dispatch-ит Copy. Повторный hotkey не reset-ит session, но отправляет очередную Copy.
 - Причина: совпадает с ожидаемым copy-to-stack flow и сохраняет единственный History-first capture pipeline.
 - Последствия: target app, а не Qipli, пишет pasteboard; resulting change не self-write и append в Stack происходит только после durable History capture. Ordinary `⌘C`/`⌘V` не меняются; sequential paste остаётся S006.
+
+## D-015 — Reactivate Previous назначает one-shot priority, а не target undo
+
+- Статус: `accepted`
+- Дата: 2026-08-08
+- Источник: пользователь
+- Контекст: `⌘⇧Z` должен исправлять ошибочный Paste Stack occurrence, не меняя normal system Redo и не создавая ложного обещания undo в стороннем приложении.
+- Решение: exact untagged `⌘⇧Z` при active Stack и хотя бы одном successfully dispatched occurrence повторно активирует только последний such UUID как one-shot Next. Он не вставляет немедленно; пользователь нажимает обычный `⌘V`. До первой successful dispatch, вне active Stack, для tagged/keyUp/other modifiers shortcut проходит без изменения. Повтор до новой successful dispatch идемпотентен, а manual Reactivate может быть заменён этим priority.
+- Причина: UUID priority сохраняет traversal cursor, не требует отслеживать target app и оставляет system Redo нетронутым вне narrow Stack contract.
+- Последствия: StackSession хранит one reactivation priority и last successfully dispatched UUID; failure rollback оставляет reactivation used/priority retryable, cancel/finish освобождает оба значения.

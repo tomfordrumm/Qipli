@@ -362,7 +362,9 @@ struct PasteStackPanelView: View {
 
     private func occurrenceRow(_ occurrence: StackOccurrence) -> some View {
         let index = occurrence.position
-        let isNext = sessionController.nextOccurrence?.id == occurrence.id
+        let isReactivationPriority = sessionController.reactivationPriorityID == occurrence.id
+        let isNext = !sessionController.hasReactivationPriority
+            && sessionController.nextOccurrence?.id == occurrence.id
         let isUsed = occurrence.state == .used
 
         return HStack(alignment: .top, spacing: 8) {
@@ -381,11 +383,31 @@ struct PasteStackPanelView: View {
                     .foregroundStyle(.secondary)
                     .accessibilityLabel("Used item")
             }
-            if isNext {
+            if isReactivationPriority {
+                Label(
+                    occurrence.state == .processing ? "Reactivating" : "Reactivated next",
+                    systemImage: "arrow.counterclockwise.circle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .accessibilityLabel(
+                    occurrence.state == .processing
+                        ? PasteStackPanelAccessibility.reactivatingItemLabel
+                        : PasteStackPanelAccessibility.reactivatedNextItemLabel
+                )
+            } else if isNext {
                 Label("Next", systemImage: "arrow.right.circle.fill")
                     .font(.caption)
                     .foregroundStyle(.tint)
                     .accessibilityLabel(PasteStackPanelAccessibility.nextItemLabel)
+            }
+            if isUsed {
+                Button("Reactivate") {
+                    execute(.reactivate(occurrence.id))
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(PasteStackPanelAccessibility.reactivateLabel(position: index))
+                .accessibilityHint("Makes this used item the next stack paste. Press Command-V to send it.")
             }
             VStack(spacing: 2) {
                 Button {
@@ -410,7 +432,7 @@ struct PasteStackPanelView: View {
             }
         }
         .padding(.vertical, 2)
-        .opacity(isUsed ? 0.55 : 1)
+        .opacity(isUsed && !isReactivationPriority ? 0.55 : 1)
         // Keep the native separator tied to the row bounds, not the conditional
         // Next label or trailing move controls.
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -439,6 +461,12 @@ struct PasteStackPanelView: View {
     }
 
     private var nextExplanation: String {
+        if let reactivationPriorityID = sessionController.reactivationPriorityID {
+            let isProcessing = sessionController.occurrences.first(where: { $0.id == reactivationPriorityID })?.state == .processing
+            return isProcessing
+                ? "Preparing the reactivated stack item."
+                : "Reactivated item has one-shot priority over traversal."
+        }
         if sessionController.occurrences.contains(where: { $0.state == .processing }) {
             return "Preparing the selected stack item."
         }
@@ -474,6 +502,7 @@ struct PasteStackPanelView: View {
             canAdjustTraversal: { sessionController.canAdjustTraversal },
             setTraversalDirection: sessionController.setTraversalDirection,
             reorder: sessionController.reorder,
+            reactivate: sessionController.reactivateOccurrence,
             schedule: PasteStackPanelIntentScheduler.schedule
         )
         .execute(intent)
@@ -486,6 +515,7 @@ enum PasteStackPanelIntent: Equatable {
     case setTraversalDirection(StackTraversalDirection)
     case moveOccurrence(UUID, by: Int)
     case moveOccurrences(IndexSet, to: Int)
+    case reactivate(UUID)
 }
 
 @MainActor
@@ -494,20 +524,40 @@ struct PasteStackPanelIntentExecutor {
     let canAdjustTraversal: () -> Bool
     let setTraversalDirection: (StackTraversalDirection) -> Bool
     let reorder: ([UUID]) -> Bool
+    let reactivate: (UUID) -> Bool
     let schedule: (@escaping () -> Void) -> Void
 
-    func execute(_ intent: PasteStackPanelIntent) {
-        guard canAdjustTraversal() else { return }
+    init(
+        occurrences: @escaping () -> [StackOccurrence],
+        canAdjustTraversal: @escaping () -> Bool,
+        setTraversalDirection: @escaping (StackTraversalDirection) -> Bool,
+        reorder: @escaping ([UUID]) -> Bool,
+        reactivate: @escaping (UUID) -> Bool = { _ in false },
+        schedule: @escaping (@escaping () -> Void) -> Void
+    ) {
+        self.occurrences = occurrences
+        self.canAdjustTraversal = canAdjustTraversal
+        self.setTraversalDirection = setTraversalDirection
+        self.reorder = reorder
+        self.reactivate = reactivate
+        self.schedule = schedule
+    }
 
+    func execute(_ intent: PasteStackPanelIntent) {
         switch intent {
         case let .setTraversalDirection(direction):
+            guard canAdjustTraversal() else { return }
             schedule { _ = setTraversalDirection(direction) }
         case let .moveOccurrence(id, offset):
+            guard canAdjustTraversal() else { return }
             guard let ids = PasteStackOrdering.moving(id: id, by: offset, in: occurrences()) else { return }
             schedule { _ = reorder(ids) }
         case let .moveOccurrences(source, destination):
+            guard canAdjustTraversal() else { return }
             guard let ids = PasteStackOrdering.moving(source: source, to: destination, in: occurrences()) else { return }
             schedule { _ = reorder(ids) }
+        case let .reactivate(id):
+            schedule { _ = reactivate(id) }
         }
     }
 }
@@ -572,6 +622,8 @@ enum PasteStackPanelAccessibility {
 
     static let directionLabel = "Traversal direction"
     static let nextItemLabel = "Next item"
+    static let reactivatedNextItemLabel = "Reactivated item is next"
+    static let reactivatingItemLabel = "Preparing reactivated item"
 
     static func moveLabel(position: Int, direction: MoveDirection) -> String {
         let verb = switch direction {
@@ -579,6 +631,10 @@ enum PasteStackPanelAccessibility {
         case .down: "down"
         }
         return "Move item \(position + 1) \(verb)"
+    }
+
+    static func reactivateLabel(position: Int) -> String {
+        "Reactivate used item \(position + 1)"
     }
 }
 

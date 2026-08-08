@@ -12,6 +12,8 @@ enum GlobalInputAction: Equatable {
     /// The current stack input is already reserved. Consume key repeat without
     /// scheduling a second transaction.
     case consumePasteStackItem
+    case reactivatePreviousStackItem
+    case consumeReactivatePreviousStackItem
 }
 
 /// The synchronous decision returned to the active event tap for ordinary
@@ -20,6 +22,14 @@ enum StackPasteInputDisposition: Equatable {
     case passThrough
     case consume
     case consumeAndDispatch
+}
+
+/// The synchronous event-tap decision for exact Command-Shift-Z. Only an
+/// active Stack with a prior successful dispatch may consume system Redo.
+enum StackReactivationInputDisposition: Equatable {
+    case passThrough
+    case consume
+    case consumeAndReactivate
 }
 
 enum GlobalInputStatus: Equatable {
@@ -54,10 +64,12 @@ protocol GlobalInputEventAdapting: AnyObject {
     var onHotKey: ((GlobalHotKey) -> Void)? { get set }
     var onEscape: (() -> Void)? { get set }
     var onStackPaste: (() -> Void)? { get set }
+    var onReactivatePrevious: (() -> Void)? { get set }
     /// The adapter reads this synchronously from its active event filter so it
     /// can consume Escape only while a Stack session exists.
     var shouldConsumeEscape: (() -> Bool)? { get set }
     var stackPasteInterception: (() -> StackPasteInputDisposition)? { get set }
+    var reactivationPreviousInterception: (() -> StackReactivationInputDisposition)? { get set }
     var onStatusChange: ((GlobalInputStatus) -> Void)? { get set }
 
     @discardableResult func start() -> GlobalInputStatus
@@ -75,8 +87,10 @@ final class InputCoordinator {
     var onHotKey: ((GlobalHotKey) -> Void)?
     var onEscape: (() -> Void)?
     var onStackPaste: (() -> Void)?
+    var onReactivatePrevious: (() -> Void)?
     var shouldConsumeEscape: (() -> Bool)?
     var stackPasteInterception: (() -> StackPasteInputDisposition)?
+    var reactivationPreviousInterception: (() -> StackReactivationInputDisposition)?
     var onStatusChange: ((GlobalInputStatus) -> Void)?
 
     init(permissionService: AccessibilityPermissionChecking, eventAdapter: GlobalInputEventAdapting) {
@@ -95,8 +109,14 @@ final class InputCoordinator {
         eventAdapter.stackPasteInterception = { [weak self] in
             self?.stackPasteInterception?() ?? .passThrough
         }
+        eventAdapter.reactivationPreviousInterception = { [weak self] in
+            self?.reactivationPreviousInterception?() ?? .passThrough
+        }
         eventAdapter.onStackPaste = { [weak self] in
             self?.onStackPaste?()
+        }
+        eventAdapter.onReactivatePrevious = { [weak self] in
+            self?.onReactivatePrevious?()
         }
         eventAdapter.onStatusChange = { [weak self] status in
             self?.status = status
