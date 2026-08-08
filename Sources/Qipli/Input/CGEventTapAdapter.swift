@@ -3,7 +3,7 @@ import Carbon.HIToolbox
 import Foundation
 
 /// Core Graphics adapter. Its active filter consumes only Qipli's exact untagged global hotkeys.
-final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispatching {
+final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispatching, TaggedCopyCommandDispatching {
     var onHotKey: ((GlobalHotKey) -> Void)?
     var onEscape: (() -> Void)?
     var shouldConsumeEscape: (() -> Bool)?
@@ -57,12 +57,21 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         status = .stopped
     }
 
-    /// Platform-spike API for the later paste executor. This method never reads or logs pasteboard content.
+    /// Platform-spike APIs for command dispatchers. They never read or log pasteboard content.
     @discardableResult
     func postTaggedCommandV() -> Bool {
+        postTaggedCommand(keyCode: CGKeyCode(kVK_ANSI_V))
+    }
+
+    @discardableResult
+    func postTaggedCommandC() -> Bool {
+        postTaggedCommand(keyCode: CGKeyCode(kVK_ANSI_C))
+    }
+
+    private func postTaggedCommand(keyCode: CGKeyCode) -> Bool {
         guard let source = CGEventSource(stateID: .combinedSessionState),
-              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: false)
+              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
         else {
             return false
         }

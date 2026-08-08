@@ -10,7 +10,7 @@
 - Milestone M1 — рабочая локальная история — завершён.
 - S004 реализован и ожидает ручной проверки Paste Stack collection/focus/display scenarios.
 - Завершённые срезы: [`S001 — Скелет приложения и системное разрешение`](slices/S001-foundation-permissions.md), [`S002 — Захват, хранение и удаление истории`](slices/S002-history-capture-retention.md) и [`S003 — Поиск и повторная вставка из истории`](slices/S003-history-search-paste.md).
-- Точный следующий шаг: вручную проверить S004 из source apps, включая exact Escape, close/cancel, multiple displays и full-screen/Space; после подтверждения пользователя можно перевести S004 в `done`.
+- Точный следующий шаг: после новой реализации вручную проверить S004 из source apps, начиная с `⌘⇧C` copy of current selection/repeat и menu-empty Start, затем exact Escape, close/cancel, multiple displays и full-screen/Space; после подтверждения пользователя можно перевести S004 в `done`.
 
 ## Статусы срезов
 
@@ -45,7 +45,7 @@
 - Пользователь вручную подтвердил exact text/Unicode/multiline capture, duplicates, игнорирование non-text, restart persistence, durable delete, clear-all confirmation, неизменность system pasteboard и отсутствие clipboard payload в логах.
 - S003 реализован: keyboard-active History panel с локализованной strong user-initiated activation, read-only entries/single-select/double-click paste, local search/ID selection, non-animated selection auto-scroll и fresh-show top viewport reset, durable exact-occurrence activity recency, safe history paste executor с target activation before close и bounded main-run-loop wait, active exact-hotkey filtering, deferred keyboard state/window actions и retryable failures. SwiftPM и Xcode XCTest прошли по 45 тестов; Xcode Debug/Release builds прошли. Пользователь подтвердил реальные focus/paste/failure/recency/viewport paths и clean-console keyboard navigation.
 - S001–S003 имеют статус `done`; S004 имеет статус `needs_verification`; S005–S008 остаются `planned`.
-- S004 добавил временную in-memory StackSession: exact `⌘⇧C` начинает одну пустую collection session, append происходит только после durable History capture и сохраняет duplicate/Unicode occurrences. Nonactivating floating Stack panel показывается на display под курсором, Cancel/close/exact global Escape очищают только session. Ordinary `⌘V` остаётся не перехваченным. SwiftPM и Xcode Debug XCTest: 55 tests, 0 errors; universal Release arm64+x86_64 собран. Требуется ручная macOS matrix focus/Space/full-screen/multi-display.
+- S004 добавил временную in-memory StackSession: exact `⌘⇧C` начинает либо сохраняет collection session, показывает nonactivating panel и dispatch-ит tagged ordinary `⌘C` в остающееся active source app; resulting source-owned copy попадает в Stack только после durable History capture и сохраняет duplicate/Unicode occurrences. Menu Start остаётся пустым. Cancel/close/exact global Escape очищают только session; ordinary `⌘V` остаётся не перехваченным. SwiftPM и Xcode Debug XCTest: 59 tests, 0 errors; universal Release arm64+x86_64 собран. Требуется ручная macOS matrix source-copy/focus/cancel/Space/full-screen/multi-display.
 
 ## Журнал переходов
 
@@ -61,4 +61,4 @@
 | 2026-08-07 | D-004 и D-007 приняты, S003 переведён в `ready`. | S001 подтвердил AppKit/Core Graphics input и menu-bar shell на macOS 14; S002 завершён, границы search/paste и Apple platform contracts перепроверены. |
 | 2026-08-07 | S003 реализован и переведён в `needs_verification`. | SwiftPM и Xcode XCTest: 35 тестов без ошибок; Debug и Release builds прошли. Остаётся ручная матрица real paste/focus/permission/failure, включая отсутствие target-app action до History и autofocus без click. |
 | 2026-08-08 | S003 переведён в `done`; milestone M1 завершён. | Пользователь подтвердил полную ручную матрицу History UI, keyboard focus/navigation, cross-app paste, recency и viewport; финальная автоматическая матрица содержит 45 тестов без ошибок. |
-| 2026-08-08 | S004 реализован и переведён в `needs_verification`. | Автоматические Stack/session/capture/input/placement тесты, SwiftPM и Xcode Debug XCTest (55 tests) прошли; universal Release arm64+x86_64 собран. Требуется ручная проверка nonactivating focus, cancel/Escape, displays и full-screen/Space. |
+| 2026-08-08 | S004 реализован и переведён в `needs_verification`. | Автоматические Stack/session/capture/input/placement тесты, включая hotkey source-Copy и menu-empty Start, SwiftPM и Xcode Debug XCTest (59 tests) прошли; universal Release arm64+x86_64 собран. Требуется ручная проверка source-copy/focus, cancel/Escape, displays и full-screen/Space. |

@@ -307,7 +307,12 @@ struct PasteStackPanelView: View {
                 .listStyle(.inset)
             }
 
-            if sessionController.hasCaptureError {
+            if sessionController.hasCopyCommandDispatchFailure {
+                Text("Qipli could not send Copy to the active app. Try the Paste Stack shortcut again.")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if sessionController.hasCaptureError {
                 Text("Qipli could not save the last copied text. Copy it again to retry.")
                     .font(.caption)
                     .foregroundStyle(.red)

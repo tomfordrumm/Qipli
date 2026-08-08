@@ -149,6 +149,81 @@ final class StackSessionControllerTests: XCTestCase {
         XCTAssertEqual(viewModel.state, .error)
     }
 
+    func testHotKeyStartsSessionShowsPanelThenDispatchesTaggedCopy() {
+        let controller = StackSessionController()
+        let trace = StackStartTrace()
+        let starter = StackCollectionStarter(
+            sessionController: controller,
+            currentPasteboardChangeCount: { 41 },
+            showStackPanel: {
+                XCTAssertTrue(controller.isActive)
+                trace.events.append("show")
+            },
+            copyCommandDispatcher: FakeCopyCommandDispatcher(trace: trace, result: true)
+        )
+
+        starter.startFromHotKey()
+
+        XCTAssertEqual(controller.captureContext?.captureAfterChangeCount, 41)
+        XCTAssertEqual(trace.events, ["show", "copy"])
+        XCTAssertFalse(controller.hasCopyCommandDispatchFailure)
+    }
+
+    func testRepeatedHotKeyPreservesSessionAndDispatchesCopyAgain() {
+        let controller = StackSessionController()
+        let trace = StackStartTrace()
+        let starter = StackCollectionStarter(
+            sessionController: controller,
+            currentPasteboardChangeCount: { 50 },
+            showStackPanel: { trace.events.append("show") },
+            copyCommandDispatcher: FakeCopyCommandDispatcher(trace: trace, result: true)
+        )
+
+        starter.startFromHotKey()
+        let originalContext = controller.captureContext
+        controller.appendPersistedHistoryEntry(makeEntry("existing"), observedChangeCount: 51, for: originalContext)
+        starter.startFromHotKey()
+
+        XCTAssertEqual(controller.captureContext, originalContext)
+        XCTAssertEqual(controller.occurrences.map(\.text), ["existing"])
+        XCTAssertEqual(trace.events, ["show", "copy", "show", "copy"])
+    }
+
+    func testMenuStartIsEmptyAndDoesNotDispatchCopy() {
+        let controller = StackSessionController()
+        let trace = StackStartTrace()
+        let starter = StackCollectionStarter(
+            sessionController: controller,
+            currentPasteboardChangeCount: { 60 },
+            showStackPanel: { trace.events.append("show") },
+            copyCommandDispatcher: FakeCopyCommandDispatcher(trace: trace, result: true)
+        )
+
+        starter.startFromMenu()
+
+        XCTAssertTrue(controller.isActive)
+        XCTAssertTrue(controller.occurrences.isEmpty)
+        XCTAssertEqual(trace.events, ["show"])
+    }
+
+    func testCopyDispatchFailureShowsRetryableStackErrorWithoutClaimingCapture() {
+        let controller = StackSessionController()
+        let trace = StackStartTrace()
+        let starter = StackCollectionStarter(
+            sessionController: controller,
+            currentPasteboardChangeCount: { 70 },
+            showStackPanel: { trace.events.append("show") },
+            copyCommandDispatcher: FakeCopyCommandDispatcher(trace: trace, result: false)
+        )
+
+        starter.startFromHotKey()
+
+        XCTAssertEqual(trace.events, ["show", "copy"])
+        XCTAssertTrue(controller.hasCopyCommandDispatchFailure)
+        XCTAssertTrue(controller.occurrences.isEmpty)
+        XCTAssertFalse(controller.hasCaptureError)
+    }
+
     private func makeEntry(_ text: String) -> HistoryEntry {
         HistoryEntry(id: UUID(), text: text, activityAt: .now)
     }
@@ -219,5 +294,24 @@ private final class StackTestPasteboard: PasteboardReading {
     func setText(_ text: String) {
         self.text = text
         changeCount += 1
+    }
+}
+
+private final class StackStartTrace {
+    var events: [String] = []
+}
+
+private final class FakeCopyCommandDispatcher: TaggedCopyCommandDispatching {
+    let trace: StackStartTrace
+    let result: Bool
+
+    init(trace: StackStartTrace, result: Bool) {
+        self.trace = trace
+        self.result = result
+    }
+
+    func postTaggedCommandC() -> Bool {
+        trace.events.append("copy")
+        return result
     }
 }

@@ -28,13 +28,14 @@ Qipli — нативное menu bar приложение на Swift. Интер�
 - Apple, [`NSPasteboard`](https://developer.apple.com/documentation/appkit/nspasteboard) и [`changeCount`](https://developer.apple.com/documentation/appkit/nspasteboard/changecount).
 - Apple, [`CGEvent`](https://developer.apple.com/documentation/coregraphics/cgevent), включая event taps, и [`tapEnable`](https://developer.apple.com/documentation/coregraphics/cgevent/tapenable(tap:enable:)).
 - Apple, [`CGEventTapOptions.defaultTap`](https://developer.apple.com/documentation/coregraphics/cgeventtapoptions/defaulttap): active filter может возвращать `nil`, чтобы потребить exact event.
+- Apple, [`CGEvent.post(tap:)`](https://developer.apple.com/documentation/coregraphics/cgevent/post(tap:)): tagged synthetic Copy входит в Quartz event stream перед taps в выбранной позиции; [`eventSourceUserData`](https://developer.apple.com/documentation/coregraphics/cgeventfield/eventsourcuserdata) содержит 64-bit marker, а [`CGEventSource`](https://developer.apple.com/documentation/coregraphics/cgeventsource) описывает state generated/posted events.
 - Apple, [`NSWindow.CollectionBehavior.canJoinAllSpaces`](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/canjoinallspaces) и [`fullScreenAuxiliary`](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/fullscreenauxiliary): вспомогательная panel показывается во всех Spaces и рядом с full-screen window.
 - Apple, [`NSScreen`](https://developer.apple.com/documentation/appkit/nsscreen): список displays и `visibleFrame` для placement временной panel.
 - Apple, [`AXIsProcessTrustedWithOptions`](https://developer.apple.com/documentation/applicationservices/1459186-axisprocesstrustedwithoptions).
 - Apple, [Protecting user data with App Sandbox](https://developer.apple.com/documentation/security/protecting-user-data-with-app-sandbox) и [App Sandbox](https://developer.apple.com/documentation/security/app-sandbox).
 - Apple, [Preparing your app for distribution](https://developer.apple.com/documentation/xcode/preparing-your-app-for-distribution), [Hardened Runtime](https://developer.apple.com/documentation/security/hardened-runtime) и [Notarizing macOS software before distribution](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
 
-Базовые ссылки и выводы проверены 2026-08-06. S004 повторно сверил только input/panel contracts выше 2026-08-08: `.defaultTap` как active filter, `canJoinAllSpaces`/`fullScreenAuxiliary` и screen `visibleFrame`. Release, sandbox/entitlements и остальные platform sources этим recheck не подтверждаются и должны быть перепроверены перед изменением соответствующих контрактов и перед S008.
+Базовые ссылки и выводы проверены 2026-08-06. S004 повторно сверил только input/panel contracts выше 2026-08-08: `.defaultTap` как active filter, tagged `CGEvent.post(tap:)`/`eventSourceUserData`/`CGEventSource`, `canJoinAllSpaces`/`fullScreenAuxiliary` и screen `visibleFrame`. Release, sandbox/entitlements и остальные platform sources этим recheck не подтверждаются и должны быть перепроверены перед изменением соответствующих контрактов и перед S008.
 
 ## 3. Компоненты и ответственность
 
@@ -83,7 +84,7 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
 ### InputCoordinator и PasteExecutor
 
 - регистрируют глобальные сочетания и event tap только в разрешённом состоянии, включая `Esc` как отмену только при активном стеке;
-- active event tap потребляет только exact untagged `⌘⇧V` и `⌘⇧C` keyDown и untagged `Esc` без semantic Shift/Control/Option/Command при active stack; обычный `⌘V`, keyUp, другие modifiers и Qipli synthetic events проходят без изменения;
+- active event tap потребляет только exact untagged `⌘⇧V` и `⌘⇧C` keyDown и untagged `Esc` без semantic Shift/Control/Option/Command при active stack; deferred `⌘⇧C` action posts tagged ordinary `⌘C`, который marker пропускает обратно к source app. Обычные `⌘C`/`⌘V`, keyUp, другие modifiers и Qipli synthetic events проходят без изменения;
 - не модифицируют обычный `⌘V`, когда стек не активен;
 - перед внутренней записью помечают ожидаемый `changeCount`/операцию, чтобы монитор пропустил self-write;
 - быстро подготавливают следующий текст в pasteboard и отправляют/пропускают событие вставки, не блокируя event tap тяжёлой работой;
@@ -105,10 +106,12 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
 
 ### Сбор Paste Stack (S004)
 
-1. `⌘⇧C` или Start menu action создаёт одну пустую session; повторный hotkey показывает ту же panel без reset, а menu переключается на Cancel.
-2. Stack panel — `NSPanel` с `.nonactivatingPanel`, floating level, `.canJoinAllSpaces` и `.fullScreenAuxiliary`; она не вызывает App activation или `makeKey`.
-3. Перед показом panel выбирается `NSScreen` под курсором (fallback main/first screen), а чистая placement function центрирует компактный frame и clamp-ит origin к `visibleFrame` этого display.
-4. Exact global Escape или close/cancel освобождает только StackSession и скрывает panel; записи History не затрагиваются.
+1. Deferred global `⌘⇧C` action snapshots/starts session with current pasteboard `changeCount`, показывает nonactivating panel и только затем dispatch-ит tagged ordinary `⌘C`; repeated hotkey сохраняет session/occurrences, но повторяет Copy. Target app остаётся active и владеет resulting pasteboard write.
+2. Menu Start создаёт одну пустую session без Copy; menu меняется на Cancel.
+3. Resulting target-owned pasteboard change не self-write и не append-ится напрямую: Monitor → HistoryService → matching StackSession сохраняет History-first/watermark guarantees. Если tagged Copy dispatch observable fails, panel показывает retryable error; отсутствие pasteboard change у target не заявляется как capture error.
+4. Stack panel — `NSPanel` с `.nonactivatingPanel`, floating level, `.canJoinAllSpaces` и `.fullScreenAuxiliary`; она не вызывает App activation или `makeKey`.
+5. Перед показом panel выбирается `NSScreen` под курсором (fallback main/first screen), а чистая placement function центрирует компактный frame и clamp-ит origin к `visibleFrame` этого display.
+6. Exact global Escape или close/cancel освобождает только StackSession и скрывает panel; записи History не затрагиваются.
 
 ### Вставка из истории
 
@@ -217,7 +220,7 @@ QipliUITests/         in-app keyboard and panel flows
 - repository: create/search/promote/delete/delete-all и durable restart на временном Core Data store;
 - integration с fake adapters: history Enter flow, permission denied, activation failure, event tap disabled;
 - UI: focus поиска, arrows, selection, empty/no-results, stack states и drag reorder внутри Qipli;
-- S004: session uniqueness/duplicates/release, save-before-append, stale deferred capture token/start watermark, Escape active-filter contract и pure multi-display placement clamp;
+- S004: session uniqueness/duplicates/release, save-before-append, stale deferred capture token/start watermark, hotkey start → panel → tagged source-Copy ordering/repeat/menu-empty/failure, Escape active-filter contract и pure multi-display placement clamp;
 - build: Debug и Release для deployment target macOS 14.
 
 ### Вручную на чистой системе

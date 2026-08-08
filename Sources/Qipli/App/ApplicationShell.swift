@@ -9,6 +9,7 @@ final class ApplicationShell: NSObject {
     private let historyViewModel: HistoryViewModel
     private let stackSessionController: StackSessionController
     private let stackCaptureCoordinator: StackCollectionCaptureCoordinator
+    private let stackCollectionStarter: StackCollectionStarter
     private let pasteboardMonitor: PasteboardMonitor
     private var retentionTimer: Timer?
     private let statusItem: NSStatusItem
@@ -19,7 +20,8 @@ final class ApplicationShell: NSObject {
         permissionService: AccessibilityPermissionService = AccessibilityPermissionService(),
         inputAdapter: GlobalInputEventAdapting = CGEventTapAdapter(),
         historyStore: HistoryStoring? = nil,
-        pasteCommandDispatcher: TaggedPasteCommandDispatching? = nil
+        pasteCommandDispatcher: TaggedPasteCommandDispatching? = nil,
+        copyCommandDispatcher: TaggedCopyCommandDispatching? = nil
     ) {
         self.permissionService = permissionService
         let store: HistoryStoring
@@ -35,7 +37,7 @@ final class ApplicationShell: NSObject {
             historyViewModel: historyViewModel,
             stackSessionController: stackSessionController
         )
-        pasteboardMonitor = PasteboardMonitor { [weak stackCaptureCoordinator, weak stackSessionController] change in
+        let monitor = PasteboardMonitor { [weak stackCaptureCoordinator, weak stackSessionController] change in
             // The monitor observes the active session before it defers the
             // persistence work. A later Start/Cancel cannot claim this copy;
             // the session watermark also rejects a write that predates Start.
@@ -48,6 +50,7 @@ final class ApplicationShell: NSObject {
                 )
             }
         }
+        pasteboardMonitor = monitor
         inputCoordinator = InputCoordinator(
             permissionService: permissionService,
             eventAdapter: inputAdapter
@@ -63,7 +66,7 @@ final class ApplicationShell: NSObject {
             },
             commandDispatcher: commandDispatcher
         )
-        panels = PanelController(
+        let panelController = PanelController(
             permissionService: permissionService,
             historyViewModel: historyViewModel,
             stackSessionController: stackSessionController,
@@ -71,6 +74,16 @@ final class ApplicationShell: NSObject {
             openAccessibilitySettings: { [weak permissionService] in
                 permissionService?.openSystemSettings()
             }
+        )
+        panels = panelController
+        let resolvedCopyCommandDispatcher = copyCommandDispatcher
+            ?? (inputAdapter as? TaggedCopyCommandDispatching)
+            ?? UnavailableCopyCommandDispatcher()
+        stackCollectionStarter = StackCollectionStarter(
+            sessionController: stackSessionController,
+            currentPasteboardChangeCount: { monitor.currentChangeCount },
+            showStackPanel: { panelController.showPasteStack() },
+            copyCommandDispatcher: resolvedCopyCommandDispatcher
         )
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
@@ -83,7 +96,7 @@ final class ApplicationShell: NSObject {
             case .history:
                 self?.showHistory()
             case .pasteStack:
-                self?.startPasteStack()
+                self?.startPasteStackFromHotKey()
             }
         }
         inputCoordinator.shouldConsumeEscape = { [weak stackSessionController] in
@@ -189,18 +202,25 @@ final class ApplicationShell: NSObject {
         if stackSessionController.isActive {
             cancelPasteStack()
         } else {
-            startPasteStack()
+            startPasteStackFromMenu()
         }
     }
 
-    /// Repeating the collection hotkey leaves the same session and its order intact.
-    private func startPasteStack() {
+    private func startPasteStackFromHotKey() {
         guard permissionService.refresh() == .granted else {
             showPermissionStatus()
             return
         }
-        _ = stackSessionController.startIfNeeded(captureAfterChangeCount: pasteboardMonitor.currentChangeCount)
-        panels.showPasteStack()
+        stackCollectionStarter.startFromHotKey()
+        updatePasteStackMenuTitle()
+    }
+
+    private func startPasteStackFromMenu() {
+        guard permissionService.refresh() == .granted else {
+            showPermissionStatus()
+            return
+        }
+        stackCollectionStarter.startFromMenu()
         updatePasteStackMenuTitle()
     }
 
@@ -235,4 +255,8 @@ final class ApplicationShell: NSObject {
 
 private final class UnavailablePasteCommandDispatcher: TaggedPasteCommandDispatching {
     func postTaggedCommandV() -> Bool { false }
+}
+
+private final class UnavailableCopyCommandDispatcher: TaggedCopyCommandDispatching {
+    func postTaggedCommandC() -> Bool { false }
 }

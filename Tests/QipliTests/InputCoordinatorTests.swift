@@ -95,10 +95,12 @@ final class CGEventTapAdapterClassificationTests: XCTestCase {
 
     func testOrdinaryCommandVAndTaggedSyntheticInputAreIgnored() throws {
         let ordinaryPaste = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
+        let ordinaryCopy = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_C), flags: .maskCommand)
         let syntheticHotKey = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_V), flags: [.maskCommand, .maskShift])
         syntheticHotKey.setIntegerValueField(.eventSourceUserData, value: SyntheticEventMarker.sourceUserData)
 
         XCTAssertNil(CGEventTapAdapter.hotKey(for: ordinaryPaste))
+        XCTAssertNil(CGEventTapAdapter.hotKey(for: ordinaryCopy))
         XCTAssertNil(CGEventTapAdapter.hotKey(for: syntheticHotKey))
     }
 
@@ -110,6 +112,8 @@ final class CGEventTapAdapterClassificationTests: XCTestCase {
         let unrelatedHotKey = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_X), flags: [.maskCommand, .maskShift])
         let taggedHistory = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_V), flags: [.maskCommand, .maskShift])
         taggedHistory.setIntegerValueField(.eventSourceUserData, value: SyntheticEventMarker.sourceUserData)
+        let taggedCopy = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_C), flags: .maskCommand)
+        taggedCopy.setIntegerValueField(.eventSourceUserData, value: SyntheticEventMarker.sourceUserData)
 
         XCTAssertEqual(CGEventTapAdapter.consumedHotKey(type: .keyDown, event: history), .history)
         XCTAssertEqual(CGEventTapAdapter.consumedHotKey(type: .keyDown, event: stack), .pasteStack)
@@ -118,6 +122,7 @@ final class CGEventTapAdapterClassificationTests: XCTestCase {
         XCTAssertNil(CGEventTapAdapter.consumedHotKey(type: .keyDown, event: modifiedPaste))
         XCTAssertNil(CGEventTapAdapter.consumedHotKey(type: .keyDown, event: unrelatedHotKey))
         XCTAssertNil(CGEventTapAdapter.consumedHotKey(type: .keyDown, event: taggedHistory))
+        XCTAssertNil(CGEventTapAdapter.consumedAction(type: .keyDown, event: taggedCopy, stackSessionIsActive: true))
     }
 
     func testEscapeIsConsumedOnlyForAnActiveStackWithoutSemanticModifiers() throws {

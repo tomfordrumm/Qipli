@@ -49,6 +49,7 @@ final class StackSession {
 final class StackSessionController: ObservableObject {
     @Published private(set) var occurrences: [StackOccurrence] = []
     @Published private(set) var hasCaptureError = false
+    @Published private(set) var hasCopyCommandDispatchFailure = false
 
     private(set) var session: StackSession?
 
@@ -64,6 +65,7 @@ final class StackSessionController: ObservableObject {
         session = StackSession(captureAfterChangeCount: captureAfterChangeCount)
         occurrences = []
         hasCaptureError = false
+        hasCopyCommandDispatchFailure = false
         return true
     }
 
@@ -95,10 +97,20 @@ final class StackSessionController: ObservableObject {
         hasCaptureError = true
     }
 
+    func recordCopyCommandDispatchFailure() {
+        guard isActive else { return }
+        hasCopyCommandDispatchFailure = true
+    }
+
+    func clearCopyCommandDispatchFailure() {
+        hasCopyCommandDispatchFailure = false
+    }
+
     func cancel() {
         session = nil
         occurrences = []
         hasCaptureError = false
+        hasCopyCommandDispatchFailure = false
     }
 }
 

@@ -133,3 +133,13 @@
 - Решение: domain timestamp называется `activityAt`: initial capture или successfully dispatched history paste. Durable storage продолжает использовать существующий key `capturedAt`, обновляя его тем же activity value; новый attribute не добавляется.
 - Причина: сохраняет ID/text и совместимость существующих SQLite stores без migration risk.
 - Последствия: порядок и retention считаются от capture-or-use; promotion выполняется только после tagged paste dispatch, а storage error promotion не меняет результат уже отправленной paste-команды и не вызывает повторный dispatch.
+
+## D-014 — `⌘⇧C` копирует текущее выделение при старте Paste Stack
+
+- Статус: `accepted`
+- Дата: 2026-08-08
+- Источник: пользователь
+- Контекст: hotkey должен немедленно собрать уже выделенное значение, а не заставлять пользователя запускать empty Stack и отдельно нажимать Copy. Status menu не имеет source selection.
+- Решение: global `⌘⇧C` начинает либо сохраняет текущую StackSession и отправляет tagged synthetic ordinary `⌘C` в остающееся active source app. Menu Start начинает пустую session и не dispatch-ит Copy. Повторный hotkey не reset-ит session, но отправляет очередную Copy.
+- Причина: совпадает с ожидаемым copy-to-stack flow и сохраняет единственный History-first capture pipeline.
+- Последствия: target app, а не Qipli, пишет pasteboard; resulting change не self-write и append в Stack происходит только после durable History capture. Ordinary `⌘C`/`⌘V` не меняются; sequential paste остаётся S006.

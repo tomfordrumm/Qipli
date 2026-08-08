@@ -24,7 +24,7 @@ covers:
 
 ## В scope
 
-- начало/единственность stack session по `⌘⇧C` и status menu;
+- начало/единственность stack session по `⌘⇧C` и status menu; hotkey дополнительно отправляет обычный `⌘C` в source selection, menu Start остаётся empty;
 - in-memory `StackSession` и occurrence identity;
 - empty/collecting panel поверх других приложений без перехвата `⌘V`;
 - добавление истории-события в стек после успешного сохранения;
@@ -44,7 +44,9 @@ covers:
 
 ## Ожидаемое поведение
 
-- Новый стек всегда начинается пустым.
+- `⌘⇧C` сначала начинает session (либо сохраняет существующую), показывает nonactivating panel и отправляет tagged synthetic ordinary `⌘C` в остающееся active source app; target-owned pasteboard event затем проходит History-first capture pipeline.
+- Menu Start всегда начинает пустым и не отправляет `⌘C`.
+- Повторный `⌘⇧C` не создаёт/reset session, но повторно отправляет обычную Copy-команду для текущего source selection.
 - Только копирования, произошедшие после старта, добавляются в session.
 - Добавление в стек происходит после успешной записи в историю.
 - Панель остаётся видимой, но не крадёт фокус у приложения-источника при обычном копировании.
@@ -67,7 +69,7 @@ covers:
 
 ## Acceptance criteria
 
-- [ ] `⌘⇧C` из другого приложения создаёт одну пустую stack panel поверх текущего display с подсказкой скопировать текст; повторное сочетание не создаёт вторую сессию. Автоматическое session coverage пройдено; требуется ручная macOS проверка.
+- [ ] `⌘⇧C` из другого приложения начинает/сохраняет одну stack session, показывает panel и отправляет обычный `⌘C` в source selection; resulting external copy сначала появляется в History, затем как первый/очередной Stack occurrence. Повторное сочетание не создаёт/reset session, но копирует очередное selection. Status menu Start начинает пустой Stack без Copy. Автоматическое coordinator coverage пройдено; требуется ручная macOS проверка.
 - [ ] Каждое следующее текстовое копирование добавляется один раз в конец видимого списка и уже присутствует в общей истории. Автоматическое capture coverage пройдено; требуется ручная macOS проверка.
 - [ ] Два одинаковых копирования показываются как два независимо идентифицируемых occurrence; Unicode и многострочный текст в модели не меняются. Автоматическое model coverage пройдено; требуется ручная macOS проверка.
 - [x] Изменения без текстового представления и self-writes Qipli не добавляются; ошибка сохранения истории не создаёт «осиротевший» элемент только в стеке.
@@ -80,6 +82,7 @@ covers:
 
 - [x] Unit tests session start/uniqueness, append, duplicates, cancel и deallocation.
 - [x] Integration test: history save succeeds before occurrence append; store failure leaves stack unchanged.
+- [x] Coordinator tests: hotkey start/show/copy ordering, repeated hotkey, menu-empty start, dispatch failure и tagged `⌘C` pass-through.
 - [x] UI model seam: empty/collecting/duplicate state feeds the panel without XCUI; native nonactivating focus и close action требуют ручной проверки.
 - [ ] Ручной сбор из TextEdit, браузера и редактора кода без потери `⌘C` focus.
 - [ ] Ручная проверка двух displays и одного full-screen/Space сценария.
@@ -91,7 +94,7 @@ covers:
 - [ ] Автоматические и ручные проверки пройдены.
 - [x] Приложение собирается без новой регрессии.
 - [x] `STATE.md` и frontmatter синхронно обновлены.
-- [x] `DECISIONS.md` проверен: нового значимого решения нет, применяется D-010.
+- [x] `DECISIONS.md` синхронизирован: принято D-014 для изменённой семантики `⌘⇧C`; применяется D-010.
 - [x] Implementation report заполнен.
 
 ## Implementation report
@@ -100,6 +103,7 @@ covers:
 
 - `StackSession`/`StackOccurrence` и `StackSessionController`: единственная in-memory session, UUID token/occurrence, append-only duplicate-preserving collection и release on cancel.
 - Capture coordinator сохраняет History до Stack append и сверяет snapshot session token plus pasteboard start watermark, поэтому delayed event до Start или после cancel не попадает в новую session.
+- `⌘⇧C` coordinator создаёт/сохраняет session с watermark до tagged ordinary `⌘C`, показывает panel без activation и оставляет target app владельцем resulting pasteboard write; menu Start не dispatch-ит Copy.
 - Nonactivating floating Paste Stack panel с empty/collecting/error state, read-only truncated previews, Cancel и native close handling; Start/Cancel menu state и exact global Escape.
 - Stack panel выбирает screen под курсором и pure placement clamp к `visibleFrame`; history/permission panels сохранили прежний center behavior.
 
@@ -107,6 +111,7 @@ covers:
 
 - `Sources/Qipli/PasteStack/StackSession.swift`
 - `Sources/Qipli/PasteStack/StackCollectionCaptureCoordinator.swift`
+- `Sources/Qipli/PasteStack/StackCollectionStarter.swift`
 - `Sources/Qipli/App/ApplicationShell.swift`
 - `Sources/Qipli/History/HistoryViewModel.swift`
 - `Sources/Qipli/Input/GlobalInput.swift`
@@ -118,8 +123,8 @@ covers:
 
 ### Выполненная проверка
 
-- SwiftPM и Xcode Debug XCTest: 55 tests, 0 errors; universal Release `arm64+x86_64` build прошёл.
-- Deterministic checks: duplicates/Unicode, start uniqueness, cancel release/new empty session, history-before-stack, store failure, stale deferred token/start watermark, Escape active filter, ordinary `⌘V` pass-through и panel placement math.
+- SwiftPM и Xcode Debug XCTest: 59 tests, 0 errors; universal Release `arm64+x86_64` build прошёл.
+- Deterministic checks: duplicates/Unicode, start uniqueness, hotkey start/show/copy ordering and repeat, menu-empty start, copy dispatch failure, cancel release/new empty session, history-before-stack, store failure, stale deferred token/start watermark, Escape active filter, tagged/ordinary `⌘C`, ordinary `⌘V` pass-through и panel placement math.
 - Требуется ручная macOS matrix перед `done`.
 
 ### Отклонения от плана
@@ -128,4 +133,4 @@ covers:
 
 ### Оставшиеся проблемы
 
-- Manual verification: source-app focus during `⌘C`, global Escape/cancel, panel close, multiple displays и full-screen/Space behavior.
+- Manual verification: hotkey Copy of source selection and repeat behavior, source-app focus during `⌘C`, global Escape/cancel, panel close, multiple displays и full-screen/Space behavior.

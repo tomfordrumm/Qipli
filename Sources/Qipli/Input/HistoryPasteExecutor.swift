@@ -5,6 +5,11 @@ protocol TaggedPasteCommandDispatching: AnyObject {
     @discardableResult func postTaggedCommandV() -> Bool
 }
 
+/// Sends a source-owned Copy command without reading or writing NSPasteboard.
+protocol TaggedCopyCommandDispatching: AnyObject {
+    @discardableResult func postTaggedCommandC() -> Bool
+}
+
 protocol HistoryPasteboardWriting: AnyObject {
     /// Returns the pasteboard's final change count after this write completes.
     func write(text: String) throws -> Int

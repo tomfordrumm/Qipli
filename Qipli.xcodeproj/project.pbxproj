@@ -29,6 +29,7 @@
 		A00100000000000000000020 /* StackSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000024 /* StackSession.swift */; };
 		A00100000000000000000021 /* StackCollectionCaptureCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000025 /* StackCollectionCaptureCoordinator.swift */; };
 		A00100000000000000000022 /* PasteStackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000026 /* PasteStackTests.swift */; };
+		A00100000000000000000023 /* StackCollectionStarter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000027 /* StackCollectionStarter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -68,6 +69,7 @@
 		A00200000000000000000024 /* StackSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackSession.swift; sourceTree = "<group>"; };
 		A00200000000000000000025 /* StackCollectionCaptureCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackCollectionCaptureCoordinator.swift; sourceTree = "<group>"; };
 		A00200000000000000000026 /* PasteStackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteStackTests.swift; sourceTree = "<group>"; };
+		A00200000000000000000027 /* StackCollectionStarter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackCollectionStarter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -178,6 +180,7 @@
 			children = (
 				A00200000000000000000024 /* StackSession.swift */,
 				A00200000000000000000025 /* StackCollectionCaptureCoordinator.swift */,
+				A00200000000000000000027 /* StackCollectionStarter.swift */,
 			);
 			path = PasteStack;
 			sourceTree = "<group>";
@@ -303,6 +306,7 @@
 				A00100000000000000000015 /* HistoryViewModel.swift in Sources */,
 				A00100000000000000000020 /* StackSession.swift in Sources */,
 				A00100000000000000000021 /* StackCollectionCaptureCoordinator.swift in Sources */,
+				A00100000000000000000023 /* StackCollectionStarter.swift in Sources */,
 				A00100000000000000000018 /* HistoryPasteExecutor.swift in Sources */,
 				A00100000000000000000006 /* PanelController.swift in Sources */,
 				A00100000000000000000007 /* PlaceholderViews.swift in Sources */,
