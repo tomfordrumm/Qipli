@@ -10,7 +10,7 @@
 - Текущий milestone: M1 — рабочая локальная история.
 - Активный срез: [`S003 — Поиск и повторная вставка из истории`](slices/S003-history-search-paste.md), статус `needs_verification`.
 - Завершённые срезы: [`S001 — Скелет приложения и системное разрешение`](slices/S001-foundation-permissions.md) и [`S002 — Захват, хранение и удаление истории`](slices/S002-history-capture-retention.md).
-- Точный следующий шаг: вручную проверить S003: `⌘⇧V` не выполняет command target app до открытия History, force-activates Qipli и делает History key/Search focused, Up/Down/Enter/Esc проходят без SwiftUI console warning, entry text read-only, single-click selection, exact double-click paste и Delete without selection/paste, затем `Enter` paste реально отправляется в TextEdit/browser/editor (без ручного `⌘V`), immediate/delayed target-activation failure keeps History visible with retryable error and no duplicate paste, `Esc` и permission-denied paths; затем принять или исправить slice.
+- Точный следующий шаг: вручную проверить S003: `⌘⇧V` не выполняет command target app до открытия History, force-activates Qipli и делает History key/Search focused, Up/Down/Enter/Esc проходят без SwiftUI console warning и selected row long list остаётся visible без jump/recenter, entry text read-only, single-click selection, exact double-click paste и Delete without selection/paste, затем `Enter` paste реально отправляется в TextEdit/browser/editor (без ручного `⌘V`), immediate/delayed target-activation failure keeps History visible with retryable error and no duplicate paste, `Esc` и permission-denied paths; затем принять или исправить slice.
 
 ## Статусы срезов
 
@@ -43,7 +43,7 @@
 - Пользователь вручную подтвердил menu bar, permission onboarding и выдачу Accessibility, оба глобальных сочетания, singleton panels, неизменность обычного `⌘V` и штатный Quit.
 - S002 добавил локальную Core Data/SQLite history, changeCount monitor, retention и базовую панель; SwiftPM и Xcode XCTest прошли по 20 тестов, Xcode Release build прошёл.
 - Пользователь вручную подтвердил exact text/Unicode/multiline capture, duplicates, игнорирование non-text, restart persistence, durable delete, clear-all confirmation, неизменность system pasteboard и отсутствие clipboard payload в логах.
-- S003 реализован: keyboard-active History panel с локализованной strong user-initiated activation, read-only entries/single-select/double-click paste, local search/ID selection, safe history paste executor с target activation before close и bounded main-run-loop wait, active exact-hotkey filtering, deferred keyboard state/window actions и retryable failures. SwiftPM и Xcode XCTest прошли по 40 тестов; Xcode Debug/Release builds прошли. Реальные focus/paste/failure paths и clean-console keyboard navigation ожидают ручной проверки.
+- S003 реализован: keyboard-active History panel с локализованной strong user-initiated activation, read-only entries/single-select/double-click paste, local search/ID selection и non-animated ID auto-scroll, safe history paste executor с target activation before close и bounded main-run-loop wait, active exact-hotkey filtering, deferred keyboard state/window actions и retryable failures. SwiftPM и Xcode XCTest прошли по 40 тестов; Xcode Debug/Release builds прошли. Реальные focus/paste/failure paths и clean-console keyboard navigation ожидают ручной проверки.
 - S001 и S002 имеют статус `done`; S003 — `needs_verification`; остальные срезы остаются `planned`.
 
 ## Журнал переходов

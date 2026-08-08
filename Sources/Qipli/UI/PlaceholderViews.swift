@@ -88,32 +88,41 @@ struct HistoryPanelView: View {
                     description: Text("Try a different search term.")
                 )
             } else {
-                List(entries) { entry in
-                    HStack(alignment: .top, spacing: 12) {
-                        Button {
-                            schedule(.select(entry.id))
-                        } label: {
-                            Text(entry.text)
-                                .lineLimit(3)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .highPriorityGesture(
-                            TapGesture(count: 2).onEnded {
-                                schedule(.selectAndPaste(entry.id))
+                ScrollViewReader { proxy in
+                    List(entries) { entry in
+                        HStack(alignment: .top, spacing: 12) {
+                            Button {
+                                schedule(.select(entry.id))
+                            } label: {
+                                Text(entry.text)
+                                    .lineLimit(3)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
                             }
-                        )
+                            .buttonStyle(.plain)
+                            .highPriorityGesture(
+                                TapGesture(count: 2).onEnded {
+                                    schedule(.selectAndPaste(entry.id))
+                                }
+                            )
 
-                        Button("Delete", role: .destructive) {
-                            schedule(.delete(entry))
+                            Button("Delete", role: .destructive) {
+                                schedule(.delete(entry))
+                            }
+                            .buttonStyle(.borderless)
                         }
-                        .buttonStyle(.borderless)
+                        .padding(.vertical, 3)
+                        .id(entry.id)
+                        .listRowBackground(viewModel.selectedEntryID == entry.id ? Color.accentColor.opacity(0.18) : Color.clear)
                     }
-                    .padding(.vertical, 3)
-                    .listRowBackground(viewModel.selectedEntryID == entry.id ? Color.accentColor.opacity(0.18) : Color.clear)
+                    .listStyle(.inset)
+                    .onAppear {
+                        scrollSelectionIntoView(using: proxy)
+                    }
+                    .onChange(of: viewModel.selectedEntryID) { _, _ in
+                        scrollSelectionIntoView(using: proxy)
+                    }
                 }
-                .listStyle(.inset)
             }
         case .error:
             VStack(alignment: .leading, spacing: 12) {
@@ -171,6 +180,17 @@ struct HistoryPanelView: View {
                 delete: viewModel.delete
             )
             .execute(intent)
+        }
+    }
+
+    private func scrollSelectionIntoView(using proxy: ScrollViewProxy) {
+        guard let selectedEntryID = viewModel.selectedEntryID else { return }
+        HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                proxy.scrollTo(selectedEntryID)
+            }
         }
     }
 }
