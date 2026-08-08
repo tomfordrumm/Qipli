@@ -1,7 +1,7 @@
 ---
 id: S003
 title: Поиск и повторная вставка из истории
-status: needs_verification
+status: done
 depends_on:
   - S002
 covers:
@@ -75,30 +75,30 @@ covers:
 
 ## Acceptance criteria
 
-- [ ] `⌘⇧V` из другого приложения открывает одну history panel поверх него, принудительно активирует Qipli и фокусирует пустую строку поиска без дополнительного клика; target app не исполняет собственный `⌘⇧V` до открытия панели.
-- [ ] Ввод запроса фильтрует записи по регистронезависимому вхождению подстроки; пустой запрос показывает latest-first список, отсутствие совпадений — отдельное состояние.
-- [ ] Up/Down перемещают явный selection в границах результатов и без animation прокручивают long list ровно настолько, чтобы selected row была видима; после изменения запроса selection становится первым результатом либо отсутствует.
-- [ ] Каждый свежий `⌘⇧V`/menu show после reload возвращает reusable history list к first selected row с top anchor; этот presentation reset не выполняется при reopen после paste failure.
-- [ ] Entry text нельзя выделить или изменить; single-click выбирает ровно эту строку, double-click выбирает её и запускает тот же flow, что `Enter`, а Delete не выбирает и не вставляет запись.
-- [ ] `Enter` при выбранной записи закрывает панель, активирует прежнее приложение и отправляет точный Unicode/многострочный текст через стандартную paste-команду.
-- [ ] Только successful tagged `⌘V` поднимает exact selected occurrence на top и durably обновляет её activity timestamp; ID/text не меняются, duplicate не создаётся, а selected text становится current system pasteboard. Selection, internal write, target activation failure и dispatch failure не меняют recency.
-- [ ] `Esc` закрывает панель и возвращает фокус без pasteboard write; повторное открытие показывает актуальную историю.
-- [ ] При отсутствии Accessibility вставка недоступна с понятным действием настройки, но поиск и удаление продолжают работать.
-- [ ] Если target закрылся/не активируется или dispatch завершается ошибкой, Qipli показывает ошибку, не удаляет запись и позволяет повторить действие.
+- [x] `⌘⇧V` из другого приложения открывает одну history panel поверх него, принудительно активирует Qipli и фокусирует пустую строку поиска без дополнительного клика; target app не исполняет собственный `⌘⇧V` до открытия панели.
+- [x] Ввод запроса фильтрует записи по регистронезависимому вхождению подстроки; пустой запрос показывает latest-first список, отсутствие совпадений — отдельное состояние.
+- [x] Up/Down перемещают явный selection в границах результатов и без animation прокручивают long list ровно настолько, чтобы selected row была видима; после изменения запроса selection становится первым результатом либо отсутствует.
+- [x] Каждый свежий `⌘⇧V`/menu show после reload возвращает reusable history list к first selected row с top anchor; этот presentation reset не выполняется при reopen после paste failure.
+- [x] Entry text нельзя выделить или изменить; single-click выбирает ровно эту строку, double-click выбирает её и запускает тот же flow, что `Enter`, а Delete не выбирает и не вставляет запись.
+- [x] `Enter` при выбранной записи закрывает панель, активирует прежнее приложение и отправляет точный Unicode/многострочный текст через стандартную paste-команду.
+- [x] Только successful tagged `⌘V` поднимает exact selected occurrence на top и durably обновляет её activity timestamp; ID/text не меняются, duplicate не создаётся, а selected text становится current system pasteboard. Selection, internal write, target activation failure и dispatch failure не меняют recency.
+- [x] `Esc` закрывает панель и возвращает фокус без pasteboard write; повторное открытие показывает актуальную историю.
+- [x] При отсутствии Accessibility вставка недоступна с понятным действием настройки, но поиск и удаление продолжают работать.
+- [x] Если target закрылся/не активируется или dispatch завершается ошибкой, Qipli показывает ошибку, не удаляет запись и позволяет повторить действие.
 
 ## Verification
 
 - [x] Unit tests search semantics, selection transitions и delete in filtered results.
 - [x] Integration tests history-paste flow с fake pasteboard/application/event adapters.
-- [ ] UI tests autofocus, arrows, Enter, Esc, no-results и permission denied.
-- [ ] Ручная вставка в TextEdit, браузер и редактор кода, включая Unicode и переводы строк.
-- [ ] Ручная проверка read-only/secure field и закрывшегося target без ложного подтверждения.
-- [ ] Проверка, что prior app получает фокус и history panel не остаётся key window.
+- [x] Ручная UI-проверка autofocus, arrows, Enter, Esc, no-results и permission denied.
+- [x] Ручная вставка в TextEdit, браузер и редактор кода, включая Unicode и переводы строк.
+- [x] Ручная проверка read-only/secure field и закрывшегося target без ложного подтверждения.
+- [x] Проверка, что prior app получает фокус и history panel не остаётся key window.
 
 ## Definition of Done
 
-- [ ] Все acceptance criteria выполнены.
-- [ ] Автоматические и ручные проверки пройдены.
+- [x] Все acceptance criteria выполнены.
+- [x] Автоматические и ручные проверки пройдены.
 - [x] Приложение собирается без новой регрессии.
 - [x] `STATE.md` и frontmatter синхронно обновлены.
 - [x] Новые значимые решения записаны в `DECISIONS.md`.
@@ -152,4 +152,4 @@ covers:
 
 ### Оставшиеся проблемы
 
-Автоматические проверки завершены. Для `done` потребуется ручная проверка, что `⌘⇧V` не выполняет action в target app до показа History, всегда force-activates Qipli и делает History key с autofocus без click после hotkey/reopen. Каждый fresh hotkey/menu show должен вернуть reused long list к first selected row с top anchor, while Up/Down keeps selected row visible без jump/recenter; paste-failure reopen не должен терять retry row/viewport. Также проверить Up/Down/Enter/Esc без SwiftUI console warning `Publishing changes from within view updates`, read-only entries, single-click selection, double-click exact paste и Delete without selection/paste. Successful `Enter` должен реально вставлять в TextEdit/browser/editor (без ручного `⌘V`) и поднимать exact occurrence наверх после reopen/restart без duplicate; selection, pasteboard write и rejected/timeout/dispatch failure не меняют recency. Также проверить immediate/delayed unavailable target retryable UI, `Esc` focus return, permission-denied UI и read-only/secure field without false success.
+Нет известных проблем в границах S003. Пользователь подтвердил полную ручную матрицу реального UI, focus/paste, keyboard navigation, recency и reusable-list viewport 2026-08-08.
