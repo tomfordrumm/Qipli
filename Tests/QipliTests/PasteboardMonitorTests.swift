@@ -6,7 +6,7 @@ final class PasteboardMonitorTests: XCTestCase {
         let pasteboard = FakePasteboard(changeCount: 1)
         pasteboard.setText("already on clipboard")
         var captured: [String] = []
-        let monitor = PasteboardMonitor(pasteboard: pasteboard) { captured.append($0) }
+        let monitor = PasteboardMonitor(pasteboard: pasteboard) { captured.append($0.text) }
 
         monitor.poll()
         XCTAssertTrue(captured.isEmpty)
@@ -19,7 +19,7 @@ final class PasteboardMonitorTests: XCTestCase {
     func testCapturesExactTextAndPreservesDuplicateEvents() {
         let pasteboard = FakePasteboard(changeCount: 1)
         var captured: [String] = []
-        let monitor = PasteboardMonitor(pasteboard: pasteboard) { captured.append($0) }
+        let monitor = PasteboardMonitor(pasteboard: pasteboard) { captured.append($0.text) }
         let multiline = ["line one", "🦊  https://example.test"].joined(separator: "\n")
 
         pasteboard.setText(multiline)
@@ -33,7 +33,7 @@ final class PasteboardMonitorTests: XCTestCase {
     func testIgnoresUnsupportedAndOnlyTheRegisteredSelfWriteChange() {
         let pasteboard = FakePasteboard(changeCount: 3)
         var captured: [String] = []
-        let monitor = PasteboardMonitor(pasteboard: pasteboard) { captured.append($0) }
+        let monitor = PasteboardMonitor(pasteboard: pasteboard) { captured.append($0.text) }
 
         pasteboard.setUnsupportedValue()
         monitor.poll()
@@ -51,7 +51,7 @@ final class PasteboardMonitorTests: XCTestCase {
     func testDiscardsStaleSuppressionWhenExternalChangeOvertakesIt() {
         let pasteboard = FakePasteboard(changeCount: 8)
         var captured: [String] = []
-        let monitor = PasteboardMonitor(pasteboard: pasteboard) { captured.append($0) }
+        let monitor = PasteboardMonitor(pasteboard: pasteboard) { captured.append($0.text) }
 
         monitor.registerSelfWrite(changeCount: 9)
         pasteboard.setText("external value")

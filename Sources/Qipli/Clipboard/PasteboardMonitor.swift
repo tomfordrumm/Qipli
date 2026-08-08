@@ -6,6 +6,11 @@ protocol PasteboardReading: AnyObject {
     func textValue() -> String?
 }
 
+struct PasteboardTextChange: Equatable {
+    let changeCount: Int
+    let text: String
+}
+
 final class SystemPasteboardReader: PasteboardReading {
     private let pasteboard: NSPasteboard
 
@@ -23,16 +28,18 @@ final class SystemPasteboardReader: PasteboardReading {
 /// Polls the system pasteboard. A suppression is tied to one exact change number, never its text.
 final class PasteboardMonitor {
     private let pasteboard: PasteboardReading
-    private let onExternalText: (String) -> Void
+    private let onExternalText: (PasteboardTextChange) -> Void
     private var lastChangeCount: Int
     private var ignoredChanges = Set<Int>()
     private var timer: Timer?
 
-    init(pasteboard: PasteboardReading = SystemPasteboardReader(), onExternalText: @escaping (String) -> Void) {
+    init(pasteboard: PasteboardReading = SystemPasteboardReader(), onExternalText: @escaping (PasteboardTextChange) -> Void) {
         self.pasteboard = pasteboard
         self.onExternalText = onExternalText
         lastChangeCount = pasteboard.changeCount
     }
+
+    var currentChangeCount: Int { pasteboard.changeCount }
 
     func start(interval: TimeInterval = 0.35) {
         stop()
@@ -61,6 +68,6 @@ final class PasteboardMonitor {
         ignoredChanges = ignoredChanges.filter { $0 >= currentChangeCount }
         guard ignoredChanges.remove(currentChangeCount) == nil else { return }
         guard let text = pasteboard.textValue() else { return }
-        onExternalText(text)
+        onExternalText(PasteboardTextChange(changeCount: currentChangeCount, text: text))
     }
 }

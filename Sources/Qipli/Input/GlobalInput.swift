@@ -5,6 +5,11 @@ enum GlobalHotKey: Equatable {
     case pasteStack
 }
 
+enum GlobalInputAction: Equatable {
+    case hotKey(GlobalHotKey)
+    case cancelPasteStack
+}
+
 enum GlobalInputStatus: Equatable {
     case stopped
     case ready
@@ -35,6 +40,10 @@ protocol AccessibilityPermissionChecking: AnyObject {
 protocol GlobalInputEventAdapting: AnyObject {
     var status: GlobalInputStatus { get }
     var onHotKey: ((GlobalHotKey) -> Void)? { get set }
+    var onEscape: (() -> Void)? { get set }
+    /// The adapter reads this synchronously from its active event filter so it
+    /// can consume Escape only while a Stack session exists.
+    var shouldConsumeEscape: (() -> Bool)? { get set }
     var onStatusChange: ((GlobalInputStatus) -> Void)? { get set }
 
     @discardableResult func start() -> GlobalInputStatus
@@ -50,6 +59,8 @@ final class InputCoordinator {
         didSet { onStatusChange?(status) }
     }
     var onHotKey: ((GlobalHotKey) -> Void)?
+    var onEscape: (() -> Void)?
+    var shouldConsumeEscape: (() -> Bool)?
     var onStatusChange: ((GlobalInputStatus) -> Void)?
 
     init(permissionService: AccessibilityPermissionChecking, eventAdapter: GlobalInputEventAdapting) {
@@ -58,6 +69,12 @@ final class InputCoordinator {
 
         eventAdapter.onHotKey = { [weak self] hotKey in
             self?.onHotKey?(hotKey)
+        }
+        eventAdapter.onEscape = { [weak self] in
+            self?.onEscape?()
+        }
+        eventAdapter.shouldConsumeEscape = { [weak self] in
+            self?.shouldConsumeEscape?() ?? false
         }
         eventAdapter.onStatusChange = { [weak self] status in
             self?.status = status

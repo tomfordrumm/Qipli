@@ -2,7 +2,7 @@
 
 Статус: архитектура MVP
 
-Дата проверки платформы: 2026-08-06
+Дата базовой проверки платформы: 2026-08-06; S004 input/panel contracts перепроверены: 2026-08-08
 
 Поддерживаемая платформа: macOS 14+
 
@@ -27,11 +27,14 @@ Qipli — нативное menu bar приложение на Swift. Интер�
 
 - Apple, [`NSPasteboard`](https://developer.apple.com/documentation/appkit/nspasteboard) и [`changeCount`](https://developer.apple.com/documentation/appkit/nspasteboard/changecount).
 - Apple, [`CGEvent`](https://developer.apple.com/documentation/coregraphics/cgevent), включая event taps, и [`tapEnable`](https://developer.apple.com/documentation/coregraphics/cgevent/tapenable(tap:enable:)).
+- Apple, [`CGEventTapOptions.defaultTap`](https://developer.apple.com/documentation/coregraphics/cgeventtapoptions/defaulttap): active filter может возвращать `nil`, чтобы потребить exact event.
+- Apple, [`NSWindow.CollectionBehavior.canJoinAllSpaces`](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/canjoinallspaces) и [`fullScreenAuxiliary`](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/fullscreenauxiliary): вспомогательная panel показывается во всех Spaces и рядом с full-screen window.
+- Apple, [`NSScreen`](https://developer.apple.com/documentation/appkit/nsscreen): список displays и `visibleFrame` для placement временной panel.
 - Apple, [`AXIsProcessTrustedWithOptions`](https://developer.apple.com/documentation/applicationservices/1459186-axisprocesstrustedwithoptions).
 - Apple, [Protecting user data with App Sandbox](https://developer.apple.com/documentation/security/protecting-user-data-with-app-sandbox) и [App Sandbox](https://developer.apple.com/documentation/security/app-sandbox).
 - Apple, [Preparing your app for distribution](https://developer.apple.com/documentation/xcode/preparing-your-app-for-distribution), [Hardened Runtime](https://developer.apple.com/documentation/security/hardened-runtime) и [Notarizing macOS software before distribution](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
 
-Ссылки и выводы проверены 2026-08-06. Их нужно перепроверить перед изменением способа распространения, sandbox/entitlements, минимальной macOS или механизма глобального ввода, а также перед S008.
+Базовые ссылки и выводы проверены 2026-08-06. S004 повторно сверил только input/panel contracts выше 2026-08-08: `.defaultTap` как active filter, `canJoinAllSpaces`/`fullScreenAuxiliary` и screen `visibleFrame`. Release, sandbox/entitlements и остальные platform sources этим recheck не подтверждаются и должны быть перепроверены перед изменением соответствующих контрактов и перед S008.
 
 ## 3. Компоненты и ответственность
 
@@ -56,7 +59,7 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
 
 - периодически сравнивает `NSPasteboard.general.changeCount` с последним обработанным значением;
 - извлекает только неизменённое строковое представление;
-- передаёт внешнее событие в историю и, если активен стек, в текущую сессию;
+- передаёт exact observed `changeCount`; Stack capture snapshot-ит identity активной session и её start watermark до deferred main-actor обработки, чтобы copy до Start или от отменённой session не попало в новую session;
 - распознаёт изменения, созданные самим Qipli, и не возвращает их в capture pipeline;
 - сериализует обработку, чтобы быстрые изменения не меняли порядок.
 
@@ -72,15 +75,15 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
 
 ### StackSession
 
-- чистая тестируемая state machine в памяти;
-- владеет списком occurrence, базовым порядком, направлением, состояниями pending/next/used и одноразовым приоритетом reactivated;
+- чистая тестируемая in-memory collection boundary с UUID session token, pasteboard `changeCount` start watermark и отдельными UUID occurrence;
+- в S004 владеет только append-only collection и базовой `position`; порядок, направление, next/used и reactivation появляются в S005–S007;
 - не пишет отдельную «сохранённую очередь» в Core Data;
-- завершает сессию при отсутствии активных элементов или явной отмене.
+- освобождается при явной отмене/close; новая session всегда пустая.
 
 ### InputCoordinator и PasteExecutor
 
 - регистрируют глобальные сочетания и event tap только в разрешённом состоянии, включая `Esc` как отмену только при активном стеке;
-- active event tap потребляет только exact untagged `⌘⇧V` и `⌘⇧C` keyDown, чтобы target app не исполнил собственную команду до открытия Qipli; обычный `⌘V`, другие modifiers и Qipli synthetic events проходят без изменения;
+- active event tap потребляет только exact untagged `⌘⇧V` и `⌘⇧C` keyDown и untagged `Esc` без semantic Shift/Control/Option/Command при active stack; обычный `⌘V`, keyUp, другие modifiers и Qipli synthetic events проходят без изменения;
 - не модифицируют обычный `⌘V`, когда стек не активен;
 - перед внутренней записью помечают ожидаемый `changeCount`/операцию, чтобы монитор пропустил self-write;
 - быстро подготавливают следующий текст в pasteboard и отправляют/пропускают событие вставки, не блокируя event tap тяжёлой работой;
@@ -94,11 +97,18 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
 
 1. Monitor замечает новый `changeCount`.
 2. Self-write registry подтверждает, что изменение не принадлежит Qipli.
-3. Monitor читает текст ровно один раз и передаёт событие в `HistoryService`.
-4. После успешного сохранения активная `StackSession` получает отдельный occurrence того же события.
+3. Monitor читает текст ровно один раз и передаёт observed `changeCount`; перед deferred work snapshot-ятся optional active Stack session UUID и start watermark.
+4. `HistoryService` сначала сохраняет запись; только после успеха StackSession с тем же UUID получает отдельный occurrence, если observed `changeCount` строго больше watermark. Отмена/новый Start между этими шагами или write до Start оставляет событие только в History.
 5. UI обновляется из наблюдаемого состояния; ошибка хранения не маскируется.
 
 Порядок «сначала история, потом стек» гарантирует, что отмена/сбой стека не оставит значение только в памяти.
+
+### Сбор Paste Stack (S004)
+
+1. `⌘⇧C` или Start menu action создаёт одну пустую session; повторный hotkey показывает ту же panel без reset, а menu переключается на Cancel.
+2. Stack panel — `NSPanel` с `.nonactivatingPanel`, floating level, `.canJoinAllSpaces` и `.fullScreenAuxiliary`; она не вызывает App activation или `makeKey`.
+3. Перед показом panel выбирается `NSScreen` под курсором (fallback main/first screen), а чистая placement function центрирует компактный frame и clamp-ит origin к `visibleFrame` этого display.
+4. Exact global Escape или close/cancel освобождает только StackSession и скрывает panel; записи History не затрагиваются.
 
 ### Вставка из истории
 
@@ -207,6 +217,7 @@ QipliUITests/         in-app keyboard and panel flows
 - repository: create/search/promote/delete/delete-all и durable restart на временном Core Data store;
 - integration с fake adapters: history Enter flow, permission denied, activation failure, event tap disabled;
 - UI: focus поиска, arrows, selection, empty/no-results, stack states и drag reorder внутри Qipli;
+- S004: session uniqueness/duplicates/release, save-before-append, stale deferred capture token/start watermark, Escape active-filter contract и pure multi-display placement clamp;
 - build: Debug и Release для deployment target macOS 14.
 
 ### Вручную на чистой системе

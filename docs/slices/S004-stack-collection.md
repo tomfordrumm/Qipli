@@ -1,7 +1,7 @@
 ---
 id: S004
 title: Сбор и визуальная панель Paste Stack
-status: planned
+status: needs_verification
 depends_on:
   - S002
 covers:
@@ -67,20 +67,20 @@ covers:
 
 ## Acceptance criteria
 
-- [ ] `⌘⇧C` из другого приложения создаёт одну пустую stack panel поверх текущего display с подсказкой скопировать текст; повторное сочетание не создаёт вторую сессию.
-- [ ] Каждое следующее текстовое копирование добавляется один раз в конец видимого списка и уже присутствует в общей истории.
-- [ ] Два одинаковых копирования показываются как два независимо идентифицируемых occurrence; Unicode и многострочный текст в модели не меняются.
-- [ ] Изменения без текстового представления и self-writes Qipli не добавляются; ошибка сохранения истории не создаёт «осиротевший» элемент только в стеке.
-- [ ] Панель остаётся поверх обычных окон и позволяет продолжать `⌘C` в источнике без постоянной потери фокуса; на нескольких displays появляется рядом с активным экраном и не оказывается за его видимой рамкой.
-- [ ] До реализации S006 обычный `⌘V` не перехватывается и не меняет occurrence state.
-- [ ] Глобальный `Esc` из приложения-источника при активной панели или её close control завершает сессию и скрывает панель; собранные тексты остаются в истории.
-- [ ] Новый запуск стека после отмены начинает пустую сессию; прежний список не восстанавливается после перезапуска Qipli.
+- [ ] `⌘⇧C` из другого приложения создаёт одну пустую stack panel поверх текущего display с подсказкой скопировать текст; повторное сочетание не создаёт вторую сессию. Автоматическое session coverage пройдено; требуется ручная macOS проверка.
+- [ ] Каждое следующее текстовое копирование добавляется один раз в конец видимого списка и уже присутствует в общей истории. Автоматическое capture coverage пройдено; требуется ручная macOS проверка.
+- [ ] Два одинаковых копирования показываются как два независимо идентифицируемых occurrence; Unicode и многострочный текст в модели не меняются. Автоматическое model coverage пройдено; требуется ручная macOS проверка.
+- [x] Изменения без текстового представления и self-writes Qipli не добавляются; ошибка сохранения истории не создаёт «осиротевший» элемент только в стеке.
+- [ ] Панель остаётся поверх обычных окон и позволяет продолжать `⌘C` в источнике без постоянной потери фокуса; на нескольких displays появляется рядом с активным экраном и не оказывается за его видимой рамкой. Требуется ручная macOS проверка.
+- [x] До реализации S006 обычный `⌘V` не перехватывается и не меняет occurrence state.
+- [ ] Глобальный `Esc` из приложения-источника при активной панели или её close control завершает сессию и скрывает панель; собранные тексты остаются в истории. Требуется ручная macOS проверка.
+- [ ] Новый запуск стека после отмены начинает пустую сессию; прежний список не восстанавливается после перезапуска Qipli. Требуется ручная macOS проверка.
 
 ## Verification
 
-- [ ] Unit tests session start/uniqueness, append, duplicates, cancel и deallocation.
-- [ ] Integration test: history save succeeds before occurrence append; store failure leaves stack unchanged.
-- [ ] UI tests empty/collecting/duplicate/close states.
+- [x] Unit tests session start/uniqueness, append, duplicates, cancel и deallocation.
+- [x] Integration test: history save succeeds before occurrence append; store failure leaves stack unchanged.
+- [x] UI model seam: empty/collecting/duplicate state feeds the panel without XCUI; native nonactivating focus и close action требуют ручной проверки.
 - [ ] Ручной сбор из TextEdit, браузера и редактора кода без потери `⌘C` focus.
 - [ ] Ручная проверка двух displays и одного full-screen/Space сценария.
 - [ ] Проверка, что cancel не удаляет записи из history panel после повторного открытия.
@@ -89,24 +89,38 @@ covers:
 
 - [ ] Все acceptance criteria выполнены.
 - [ ] Автоматические и ручные проверки пройдены.
-- [ ] Приложение собирается без новой регрессии.
-- [ ] `STATE.md` и frontmatter синхронно обновлены.
-- [ ] Новые значимые решения записаны в `DECISIONS.md`.
-- [ ] Implementation report заполнен.
+- [x] Приложение собирается без новой регрессии.
+- [x] `STATE.md` и frontmatter синхронно обновлены.
+- [x] `DECISIONS.md` проверен: нового значимого решения нет, применяется D-010.
+- [x] Implementation report заполнен.
 
 ## Implementation report
 
 ### Реализовано
 
-Не начато.
+- `StackSession`/`StackOccurrence` и `StackSessionController`: единственная in-memory session, UUID token/occurrence, append-only duplicate-preserving collection и release on cancel.
+- Capture coordinator сохраняет History до Stack append и сверяет snapshot session token plus pasteboard start watermark, поэтому delayed event до Start или после cancel не попадает в новую session.
+- Nonactivating floating Paste Stack panel с empty/collecting/error state, read-only truncated previews, Cancel и native close handling; Start/Cancel menu state и exact global Escape.
+- Stack panel выбирает screen под курсором и pure placement clamp к `visibleFrame`; history/permission panels сохранили прежний center behavior.
 
 ### Изменённые файлы
 
-Не начато.
+- `Sources/Qipli/PasteStack/StackSession.swift`
+- `Sources/Qipli/PasteStack/StackCollectionCaptureCoordinator.swift`
+- `Sources/Qipli/App/ApplicationShell.swift`
+- `Sources/Qipli/History/HistoryViewModel.swift`
+- `Sources/Qipli/Input/GlobalInput.swift`
+- `Sources/Qipli/Input/CGEventTapAdapter.swift`
+- `Sources/Qipli/UI/PanelController.swift`
+- `Sources/Qipli/UI/PlaceholderViews.swift`
+- `Tests/QipliTests/PasteStackTests.swift`, `Tests/QipliTests/InputCoordinatorTests.swift`, `Qipli.xcodeproj/project.pbxproj`
+- `docs/TECHNICAL.md`, `docs/STATE.md`, этот slice
 
 ### Выполненная проверка
 
-Не начато.
+- SwiftPM и Xcode Debug XCTest: 55 tests, 0 errors; universal Release `arm64+x86_64` build прошёл.
+- Deterministic checks: duplicates/Unicode, start uniqueness, cancel release/new empty session, history-before-stack, store failure, stale deferred token/start watermark, Escape active filter, ordinary `⌘V` pass-through и panel placement math.
+- Требуется ручная macOS matrix перед `done`.
 
 ### Отклонения от плана
 
@@ -114,4 +128,4 @@ covers:
 
 ### Оставшиеся проблемы
 
-Зависит от S002.
+- Manual verification: source-app focus during `⌘C`, global Escape/cancel, panel close, multiple displays и full-screen/Space behavior.

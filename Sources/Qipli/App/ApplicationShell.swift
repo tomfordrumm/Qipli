@@ -7,10 +7,13 @@ final class ApplicationShell: NSObject {
     private let inputCoordinator: InputCoordinator
     private let panels: PanelController
     private let historyViewModel: HistoryViewModel
+    private let stackSessionController: StackSessionController
+    private let stackCaptureCoordinator: StackCollectionCaptureCoordinator
     private let pasteboardMonitor: PasteboardMonitor
     private var retentionTimer: Timer?
     private let statusItem: NSStatusItem
     private let permissionMenuItem = NSMenuItem()
+    private let pasteStackMenuItem = NSMenuItem()
 
     init(
         permissionService: AccessibilityPermissionService = AccessibilityPermissionService(),
@@ -27,9 +30,22 @@ final class ApplicationShell: NSObject {
         }
         let historyService = HistoryService(store: store)
         historyViewModel = HistoryViewModel(service: historyService)
-        pasteboardMonitor = PasteboardMonitor { [weak historyViewModel] text in
+        stackSessionController = StackSessionController()
+        stackCaptureCoordinator = StackCollectionCaptureCoordinator(
+            historyViewModel: historyViewModel,
+            stackSessionController: stackSessionController
+        )
+        pasteboardMonitor = PasteboardMonitor { [weak stackCaptureCoordinator, weak stackSessionController] change in
+            // The monitor observes the active session before it defers the
+            // persistence work. A later Start/Cancel cannot claim this copy;
+            // the session watermark also rejects a write that predates Start.
+            let captureContext = stackSessionController?.captureContext
             Task { @MainActor in
-                historyViewModel?.recordExternalText(text)
+                stackCaptureCoordinator?.recordExternalText(
+                    change.text,
+                    observedChangeCount: change.changeCount,
+                    stackCaptureContext: captureContext
+                )
             }
         }
         inputCoordinator = InputCoordinator(
@@ -50,6 +66,7 @@ final class ApplicationShell: NSObject {
         panels = PanelController(
             permissionService: permissionService,
             historyViewModel: historyViewModel,
+            stackSessionController: stackSessionController,
             historyPasteExecutor: pasteExecutor,
             openAccessibilitySettings: { [weak permissionService] in
                 permissionService?.openSystemSettings()
@@ -66,8 +83,17 @@ final class ApplicationShell: NSObject {
             case .history:
                 self?.showHistory()
             case .pasteStack:
-                self?.showPasteStack()
+                self?.startPasteStack()
             }
+        }
+        inputCoordinator.shouldConsumeEscape = { [weak stackSessionController] in
+            stackSessionController?.isActive ?? false
+        }
+        inputCoordinator.onEscape = { [weak self] in
+            self?.cancelPasteStack()
+        }
+        panels.onPasteStackCancelled = { [weak self] in
+            self?.updatePasteStackMenuTitle()
         }
     }
 
@@ -114,7 +140,9 @@ final class ApplicationShell: NSObject {
 
         let menu = NSMenu()
         menu.addItem(menuItem(title: "History", action: #selector(showHistory)))
-        menu.addItem(menuItem(title: "Start Paste Stack", action: #selector(showPasteStack)))
+        pasteStackMenuItem.target = self
+        pasteStackMenuItem.action = #selector(togglePasteStackFromMenu)
+        menu.addItem(pasteStackMenuItem)
         menu.addItem(.separator())
 
         permissionMenuItem.target = self
@@ -124,6 +152,7 @@ final class ApplicationShell: NSObject {
         menu.addItem(.separator())
         menu.addItem(menuItem(title: "Quit Qipli", action: #selector(quit)))
         statusItem.menu = menu
+        updatePasteStackMenuTitle()
     }
 
     private func menuItem(title: String, action: Selector) -> NSMenuItem {
@@ -148,16 +177,36 @@ final class ApplicationShell: NSObject {
         }
     }
 
+    private func updatePasteStackMenuTitle() {
+        pasteStackMenuItem.title = stackSessionController.isActive ? "Cancel Paste Stack" : "Start Paste Stack"
+    }
+
     @objc private func showHistory() {
         panels.showHistory()
     }
 
-    @objc private func showPasteStack() {
+    @objc private func togglePasteStackFromMenu() {
+        if stackSessionController.isActive {
+            cancelPasteStack()
+        } else {
+            startPasteStack()
+        }
+    }
+
+    /// Repeating the collection hotkey leaves the same session and its order intact.
+    private func startPasteStack() {
         guard permissionService.refresh() == .granted else {
             showPermissionStatus()
             return
         }
+        _ = stackSessionController.startIfNeeded(captureAfterChangeCount: pasteboardMonitor.currentChangeCount)
         panels.showPasteStack()
+        updatePasteStackMenuTitle()
+    }
+
+    private func cancelPasteStack() {
+        panels.cancelPasteStack()
+        updatePasteStackMenuTitle()
     }
 
     @objc private func showPermissionStatus() {

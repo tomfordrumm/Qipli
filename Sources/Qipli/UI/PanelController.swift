@@ -6,20 +6,28 @@ import SwiftUI
 final class PanelController {
     private let permissionService: AccessibilityPermissionService
     private let historyViewModel: HistoryViewModel
+    private let stackSessionController: StackSessionController
     private let historyPasteExecutor: HistoryPasteExecutor
     private let frontmostApplicationCapture: FrontmostApplicationCapturing
+    private let screenProvider: PanelScreenProviding
     private let openAccessibilitySettings: () -> Void
     private let activationPresenter: PanelActivationPresenter
     private var historyPanel: NSPanel?
     private var stackPanel: NSPanel?
     private var permissionPanel: NSPanel?
     private var historyPasteTarget: HistoryPasteTarget?
+    private var stackPanelCloseDelegate: StackPanelCloseDelegate?
+
+    /// The shell uses this only to refresh its Start/Cancel menu title.
+    var onPasteStackCancelled: (() -> Void)?
 
     init(
         permissionService: AccessibilityPermissionService,
         historyViewModel: HistoryViewModel,
+        stackSessionController: StackSessionController,
         historyPasteExecutor: HistoryPasteExecutor,
         frontmostApplicationCapture: FrontmostApplicationCapturing = SystemFrontmostApplicationCapture(),
+        screenProvider: PanelScreenProviding = SystemPanelScreenProvider(),
         applicationActivator: QipliApplicationActivating? = nil,
         activationScheduler: @escaping (@escaping () -> Void) -> Void = { action in
             RunLoop.main.perform(inModes: [.common]) { action() }
@@ -28,8 +36,10 @@ final class PanelController {
     ) {
         self.permissionService = permissionService
         self.historyViewModel = historyViewModel
+        self.stackSessionController = stackSessionController
         self.historyPasteExecutor = historyPasteExecutor
         self.frontmostApplicationCapture = frontmostApplicationCapture
+        self.screenProvider = screenProvider
         self.openAccessibilitySettings = openAccessibilitySettings
         let resolvedApplicationActivator = applicationActivator ?? SystemQipliApplicationActivator()
         activationPresenter = PanelActivationPresenter(
@@ -64,11 +74,20 @@ final class PanelController {
     }
 
     func showPasteStack() {
-        let panel = stackPanel ?? makePanel(title: "Paste Stack") {
-            PasteStackPlaceholderView()
+        let panel = stackPanel ?? makeStackPanel {
+            PasteStackPanelView(
+                sessionController: self.stackSessionController,
+                cancel: { [weak self] in self?.cancelPasteStack() }
+            )
         }
         stackPanel = panel
-        present(panel)
+        present(panel, activatesApplication: false, placeOnCurrentScreen: true)
+    }
+
+    func cancelPasteStack() {
+        stackSessionController.cancel()
+        stackPanel?.orderOut(nil)
+        onPasteStackCancelled?()
     }
 
     func showPermission(requestAccess: @escaping () -> Void, openSettings: @escaping () -> Void) {
@@ -84,6 +103,7 @@ final class PanelController {
     }
 
     func closeAll() {
+        cancelPasteStack()
         [historyPanel, stackPanel, permissionPanel].forEach { $0?.close() }
     }
 
@@ -144,13 +164,45 @@ final class PanelController {
         return panel
     }
 
+    private func makeStackPanel<Content: View>(@ViewBuilder content: () -> Content) -> NSPanel {
+        let panel = NonActivatingStackPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 280),
+            styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = "Paste Stack"
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.hidesOnDeactivate = false
+        panel.contentView = NSHostingView(rootView: content())
+
+        let closeDelegate = StackPanelCloseDelegate { [weak self] in
+            self?.cancelPasteStack()
+        }
+        panel.delegate = closeDelegate
+        stackPanelCloseDelegate = closeDelegate
+        return panel
+    }
+
     private func present(
         _ panel: NSPanel,
         requestSearchFocus: Bool = false,
         requestHistoryViewportReset: Bool = false,
-        requiresStrongUserActivation: Bool = false
+        requiresStrongUserActivation: Bool = false,
+        activatesApplication: Bool = true,
+        placeOnCurrentScreen: Bool = false
     ) {
-        panel.center()
+        if placeOnCurrentScreen {
+            place(panel)
+        } else {
+            panel.center()
+        }
+        guard activatesApplication else {
+            panel.orderFrontRegardless()
+            return
+        }
         // `NSApplication.activate()` is an asynchronous, best-effort request. The
         // panel must still be visible if activation is denied or delayed, so order
         // it before waiting for the active-only keyboard follow-up.
@@ -171,6 +223,63 @@ final class PanelController {
                 }
             }
         )
+    }
+
+    private func place(_ panel: NSPanel) {
+        panel.setFrameOrigin(
+            FloatingPanelPlacement.origin(
+                panelSize: panel.frame.size,
+                visibleFrame: screenProvider.currentVisibleFrame()
+            )
+        )
+    }
+}
+
+/// Narrow AppKit boundary for deciding which display owns a temporary panel.
+protocol PanelScreenProviding: AnyObject {
+    func currentVisibleFrame() -> NSRect
+}
+
+final class SystemPanelScreenProvider: PanelScreenProviding {
+    func currentVisibleFrame() -> NSRect {
+        let mouseLocation = NSEvent.mouseLocation
+        return NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) })?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+            ?? NSScreen.screens.first?.visibleFrame
+            ?? .zero
+    }
+}
+
+enum FloatingPanelPlacement {
+    /// Centers a compact panel on the display under the mouse and clamps its
+    /// origin to that display's visible frame (menu bar and Dock excluded).
+    static func origin(panelSize: NSSize, visibleFrame: NSRect) -> NSPoint {
+        let desired = NSPoint(
+            x: visibleFrame.midX - panelSize.width / 2,
+            y: visibleFrame.midY - panelSize.height / 2
+        )
+        return NSPoint(
+            x: min(max(desired.x, visibleFrame.minX), max(visibleFrame.minX, visibleFrame.maxX - panelSize.width)),
+            y: min(max(desired.y, visibleFrame.minY), max(visibleFrame.minY, visibleFrame.maxY - panelSize.height))
+        )
+    }
+}
+
+private final class NonActivatingStackPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
+private final class StackPanelCloseDelegate: NSObject, NSWindowDelegate {
+    private let cancel: () -> Void
+
+    init(cancel: @escaping () -> Void) {
+        self.cancel = cancel
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        cancel()
+        return false
     }
 }
 

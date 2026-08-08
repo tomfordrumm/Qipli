@@ -272,12 +272,56 @@ private enum HistoryKeyboardActionScheduler {
     }
 }
 
-struct PasteStackPlaceholderView: View {
+struct PasteStackPanelView: View {
+    @ObservedObject var sessionController: StackSessionController
+    let cancel: () -> Void
+
     var body: some View {
-        PlaceholderSurface(
-            title: "Paste Stack",
-            message: "Paste Stack collection starts in a later implementation slice."
-        )
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Paste Stack")
+                    .font(.headline)
+                Spacer()
+                Text("Collecting")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if sessionController.occurrences.isEmpty {
+                ContentUnavailableView(
+                    "Copy text to add it",
+                    systemImage: "doc.on.clipboard",
+                    description: Text("This stack starts empty and collects new copies only.")
+                )
+            } else {
+                List(sessionController.occurrences) { occurrence in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text("\(occurrence.position + 1).")
+                            .foregroundStyle(.secondary)
+                        Text(StackPreview.text(for: occurrence.text))
+                            .lineLimit(3)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.vertical, 2)
+                }
+                .listStyle(.inset)
+            }
+
+            if sessionController.hasCaptureError {
+                Text("Qipli could not save the last copied text. Copy it again to retry.")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel Stack", action: cancel)
+            }
+        }
+        .padding(16)
+        .frame(width: 400, height: 280, alignment: .topLeading)
+        .accessibilityIdentifier("paste-stack-panel")
     }
 }
 
@@ -302,21 +346,5 @@ struct PermissionStatusView: View {
         }
         .padding(24)
         .frame(width: 420, alignment: .leading)
-    }
-}
-
-private struct PlaceholderSurface: View {
-    let title: String
-    let message: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.headline)
-            Text(message)
-                .foregroundStyle(.secondary)
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }

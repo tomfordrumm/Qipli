@@ -26,6 +26,9 @@
 		A00100000000000000000017 /* HistoryStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000021 /* HistoryStoreTests.swift */; };
 		A00100000000000000000018 /* HistoryPasteExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000022 /* HistoryPasteExecutor.swift */; };
 		A00100000000000000000019 /* HistorySearchPasteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000023 /* HistorySearchPasteTests.swift */; };
+		A00100000000000000000020 /* StackSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000024 /* StackSession.swift */; };
+		A00100000000000000000021 /* StackCollectionCaptureCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000025 /* StackCollectionCaptureCoordinator.swift */; };
+		A00100000000000000000022 /* PasteStackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000026 /* PasteStackTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -62,6 +65,9 @@
 		A00200000000000000000021 /* HistoryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryStoreTests.swift; sourceTree = "<group>"; };
 		A00200000000000000000022 /* HistoryPasteExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryPasteExecutor.swift; sourceTree = "<group>"; };
 		A00200000000000000000023 /* HistorySearchPasteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySearchPasteTests.swift; sourceTree = "<group>"; };
+		A00200000000000000000024 /* StackSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackSession.swift; sourceTree = "<group>"; };
+		A00200000000000000000025 /* StackCollectionCaptureCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackCollectionCaptureCoordinator.swift; sourceTree = "<group>"; };
+		A00200000000000000000026 /* PasteStackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteStackTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -98,6 +104,7 @@
 				A00400000000000000000004 /* Input */,
 				A00400000000000000000009 /* Clipboard */,
 				A00400000000000000000010 /* History */,
+				A00400000000000000000011 /* PasteStack */,
 				A00400000000000000000005 /* UI */,
 				A00400000000000000000008 /* Resources */,
 			);
@@ -142,6 +149,7 @@
 				A00200000000000000000020 /* PasteboardMonitorTests.swift */,
 				A00200000000000000000021 /* HistoryStoreTests.swift */,
 				A00200000000000000000023 /* HistorySearchPasteTests.swift */,
+				A00200000000000000000026 /* PasteStackTests.swift */,
 			);
 			path = Tests/QipliTests;
 			sourceTree = "<group>";
@@ -163,6 +171,15 @@
 				A00200000000000000000019 /* HistoryViewModel.swift */,
 			);
 			path = History;
+			sourceTree = "<group>";
+		};
+		A00400000000000000000011 /* PasteStack */ = {
+			isa = PBXGroup;
+			children = (
+				A00200000000000000000024 /* StackSession.swift */,
+				A00200000000000000000025 /* StackCollectionCaptureCoordinator.swift */,
+			);
+			path = PasteStack;
 			sourceTree = "<group>";
 		};
 		A00400000000000000000007 /* Products */ = {
@@ -284,6 +301,8 @@
 				A00100000000000000000013 /* HistoryStore.swift in Sources */,
 				A00100000000000000000014 /* HistoryService.swift in Sources */,
 				A00100000000000000000015 /* HistoryViewModel.swift in Sources */,
+				A00100000000000000000020 /* StackSession.swift in Sources */,
+				A00100000000000000000021 /* StackCollectionCaptureCoordinator.swift in Sources */,
 				A00100000000000000000018 /* HistoryPasteExecutor.swift in Sources */,
 				A00100000000000000000006 /* PanelController.swift in Sources */,
 				A00100000000000000000007 /* PlaceholderViews.swift in Sources */,
@@ -298,6 +317,7 @@
 				A00100000000000000000016 /* PasteboardMonitorTests.swift in Sources */,
 				A00100000000000000000017 /* HistoryStoreTests.swift in Sources */,
 				A00100000000000000000019 /* HistorySearchPasteTests.swift in Sources */,
+				A00100000000000000000022 /* PasteStackTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

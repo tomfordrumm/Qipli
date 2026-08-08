@@ -120,6 +120,21 @@ final class CGEventTapAdapterClassificationTests: XCTestCase {
         XCTAssertNil(CGEventTapAdapter.consumedHotKey(type: .keyDown, event: taggedHistory))
     }
 
+    func testEscapeIsConsumedOnlyForAnActiveStackWithoutSemanticModifiers() throws {
+        let escape = try makeKeyEvent(keyCode: CGKeyCode(kVK_Escape), flags: [])
+        let modifiedEscape = try makeKeyEvent(keyCode: CGKeyCode(kVK_Escape), flags: .maskShift)
+        let taggedEscape = try makeKeyEvent(keyCode: CGKeyCode(kVK_Escape), flags: [])
+        taggedEscape.setIntegerValueField(.eventSourceUserData, value: SyntheticEventMarker.sourceUserData)
+        let ordinaryPaste = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
+
+        XCTAssertNil(CGEventTapAdapter.consumedAction(type: .keyDown, event: escape, stackSessionIsActive: false))
+        XCTAssertEqual(CGEventTapAdapter.consumedAction(type: .keyDown, event: escape, stackSessionIsActive: true), .cancelPasteStack)
+        XCTAssertNil(CGEventTapAdapter.consumedAction(type: .keyUp, event: escape, stackSessionIsActive: true))
+        XCTAssertNil(CGEventTapAdapter.consumedAction(type: .keyDown, event: modifiedEscape, stackSessionIsActive: true))
+        XCTAssertNil(CGEventTapAdapter.consumedAction(type: .keyDown, event: taggedEscape, stackSessionIsActive: true))
+        XCTAssertNil(CGEventTapAdapter.consumedAction(type: .keyDown, event: ordinaryPaste, stackSessionIsActive: true))
+    }
+
     func testTapUsesActiveFilteringConfiguration() {
         XCTAssertEqual(CGEventTapAdapter.eventTapOptions, .defaultTap)
     }
@@ -189,6 +204,8 @@ private final class FakePermissionService: AccessibilityPermissionChecking {
 private final class FakeInputAdapter: GlobalInputEventAdapting {
     private(set) var status: GlobalInputStatus = .stopped
     var onHotKey: ((GlobalHotKey) -> Void)?
+    var onEscape: (() -> Void)?
+    var shouldConsumeEscape: (() -> Bool)?
     var onStatusChange: ((GlobalInputStatus) -> Void)?
     private var startResults: [GlobalInputStatus]
     private(set) var startCount = 0

@@ -98,12 +98,18 @@ final class HistoryViewModel: ObservableObject {
         try? service.markUsed(id: id)
     }
 
-    func recordExternalText(_ text: String) {
+    /// Captures first so optional consumers, such as Paste Stack collection, can
+    /// safely reference the durable History occurrence rather than creating a
+    /// separate in-memory-only value.
+    @discardableResult
+    func recordExternalText(_ text: String) -> HistoryEntry? {
         do {
-            _ = try service.capture(text: text)
+            let entry = try service.capture(text: text)
             reload()
+            return entry
         } catch {
             state = .error
+            return nil
         }
     }
 
