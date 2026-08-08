@@ -77,7 +77,8 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
 ### StackSession
 
 - чистая тестируемая in-memory collection boundary с UUID session token, pasteboard `changeCount` start watermark и отдельными UUID occurrence;
-- в S004 владеет только append-only collection и базовой `position`; порядок, направление, next/used и reactivation появляются в S005–S007;
+- в S005 владеет base visible order с уникальными contiguous `position`, session-level `.direct`/`.reverse` и deterministic next (верх для direct, низ для reverse); reorder принимает только полную уникальную перестановку exact occurrence UUID и отвергает invalid input атомарно;
+- external append во время collection всегда добавляется в конец текущего base order; `markTraversalStarted()` блокирует reorder/direction до конца session, но actual paste/used/reactivation остаются S006–S007;
 - не пишет отдельную «сохранённую очередь» в Core Data;
 - освобождается при явной отмене/close; новая session всегда пустая.
 
@@ -221,6 +222,7 @@ QipliUITests/         in-app keyboard and panel flows
 - integration с fake adapters: history Enter flow, permission denied, activation failure, event tap disabled;
 - UI: focus поиска, arrows, selection, empty/no-results, stack states и drag reorder внутри Qipli;
 - S004: session uniqueness/duplicates/release, save-before-append, stale deferred capture token/start watermark, hotkey start → panel → tagged source-Copy ordering/repeat/menu-empty/failure, Escape active-filter contract и pure multi-display placement clamp;
+- S005: 0/1/N direct/reverse next, exact-ID reorder with duplicate text, contiguous positions, invalid atomic rejection, append after reorder, traversal lock and drag/accessibility intent seam;
 - build: Debug и Release для deployment target macOS 14.
 
 ### Вручную на чистой системе

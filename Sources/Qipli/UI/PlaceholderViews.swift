@@ -282,7 +282,7 @@ struct PasteStackPanelView: View {
                 Text("Paste Stack")
                     .font(.headline)
                 Spacer()
-                Text("Collecting")
+                Text(sessionController.traversalHasStarted ? "Traversal started" : "Collecting")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -294,15 +294,26 @@ struct PasteStackPanelView: View {
                     description: Text("This stack starts empty and collects new copies only.")
                 )
             } else {
-                List(sessionController.occurrences) { occurrence in
-                    HStack(alignment: .top, spacing: 8) {
-                        Text("\(occurrence.position + 1).")
-                            .foregroundStyle(.secondary)
-                        Text(StackPreview.text(for: occurrence.text))
-                            .lineLimit(3)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                traversalControls
+
+                HStack {
+                    Text(nextExplanation)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(reorderHint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                List {
+                    ForEach(sessionController.occurrences) { occurrence in
+                        occurrenceRow(occurrence)
                     }
-                    .padding(.vertical, 2)
+                    .onMove { source, destination in
+                        execute(.moveOccurrences(source, to: destination))
+                    }
+                    .moveDisabled(!canReorder)
                 }
                 .listStyle(.inset)
             }
@@ -325,8 +336,197 @@ struct PasteStackPanelView: View {
             }
         }
         .padding(16)
-        .frame(width: 400, height: 280, alignment: .topLeading)
+        .frame(width: 400, height: 360, alignment: .topLeading)
         .accessibilityIdentifier("paste-stack-panel")
+    }
+
+    private var traversalControls: some View {
+        Picker("Traversal direction", selection: Binding(
+            get: { sessionController.traversalDirection },
+            set: { execute(.setTraversalDirection($0)) }
+        )) {
+            ForEach(StackTraversalDirection.allCases, id: \.self) { direction in
+                Text(direction.displayName).tag(direction)
+            }
+        }
+        .pickerStyle(.segmented)
+        .disabled(!canChooseDirection)
+        .accessibilityLabel(PasteStackPanelAccessibility.directionLabel)
+        .accessibilityValue(sessionController.traversalDirection.displayName)
+    }
+
+    private func occurrenceRow(_ occurrence: StackOccurrence) -> some View {
+        let index = occurrence.position
+        let isNext = sessionController.nextOccurrence?.id == occurrence.id
+
+        return HStack(alignment: .top, spacing: 8) {
+            Text("\(index + 1).")
+                .foregroundStyle(.secondary)
+            Text(StackPreview.text(for: occurrence.text))
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if isNext {
+                Label("Next", systemImage: "arrow.right.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.tint)
+                    .accessibilityLabel(PasteStackPanelAccessibility.nextItemLabel)
+            }
+            VStack(spacing: 2) {
+                Button {
+                    execute(.moveOccurrence(occurrence.id, by: -1))
+                } label: {
+                    Image(systemName: "arrow.up")
+                }
+                .buttonStyle(.borderless)
+                .disabled(!controlState.canMove(position: index, by: -1))
+                .accessibilityLabel(PasteStackPanelAccessibility.moveLabel(position: index, direction: .up))
+                .accessibilityHint("Alternative to dragging this stack item.")
+
+                Button {
+                    execute(.moveOccurrence(occurrence.id, by: 1))
+                } label: {
+                    Image(systemName: "arrow.down")
+                }
+                .buttonStyle(.borderless)
+                .disabled(!controlState.canMove(position: index, by: 1))
+                .accessibilityLabel(PasteStackPanelAccessibility.moveLabel(position: index, direction: .down))
+                .accessibilityHint("Alternative to dragging this stack item.")
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var canChooseDirection: Bool {
+        controlState.canChooseDirection
+    }
+
+    private var canReorder: Bool {
+        controlState.canReorder
+    }
+
+    private var controlState: PasteStackPanelControlState {
+        PasteStackPanelControlState(
+            occurrenceCount: sessionController.occurrences.count,
+            canAdjustTraversal: sessionController.canAdjustTraversal
+        )
+    }
+
+    private var nextExplanation: String {
+        switch sessionController.traversalDirection {
+        case .direct: "Direct: the top item is next."
+        case .reverse: "Reverse: the bottom item is next."
+        }
+    }
+
+    private var reorderHint: String {
+        if sessionController.traversalHasStarted {
+            "Order is locked after traversal starts."
+        } else if sessionController.occurrences.count < 2 {
+            "Add another item to reorder."
+        } else {
+            "Drag rows or use arrows."
+        }
+    }
+
+    private func execute(_ intent: PasteStackPanelIntent) {
+        PasteStackPanelIntentExecutor(
+            occurrences: { sessionController.occurrences },
+            canAdjustTraversal: { sessionController.canAdjustTraversal },
+            setTraversalDirection: sessionController.setTraversalDirection,
+            reorder: sessionController.reorder
+        )
+        .execute(intent)
+    }
+}
+
+/// UI requests are deliberately occurrence-ID based. This allows the native
+/// drag behavior and accessible move buttons to share the same model boundary.
+enum PasteStackPanelIntent: Equatable {
+    case setTraversalDirection(StackTraversalDirection)
+    case moveOccurrence(UUID, by: Int)
+    case moveOccurrences(IndexSet, to: Int)
+}
+
+@MainActor
+struct PasteStackPanelIntentExecutor {
+    let occurrences: () -> [StackOccurrence]
+    let canAdjustTraversal: () -> Bool
+    let setTraversalDirection: (StackTraversalDirection) -> Bool
+    let reorder: ([UUID]) -> Bool
+
+    func execute(_ intent: PasteStackPanelIntent) {
+        guard canAdjustTraversal() else { return }
+
+        switch intent {
+        case let .setTraversalDirection(direction):
+            _ = setTraversalDirection(direction)
+        case let .moveOccurrence(id, offset):
+            guard let ids = PasteStackOrdering.moving(id: id, by: offset, in: occurrences()) else { return }
+            _ = reorder(ids)
+        case let .moveOccurrences(source, destination):
+            guard let ids = PasteStackOrdering.moving(source: source, to: destination, in: occurrences()) else { return }
+            _ = reorder(ids)
+        }
+    }
+}
+
+enum PasteStackOrdering {
+    static func moving(id: UUID, by offset: Int, in occurrences: [StackOccurrence]) -> [UUID]? {
+        let ids = occurrences.map(\.id)
+        guard let source = ids.firstIndex(of: id), offset != 0 else { return nil }
+        let destination = source + offset
+        guard ids.indices.contains(destination) else { return nil }
+
+        var reordered = ids
+        let movedID = reordered.remove(at: source)
+        reordered.insert(movedID, at: destination)
+        return reordered
+    }
+
+    static func moving(source: IndexSet, to destination: Int, in occurrences: [StackOccurrence]) -> [UUID]? {
+        let ids = occurrences.map(\.id)
+        guard !source.isEmpty,
+              source.allSatisfy(ids.indices.contains),
+              (0 ... ids.count).contains(destination)
+        else { return nil }
+
+        let moved = source.map { ids[$0] }
+        var remaining = ids.enumerated().compactMap { source.contains($0.offset) ? nil : $0.element }
+        let removedBeforeDestination = source.filter { $0 < destination }.count
+        let insertionIndex = destination - removedBeforeDestination
+        remaining.insert(contentsOf: moved, at: insertionIndex)
+        return remaining
+    }
+}
+
+struct PasteStackPanelControlState: Equatable {
+    let occurrenceCount: Int
+    let canAdjustTraversal: Bool
+
+    var canChooseDirection: Bool { canAdjustTraversal && occurrenceCount > 0 }
+    var canReorder: Bool { canAdjustTraversal && occurrenceCount > 1 }
+
+    func canMove(position: Int, by offset: Int) -> Bool {
+        canReorder && (0 ..< occurrenceCount).contains(position + offset)
+    }
+}
+
+enum PasteStackPanelAccessibility {
+    enum MoveDirection {
+        case up
+        case down
+    }
+
+    static let directionLabel = "Traversal direction"
+    static let nextItemLabel = "Next item"
+
+    static func moveLabel(position: Int, direction: MoveDirection) -> String {
+        let verb = switch direction {
+        case .up: "up"
+        case .down: "down"
+        }
+        return "Move item \(position + 1) \(verb)"
     }
 }
 

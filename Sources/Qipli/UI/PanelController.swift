@@ -166,7 +166,7 @@ final class PanelController {
 
     private func makeStackPanel<Content: View>(@ViewBuilder content: () -> Content) -> NSPanel {
         let panel = NonActivatingStackPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 280),
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 360),
             styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
             backing: .buffered,
             defer: false

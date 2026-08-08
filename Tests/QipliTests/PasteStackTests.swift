@@ -27,6 +27,8 @@ final class StackSessionControllerTests: XCTestCase {
         XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: 10))
         let context = controller.captureContext
         controller.appendPersistedHistoryEntry(makeEntry("first"), observedChangeCount: 11, for: context)
+        XCTAssertTrue(controller.setTraversalDirection(.reverse))
+        XCTAssertTrue(controller.markTraversalStarted())
         let releasedSession = WeakBox<StackSession>()
         releasedSession.value = controller.session
 
@@ -35,8 +37,12 @@ final class StackSessionControllerTests: XCTestCase {
         XCTAssertNil(releasedSession.value)
         XCTAssertFalse(controller.isActive)
         XCTAssertTrue(controller.occurrences.isEmpty)
+        XCTAssertEqual(controller.traversalDirection, .direct)
+        XCTAssertFalse(controller.traversalHasStarted)
         XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: 12))
         XCTAssertTrue(controller.occurrences.isEmpty)
+        XCTAssertEqual(controller.traversalDirection, .direct)
+        XCTAssertFalse(controller.traversalHasStarted)
     }
 
     func testCaptureBeforeStartAndCaptureFromCanceledSessionNeverEnterNewSession() {
@@ -95,6 +101,114 @@ final class StackSessionControllerTests: XCTestCase {
         XCTAssertEqual(StackPreview.text(for: fullText).count, StackPreview.maximumCharacters + 1)
         XCTAssertTrue(StackPreview.text(for: fullText).hasSuffix("…"))
         XCTAssertEqual(fullText.count, StackPreview.maximumCharacters + 1)
+    }
+
+    func testDirectAndReverseChooseDeterministicNextForEmptySingleAndManyOccurrences() {
+        let controller = StackSessionController()
+        XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: 10))
+        XCTAssertNil(controller.nextOccurrence)
+
+        let context = controller.captureContext
+        controller.appendPersistedHistoryEntry(makeEntry("only"), observedChangeCount: 11, for: context)
+        XCTAssertEqual(controller.traversalDirection, .direct)
+        XCTAssertEqual(controller.nextOccurrence?.text, "only")
+        XCTAssertTrue(controller.setTraversalDirection(.reverse))
+        XCTAssertEqual(controller.nextOccurrence?.text, "only")
+
+        controller.appendPersistedHistoryEntry(makeEntry("middle"), observedChangeCount: 12, for: context)
+        controller.appendPersistedHistoryEntry(makeEntry("last"), observedChangeCount: 13, for: context)
+        XCTAssertEqual(controller.nextOccurrence?.text, "last")
+        XCTAssertTrue(controller.setTraversalDirection(.direct))
+        XCTAssertEqual(controller.nextOccurrence?.text, "only")
+    }
+
+    func testReorderPreservesExactDuplicateOccurrencesAndContiguousPositions() {
+        let controller = configuredController(with: ["duplicate", "duplicate", "third"])
+        let original = controller.occurrences
+        let reorderedIDs = [original[1].id, original[2].id, original[0].id]
+
+        XCTAssertTrue(controller.reorder(occurrenceIDs: reorderedIDs))
+
+        XCTAssertEqual(controller.occurrences.map(\.id), reorderedIDs)
+        XCTAssertEqual(controller.occurrences.map(\.position), [0, 1, 2])
+        XCTAssertEqual(controller.occurrences.map(\.text), ["duplicate", "third", "duplicate"])
+        XCTAssertEqual(controller.occurrences.map(\.historyEntryID).sorted { $0.uuidString < $1.uuidString }, original.map(\.historyEntryID).sorted { $0.uuidString < $1.uuidString })
+        XCTAssertEqual(controller.nextOccurrence?.id, original[1].id)
+
+        XCTAssertTrue(controller.setTraversalDirection(.reverse))
+        XCTAssertEqual(controller.nextOccurrence?.id, original[0].id)
+    }
+
+    func testInvalidReordersAreAtomic() {
+        let controller = configuredController(with: ["one", "two", "three"])
+        let originalOccurrences = controller.occurrences
+        let originalDirection = controller.traversalDirection
+
+        XCTAssertFalse(controller.reorder(occurrenceIDs: [originalOccurrences[0].id, UUID(), originalOccurrences[2].id]))
+        XCTAssertEqual(controller.occurrences, originalOccurrences)
+        XCTAssertFalse(controller.reorder(occurrenceIDs: [originalOccurrences[0].id, originalOccurrences[0].id, originalOccurrences[2].id]))
+        XCTAssertEqual(controller.occurrences, originalOccurrences)
+        XCTAssertFalse(controller.reorder(occurrenceIDs: Array(originalOccurrences.map(\.id).dropFirst())))
+        XCTAssertEqual(controller.occurrences, originalOccurrences)
+        XCTAssertEqual(controller.traversalDirection, originalDirection)
+    }
+
+    func testAppendAfterReorderEntersTheEndOfBaseVisibleOrder() {
+        let controller = configuredController(with: ["first", "second"])
+        let original = controller.occurrences
+        XCTAssertTrue(controller.reorder(occurrenceIDs: [original[1].id, original[0].id]))
+
+        controller.appendPersistedHistoryEntry(makeEntry("new external copy"), observedChangeCount: 13, for: controller.captureContext)
+
+        XCTAssertEqual(controller.occurrences.map(\.id), [original[1].id, original[0].id, controller.occurrences[2].id])
+        XCTAssertEqual(controller.occurrences.map(\.text), ["second", "first", "new external copy"])
+        XCTAssertEqual(controller.occurrences.map(\.position), [0, 1, 2])
+    }
+
+    func testTraversalLockRejectsReorderAndDirectionChangesWithoutPartialMutation() {
+        let controller = configuredController(with: ["first", "second"])
+        XCTAssertTrue(controller.setTraversalDirection(.reverse))
+        XCTAssertTrue(controller.markTraversalStarted())
+        let originalOccurrences = controller.occurrences
+
+        XCTAssertFalse(controller.setTraversalDirection(.direct))
+        XCTAssertFalse(controller.reorder(occurrenceIDs: originalOccurrences.map(\.id).reversed()))
+        XCTAssertFalse(controller.markTraversalStarted())
+        XCTAssertTrue(controller.traversalHasStarted)
+        XCTAssertEqual(controller.traversalDirection, .reverse)
+        XCTAssertEqual(controller.occurrences, originalOccurrences)
+        XCTAssertEqual(controller.nextOccurrence?.id, originalOccurrences.last?.id)
+    }
+
+    func testPasteStackPanelIntentsDriveOccurrenceOrderAndAccessibleFallbackState() {
+        let controller = configuredController(with: ["one", "two", "three"])
+        let initial = controller.occurrences
+        let executor = PasteStackPanelIntentExecutor(
+            occurrences: { controller.occurrences },
+            canAdjustTraversal: { controller.canAdjustTraversal },
+            setTraversalDirection: controller.setTraversalDirection,
+            reorder: controller.reorder
+        )
+
+        executor.execute(.moveOccurrence(initial[1].id, by: -1))
+        XCTAssertEqual(controller.occurrences.map(\.id), [initial[1].id, initial[0].id, initial[2].id])
+
+        executor.execute(.moveOccurrences(IndexSet(integer: 0), to: 2))
+        XCTAssertEqual(controller.occurrences.map(\.id), [initial[0].id, initial[1].id, initial[2].id])
+        executor.execute(.setTraversalDirection(.reverse))
+        XCTAssertEqual(controller.nextOccurrence?.id, initial[2].id)
+
+        XCTAssertEqual(PasteStackPanelAccessibility.directionLabel, "Traversal direction")
+        XCTAssertEqual(PasteStackPanelAccessibility.nextItemLabel, "Next item")
+        XCTAssertEqual(PasteStackPanelAccessibility.moveLabel(position: 1, direction: .up), "Move item 2 up")
+        XCTAssertEqual(PasteStackPanelAccessibility.moveLabel(position: 1, direction: .down), "Move item 2 down")
+
+        XCTAssertEqual(PasteStackPanelControlState(occurrenceCount: 0, canAdjustTraversal: true), .init(occurrenceCount: 0, canAdjustTraversal: true))
+        XCTAssertFalse(PasteStackPanelControlState(occurrenceCount: 0, canAdjustTraversal: true).canReorder)
+        XCTAssertTrue(PasteStackPanelControlState(occurrenceCount: 1, canAdjustTraversal: true).canChooseDirection)
+        XCTAssertFalse(PasteStackPanelControlState(occurrenceCount: 1, canAdjustTraversal: true).canReorder)
+        XCTAssertTrue(PasteStackPanelControlState(occurrenceCount: 3, canAdjustTraversal: true).canMove(position: 1, by: -1))
+        XCTAssertFalse(PasteStackPanelControlState(occurrenceCount: 3, canAdjustTraversal: false).canMove(position: 1, by: 1))
     }
 
     func testClipboardChangeBeforeStartButPolledAfterStartStaysHistoryOnly() {
@@ -226,6 +340,16 @@ final class StackSessionControllerTests: XCTestCase {
 
     private func makeEntry(_ text: String) -> HistoryEntry {
         HistoryEntry(id: UUID(), text: text, activityAt: .now)
+    }
+
+    private func configuredController(with texts: [String]) -> StackSessionController {
+        let controller = StackSessionController()
+        XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: 10))
+        let context = controller.captureContext
+        for (offset, text) in texts.enumerated() {
+            controller.appendPersistedHistoryEntry(makeEntry(text), observedChangeCount: 11 + offset, for: context)
+        }
+        return controller
     }
 }
 
