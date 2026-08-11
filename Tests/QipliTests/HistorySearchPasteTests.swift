@@ -322,11 +322,11 @@ final class HistoryPanelIntentTests: XCTestCase {
         let executor = makeExecutor(trace: trace)
 
         executor.execute(.moveSelection(by: 1))
-        executor.execute(.pasteSelected)
+        executor.execute(.paste(entry))
         executor.execute(.close)
 
         XCTAssertEqual(trace.selectionOffsets, [1])
-        XCTAssertEqual(trace.pasteCount, 1)
+        XCTAssertEqual(trace.pastedEntries, [entry])
         XCTAssertEqual(trace.closeCount, 1)
     }
 
@@ -335,20 +335,31 @@ final class HistoryPanelIntentTests: XCTestCase {
         let trace = HistoryPanelIntentTrace(selectedEntryID: nil)
         let executor = makeExecutor(trace: trace)
 
-        executor.execute(.selectAndPaste(entry.id))
+        executor.execute(.selectAndPaste(entry))
 
         XCTAssertEqual(trace.selectedIDs, [entry.id])
-        XCTAssertEqual(trace.pasteCount, 1)
+        XCTAssertEqual(trace.pastedEntries, [entry])
     }
 
     func testDoubleClickDoesNotPasteWhenPermissionIsUnavailable() {
         let entry = makeEntry("fixture", offset: 1)
         let trace = HistoryPanelIntentTrace(selectedEntryID: nil, canPaste: false)
 
-        makeExecutor(trace: trace).execute(.selectAndPaste(entry.id))
+        makeExecutor(trace: trace).execute(.selectAndPaste(entry))
 
         XCTAssertEqual(trace.selectedIDs, [entry.id])
-        XCTAssertEqual(trace.pasteCount, 0)
+        XCTAssertTrue(trace.pastedEntries.isEmpty)
+    }
+
+    func testPasteIntentCarriesExactFilteredEntryInsteadOfReadingPreviousSelection() {
+        let previous = makeEntry("previous fixture", offset: 2)
+        let filtered = makeEntry("filtered fixture", offset: 1)
+        let trace = HistoryPanelIntentTrace(selectedEntryID: previous.id)
+
+        makeExecutor(trace: trace).execute(.paste(filtered))
+
+        XCTAssertEqual(trace.selectedEntryID, previous.id)
+        XCTAssertEqual(trace.pastedEntries, [filtered])
     }
 
     func testDeleteDoesNotSelectOrPaste() {
@@ -359,7 +370,7 @@ final class HistoryPanelIntentTests: XCTestCase {
 
         XCTAssertEqual(trace.deletedIDs, [entry.id])
         XCTAssertTrue(trace.selectedIDs.isEmpty)
-        XCTAssertEqual(trace.pasteCount, 0)
+        XCTAssertTrue(trace.pastedEntries.isEmpty)
     }
 
     func testEmptyQueryAdmitsTheExactSelectedEntryForSearchDelete() {
@@ -506,9 +517,8 @@ final class HistoryPanelIntentTests: XCTestCase {
                 trace.selectedIDs.append($0)
                 trace.selectedEntryID = $0
             },
-            hasSelectedEntry: { trace.selectedEntryID != nil },
             canPaste: { trace.canPaste },
-            pasteSelection: { trace.pasteCount += 1 },
+            pasteEntry: { trace.pastedEntries.append($0) },
             close: { trace.closeCount += 1 },
             delete: { trace.deletedIDs.append($0.id) }
         )
@@ -521,7 +531,7 @@ private final class HistoryPanelIntentTrace {
     var canPaste: Bool
     var selectionOffsets: [Int] = []
     var selectedIDs: [UUID] = []
-    var pasteCount = 0
+    var pastedEntries: [HistoryEntry] = []
     var closeCount = 0
     var deletedIDs: [UUID] = []
 

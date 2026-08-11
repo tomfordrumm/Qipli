@@ -5,7 +5,7 @@ struct HistoryPanelView: View {
     @ObservedObject var viewModel: HistoryViewModel
     @ObservedObject var permissionService: AccessibilityPermissionService
     let openAccessibilitySettings: () -> Void
-    let pasteSelection: () -> Void
+    let pasteEntry: (HistoryEntry) -> Void
     let close: () -> Void
     @State private var confirmsClearAll = false
     @FocusState private var searchIsFocused: Bool
@@ -72,7 +72,9 @@ struct HistoryPanelView: View {
                 return .handled
             }
             .onKeyPress(.return) {
-                schedule(.pasteSelected)
+                if let entry = viewModel.selectedEntry {
+                    schedule(.paste(entry))
+                }
                 return .handled
             }
             .onKeyPress(.escape) {
@@ -134,7 +136,7 @@ struct HistoryPanelView: View {
                             .accessibilityValue(isSelected ? "Selected" : "Not selected")
                             .highPriorityGesture(
                                 TapGesture(count: 2).onEnded {
-                                    schedule(.selectAndPaste(entry.id))
+                                    schedule(.selectAndPaste(entry))
                                 }
                             )
 
@@ -222,9 +224,8 @@ struct HistoryPanelView: View {
             HistoryPanelIntentExecutor(
                 moveSelection: viewModel.moveSelection,
                 select: viewModel.select,
-                hasSelectedEntry: { viewModel.selectedEntry != nil },
                 canPaste: { canPaste },
-                pasteSelection: pasteSelection,
+                pasteEntry: pasteEntry,
                 close: close,
                 delete: viewModel.delete
             )
@@ -264,10 +265,10 @@ struct HistoryPanelView: View {
 /// can be verified without depending on an XCUI event loop.
 enum HistoryPanelIntent: Equatable {
     case moveSelection(by: Int)
-    case pasteSelected
+    case paste(HistoryEntry)
     case close
     case select(UUID)
-    case selectAndPaste(UUID)
+    case selectAndPaste(HistoryEntry)
     case delete(HistoryEntry)
 }
 
@@ -465,9 +466,8 @@ private struct HistorySearchDeleteKeyMonitor: NSViewRepresentable {
 struct HistoryPanelIntentExecutor {
     let moveSelection: (Int) -> Void
     let select: (UUID) -> Void
-    let hasSelectedEntry: () -> Bool
     let canPaste: () -> Bool
-    let pasteSelection: () -> Void
+    let pasteEntry: (HistoryEntry) -> Void
     let close: () -> Void
     let delete: (HistoryEntry) -> Void
 
@@ -475,23 +475,23 @@ struct HistoryPanelIntentExecutor {
         switch intent {
         case let .moveSelection(offset):
             moveSelection(offset)
-        case .pasteSelected:
-            pasteIfAvailable()
+        case let .paste(entry):
+            pasteIfAvailable(entry)
         case .close:
             close()
         case let .select(id):
             select(id)
-        case let .selectAndPaste(id):
-            select(id)
-            pasteIfAvailable()
+        case let .selectAndPaste(entry):
+            select(entry.id)
+            pasteIfAvailable(entry)
         case let .delete(entry):
             delete(entry)
         }
     }
 
-    private func pasteIfAvailable() {
-        guard canPaste(), hasSelectedEntry() else { return }
-        pasteSelection()
+    private func pasteIfAvailable(_ entry: HistoryEntry) {
+        guard canPaste() else { return }
+        pasteEntry(entry)
     }
 }
 

@@ -63,7 +63,7 @@ final class PanelController {
                 viewModel: self.historyViewModel,
                 permissionService: self.permissionService,
                 openAccessibilitySettings: self.openAccessibilitySettings,
-                pasteSelection: { [weak self] in self?.pasteSelectedHistoryEntry() },
+                pasteEntry: { [weak self] entry in self?.pasteHistoryEntry(entry) },
                 close: { [weak self] in self?.cancelHistory() }
             )
         }
@@ -114,8 +114,7 @@ final class PanelController {
         [historyPanel, stackPanel, permissionPanel].forEach { $0?.close() }
     }
 
-    private func pasteSelectedHistoryEntry() {
-        guard let entry = historyViewModel.selectedEntry else { return }
+    private func pasteHistoryEntry(_ entry: HistoryEntry) {
         historyViewModel.clearPasteFailure()
         historyPasteExecutor.paste(
             entry: entry,
