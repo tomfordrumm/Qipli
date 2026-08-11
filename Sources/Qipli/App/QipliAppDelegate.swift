@@ -23,4 +23,8 @@ final class QipliAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         shell?.stop()
     }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        shell?.refreshSystemPermissions()
+    }
 }

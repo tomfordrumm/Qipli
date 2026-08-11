@@ -8,6 +8,12 @@ struct SystemHistoryClock: HistoryClock {
     var now: Date { Date() }
 }
 
+enum HistoryTextPolicy {
+    static func shouldCapture(_ text: String) -> Bool {
+        text.contains { !$0.isWhitespace }
+    }
+}
+
 /// Owns retention policy and the only history write path.
 final class HistoryService {
     static let retention: TimeInterval = 30 * 24 * 60 * 60
@@ -21,12 +27,15 @@ final class HistoryService {
     }
 
     func entries() throws -> [HistoryEntry] {
-        try store.fetchCurrent(since: retentionCutoff)
+        try store.fetchCurrent(since: retentionCutoff).filter {
+            HistoryTextPolicy.shouldCapture($0.text)
+        }
     }
 
     @discardableResult
-    func capture(text: String) throws -> HistoryEntry {
-        try store.create(text: text, activityAt: clock.now)
+    func capture(text: String) throws -> HistoryEntry? {
+        guard HistoryTextPolicy.shouldCapture(text) else { return nil }
+        return try store.create(text: text, activityAt: clock.now)
     }
 
     func markUsed(id: UUID) throws {

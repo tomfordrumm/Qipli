@@ -48,7 +48,7 @@ covers:
 
 ## Ожидаемое поведение
 
-- Только внешнее изменение pasteboard с текстовым представлением создаёт запись.
+- Только внешнее изменение pasteboard с текстовым представлением и хотя бы одним непробельным символом создаёт запись; пустое и whitespace-only содержимое игнорируется.
 - Одинаковые строки при разных событиях остаются разными записями.
 - Базовая история доступна из status menu/`⌘⇧V`, новая запись показывается первой.
 - Записи на retention boundary скрываются до завершения физической cleanup operation.
@@ -61,7 +61,7 @@ covers:
 - list latest-first;
 - delete confirmation для clear all;
 - read/write/delete error с retry;
-- unsupported non-text pasteboard change — без записи и без пользовательской ошибки.
+- unsupported non-text или whitespace-only pasteboard change — без записи и без пользовательской ошибки.
 
 ## Данные и контракты
 
@@ -73,6 +73,7 @@ covers:
 ## Acceptance criteria
 
 - [x] Копирование обычного текста, ссылки, Unicode и многострочного кода из другого приложения создаёт по одной записи с точным строковым содержимым.
+- [x] Пустое и whitespace-only содержимое не создаёт запись; ранее сохранённые пустые записи не показываются.
 - [x] Два последовательных копирования одинаковой строки создают две записи с разными ID и корректным хронологическим порядком.
 - [x] Изменение pasteboard без текстового представления не создаёт запись; внутреннее изменение Qipli также не создаёт запись.
 - [x] После перезапуска записи моложе 30 дней сохраняются и показываются newest-first; записи возрастом 30 дней и более не показываются и удаляются обслуживающей операцией.
@@ -83,7 +84,7 @@ covers:
 
 ## Verification
 
-- [x] Unit tests на exact text, duplicates, unsupported type и self-write suppression.
+- [x] Unit tests на exact text, duplicates, whitespace-only text, unsupported type и self-write suppression.
 - [x] Repository tests на create/list/delete/delete-all с временным store.
 - [x] Тесты времени на 29d23h59m59s, ровно 30d и старше с injected clock.
 - [x] Перезапуск приложения с сохранённым store и повторная проверка списка.

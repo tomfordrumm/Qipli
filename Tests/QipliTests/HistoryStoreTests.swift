@@ -20,9 +20,9 @@ final class HistoryStoreTests: XCTestCase {
         let store = try makeStore()
         let service = HistoryService(store: store, clock: clock)
         let multiline = ["same", "text"].joined(separator: "\n")
-        let first = try service.capture(text: multiline)
+        let first = try XCTUnwrap(service.capture(text: multiline))
         clock.now = clock.now.addingTimeInterval(1)
-        let second = try service.capture(text: multiline)
+        let second = try XCTUnwrap(service.capture(text: multiline))
 
         XCTAssertNotEqual(first.id, second.id)
         XCTAssertEqual(try service.entries().map(\.id), [second.id, first.id])
@@ -31,6 +31,24 @@ final class HistoryStoreTests: XCTestCase {
         let restarted = try CoreDataHistoryStore(storeURL: directory.appendingPathComponent("History.sqlite"))
         XCTAssertEqual(try restarted.fetchCurrent(since: clock.now.addingTimeInterval(-HistoryService.retention)).map(\.id), [second.id, first.id])
         restarted.close()
+        store.close()
+    }
+
+    func testWhitespaceOnlyTextIsIgnoredAndExistingBlankEntriesStayHidden() throws {
+        let clock = MutableClock(now: Date(timeIntervalSinceReferenceDate: 8_250_000))
+        let store = try makeStore()
+        let service = HistoryService(store: store, clock: clock)
+
+        for blankText in ["", "   ", "\t\r\n"] {
+            XCTAssertNil(try service.capture(text: blankText))
+        }
+        _ = try store.create(text: "\n", activityAt: clock.now)
+
+        let meaningfulText = " \nvisible text\t "
+        let meaningfulEntry = try XCTUnwrap(service.capture(text: meaningfulText))
+
+        XCTAssertEqual(meaningfulEntry.text, meaningfulText)
+        XCTAssertEqual(try service.entries(), [meaningfulEntry])
         store.close()
     }
 
@@ -72,9 +90,9 @@ final class HistoryStoreTests: XCTestCase {
         let clock = MutableClock(now: Date(timeIntervalSinceReferenceDate: 9_500_000))
         let store = try makeStore()
         let service = HistoryService(store: store, clock: clock)
-        let first = try service.capture(text: "same occurrence text")
+        let first = try XCTUnwrap(service.capture(text: "same occurrence text"))
         clock.now = clock.now.addingTimeInterval(1)
-        let second = try service.capture(text: "same occurrence text")
+        let second = try XCTUnwrap(service.capture(text: "same occurrence text"))
         clock.now = clock.now.addingTimeInterval(1)
 
         try service.markUsed(id: first.id)
@@ -115,7 +133,7 @@ final class HistoryStoreTests: XCTestCase {
         let clock = MutableClock(now: Date(timeIntervalSinceReferenceDate: 10_000_000))
         let store = try makeStore()
         let service = HistoryService(store: store, clock: clock)
-        let entry = try service.capture(text: "remove only this")
+        let entry = try XCTUnwrap(service.capture(text: "remove only this"))
         try service.delete(id: entry.id)
 
         let restartedAfterDelete = try CoreDataHistoryStore(storeURL: directory.appendingPathComponent("History.sqlite"))

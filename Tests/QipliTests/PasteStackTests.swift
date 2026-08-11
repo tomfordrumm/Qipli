@@ -96,6 +96,27 @@ final class StackSessionControllerTests: XCTestCase {
         XCTAssertTrue(controller.hasCaptureError)
     }
 
+    func testWhitespaceOnlyCaptureIsIgnoredWithoutHistoryOrStackError() {
+        let store = StackTestHistoryStore()
+        let viewModel = HistoryViewModel(service: HistoryService(store: store))
+        let controller = StackSessionController()
+        let coordinator = StackCollectionCaptureCoordinator(
+            historyViewModel: viewModel,
+            stackSessionController: controller
+        )
+        XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: 10))
+
+        coordinator.recordExternalText(
+            " \t\n",
+            observedChangeCount: 11,
+            stackCaptureContext: controller.captureContext
+        )
+
+        XCTAssertTrue(store.createdTexts.isEmpty)
+        XCTAssertTrue(controller.occurrences.isEmpty)
+        XCTAssertFalse(controller.hasCaptureError)
+    }
+
     func testPreviewTruncatesOnlyDisplayValue() {
         let fullText = String(repeating: "x", count: StackPreview.maximumCharacters + 1)
 

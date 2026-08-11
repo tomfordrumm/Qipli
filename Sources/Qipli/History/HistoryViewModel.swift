@@ -104,7 +104,7 @@ final class HistoryViewModel: ObservableObject {
     @discardableResult
     func recordExternalText(_ text: String) -> HistoryEntry? {
         do {
-            let entry = try service.capture(text: text)
+            guard let entry = try service.capture(text: text) else { return nil }
             reload()
             return entry
         } catch {

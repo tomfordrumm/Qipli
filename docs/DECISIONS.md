@@ -1,6 +1,6 @@
 # Qipli — журнал решений
 
-Дата актуализации: 2026-08-08
+Дата актуализации: 2026-08-09
 
 Статусы: `accepted` — подтверждённое решение; `proposed` — рабочее предложение агента, которое можно заменить до зависимого среза; `assumption` — видимое предположение; `superseded` — заменённое решение.
 
@@ -163,3 +163,13 @@
 - Решение: все три панели используют общий material boundary. На macOS 26+ он оборачивает content в один `NSGlassEffectView` со style `regular`; на macOS 14–25 использует один семантический `NSVisualEffectView` fallback. Нативные title bar, close control и window dragging сохраняются; `clear` и полностью borderless chrome не входят в S009.
 - Причина: настоящий Liquid Glass доступен только с macOS 26. `regular` рекомендован для поверхностей с большим количеством текста, лучше сохраняет читаемость и системно адаптируется к accessibility settings. Один effect container на panel снижает rendering cost и визуальный шум.
 - Последствия: deployment target остаётся macOS 14; реализация компилируется latest SDK с availability branch, не меняет focus/nonactivating behavior и требует ручной visual/accessibility matrix на macOS 26 и fallback-проверку на macOS 14–25.
+
+## D-017 — Стабильная signing identity и fail-closed packaging
+
+- Статус: `accepted`
+- Дата: 2026-08-09
+- Источник: пользователь; Apple TN3127, distribution signing и notarization guidance перепроверены 2026-08-09
+- Контекст: установленный ad-hoc build имел CDHash-only designated requirement, `get-task-allow` и запрещённый `FinderInfo` xattr. System Settings показывал включённую запись Qipli, пока текущий процесс и UI не получали пригодную стабильную identity/state.
+- Решение: разделить два явных packaging channel. Local install требует `Apple Development` identity и предназначен только для команды подписанта. Public release требует Developer ID Application, secure timestamp, Hardened Runtime, notarization, stapling и Gatekeeper. Оба channel запрещают ad-hoc fallback, проверяют Team ID/designated requirement/architectures/xattrs и повторно проверяют распакованный ZIP; release дополнительно запрещает `get-task-allow`, App Sandbox и network entitlements.
+- Причина: macOS связывает privacy permissions с designated requirement; только стабильная signer-based identity переживает rebuild/upgrade, а fail-closed pipeline не позволяет принять локальный тестовый artifact за релиз.
+- Последствия: без соответствующего certificate packaging завершается ошибкой. S008 остаётся `blocked` до Developer ID/notarization credentials, хотя воспроизводимый workflow уже подготовлен. Signing secrets не передаются через environment или repository: notary authentication использует named Keychain profile.

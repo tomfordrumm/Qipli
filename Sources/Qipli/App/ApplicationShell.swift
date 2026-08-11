@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 /// Owns AppKit lifecycle concerns. Product rules remain in the injected services.
 @MainActor
@@ -13,6 +14,7 @@ final class ApplicationShell: NSObject {
     private let stackSequentialPasteExecutor: StackSequentialPasteExecutor
     private let pasteboardMonitor: PasteboardMonitor
     private var retentionTimer: Timer?
+    private var permissionStateObservation: AnyCancellable?
     private let statusItem: NSStatusItem
     private let permissionMenuItem = NSMenuItem()
     private let pasteStackMenuItem = NSMenuItem()
@@ -147,6 +149,7 @@ final class ApplicationShell: NSObject {
 
     func start() {
         configureStatusItem()
+        observePermissionChanges()
         refreshInputAvailability()
         historyViewModel.reload()
         pasteboardMonitor.start()
@@ -158,6 +161,9 @@ final class ApplicationShell: NSObject {
     }
 
     func stop() {
+        permissionService.stopMonitoringSystemSettingsChanges()
+        permissionStateObservation?.cancel()
+        permissionStateObservation = nil
         inputCoordinator.stop()
         pasteboardMonitor.stop()
         retentionTimer?.invalidate()
@@ -212,6 +218,24 @@ final class ApplicationShell: NSObject {
     private func refreshInputAvailability() {
         inputCoordinator.refreshAndStart()
         updatePermissionMenuTitle()
+    }
+
+    func refreshSystemPermissions() {
+        refreshInputAvailability()
+    }
+
+    private func observePermissionChanges() {
+        guard permissionStateObservation == nil else { return }
+        permissionStateObservation = permissionService.$state
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                // @Published delivers during willSet. Defer the trust recheck until the
+                // new state is stored so refresh() cannot recursively publish it again.
+                Task { @MainActor [weak self] in
+                    self?.refreshInputAvailability()
+                }
+            }
     }
 
     private func updatePermissionMenuTitle() {

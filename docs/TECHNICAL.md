@@ -2,7 +2,7 @@
 
 Статус: архитектура MVP
 
-Дата базовой проверки платформы: 2026-08-06; S004 input/panel contracts перепроверены: 2026-08-08
+Дата базовой проверки платформы: 2026-08-06; S004 input/panel contracts перепроверены: 2026-08-08; Accessibility identity/release signing перепроверены: 2026-08-09
 
 Поддерживаемая платформа: macOS 14+
 
@@ -35,6 +35,7 @@ Qipli — нативное menu bar приложение на Swift. Интер�
 - Apple, [`NSWindow.CollectionBehavior.canJoinAllSpaces`](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/canjoinallspaces) и [`fullScreenAuxiliary`](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/fullscreenauxiliary): вспомогательная panel показывается во всех Spaces и рядом с full-screen window.
 - Apple, [`NSScreen`](https://developer.apple.com/documentation/appkit/nsscreen): список displays и `visibleFrame` для placement временной panel.
 - Apple, [`AXIsProcessTrustedWithOptions`](https://developer.apple.com/documentation/applicationservices/1459186-axisprocesstrustedwithoptions).
+- Apple, [`TN3127: Inside Code Signing — Requirements`](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements) и [`Creating distribution-signed code for macOS`](https://developer.apple.com/documentation/xcode/creating-distribution-signed-code-for-the-mac): privacy permission identity следует designated requirement; ad-hoc `Sign to Run Locally` привязан к exact build и не является стабильной identity между сборками.
 - Apple, [Protecting user data with App Sandbox](https://developer.apple.com/documentation/security/protecting-user-data-with-app-sandbox) и [App Sandbox](https://developer.apple.com/documentation/security/app-sandbox).
 - Apple, [Preparing your app for distribution](https://developer.apple.com/documentation/xcode/preparing-your-app-for-distribution), [Hardened Runtime](https://developer.apple.com/documentation/security/hardened-runtime) и [Notarizing macOS software before distribution](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
 
@@ -96,6 +97,7 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
 - помечают элемент used после отправки команды вставки, а не после недоступного подтверждения целевого поля;
 - распознают собственное синтетическое событие, чтобы избежать рекурсии;
 - реагируют на системное отключение event tap, пытаются безопасно переустановить его и показывают ошибку при неуспехе.
+- после системного prompt или открытия Accessibility Settings выполняют ограниченный polling официального trust API; реальный переход grant/revoke публикуется в UI и соответственно запускает/останавливает event tap без перезапуска приложения. При повторной активации Qipli trust также перепроверяется; clipboard/search payload в этот путь не попадает.
 
 ### Panel material boundary
 
@@ -189,6 +191,7 @@ Domain property называется `activityAt`, но SQLite/Core Data attribu
 
 - До запроса Accessibility приложение объясняет, что разрешение нужно для глобальных сочетаний и отправки вставки в активное стороннее приложение.
 - Проверка доверия выполняется официальным API; отказ пользователя оставляет просмотр, поиск и удаление доступными, но блокирует системную вставку и Paste Stack с явным объяснением.
+- Изменение Accessibility в System Settings обнаруживается автоматически: во время собственного permission flow Qipli выполняет bounded polling, а при возвращении в приложение — немедленный recheck. Одинаковое состояние повторно не публикуется и не пересоздаёт здоровый event tap.
 - App Sandbox выключен только по причине основного системного сценария; Hardened Runtime остаётся включённым, исключения добавляются только при доказанной необходимости.
 - В release-конфигурации нет network client/server entitlement, аналитики и автоматической отправки crash reports.
 - Clipboard text, поисковые запросы и превью не попадают в логи, `print`, signpost metadata или имена файлов.
@@ -237,6 +240,7 @@ QipliUITests/         in-app keyboard and panel flows
 - unit: self-write suppression и отсутствие рекурсивного synthetic event;
 - repository: create/search/promote/delete/delete-all и durable restart на временном Core Data store;
 - integration с fake adapters: history Enter flow, permission denied, activation failure, event tap disabled;
+- permission integration: asynchronous grant/revoke, bounded unchanged polling и повторный запуск/остановка input adapter после state transition;
 - UI: focus поиска, arrows, selection, empty/no-results, stack states и drag reorder внутри Qipli;
 - S004: session uniqueness/duplicates/release, save-before-append, stale deferred capture token/start watermark, hotkey start → panel → tagged source-Copy ordering/repeat/menu-empty/failure, Escape active-filter contract и pure multi-display placement clamp;
 - S005: 0/1/N direct/reverse next, exact-ID reorder with duplicate text, contiguous positions, invalid atomic rejection, append after reorder, traversal lock and drag/accessibility intent seam;
@@ -257,9 +261,27 @@ QipliUITests/         in-app keyboard and panel flows
 
 - Xcode project/Swift package configuration хранится в репозитории; зависимости по возможности ограничены системными frameworks.
 - Deployment target — macOS 14. Архитектуры релизного бинарника должны быть явно выбраны в S008 по доступной build-инфраструктуре; universal binary предпочтителен, но пока является предположением.
-- Debug может использовать development signing. Public release: Developer ID Application, Hardened Runtime, secure timestamp, notarization и stapled ticket.
+- Debug может использовать development signing. Локальный устанавливаемый ZIP создаётся только `scripts/package-local.sh` со стабильной `Apple Development` identity; ad-hoc `Sign to Run Locally` отклоняется и не должен использоваться для проверки сохранения TCC-разрешения между rebuilds.
+- Public release создаётся только `scripts/package-release.sh`: Developer ID Application, Hardened Runtime, secure timestamp, notarization через Keychain profile, stapled ticket и повторная проверка распакованного ZIP. Pipeline fail-closed отклоняет ad-hoc/no-Team-ID, `get-task-allow`, App Sandbox/network entitlements, неверный bundle/minimum OS, non-universal binary, `FinderInfo`/resource-fork metadata, отсутствие stapled ticket или Gatekeeper acceptance.
 - Release artifact публикуется через GitHub Releases вместе с checksum и краткими инструкциями по Accessibility и локальному хранению.
 - Notarization требует внешней сети и Apple credentials только в release pipeline; работа установленного Qipli от них не зависит.
+
+Локальная package-команда требует full certificate name из `security find-identity -v -p codesigning`:
+
+```sh
+QIPLI_DEVELOPMENT_TEAM=TEAM_ID \
+QIPLI_APPLE_DEVELOPMENT_IDENTITY='Apple Development: Name (TEAM_ID)' \
+scripts/package-local.sh
+```
+
+Public release использует Developer ID certificate и заранее сохранённый `notarytool` Keychain profile:
+
+```sh
+QIPLI_DEVELOPMENT_TEAM=TEAM_ID \
+QIPLI_DEVELOPER_ID_APPLICATION='Developer ID Application: Name (TEAM_ID)' \
+QIPLI_NOTARY_PROFILE=qipli-notary \
+scripts/package-release.sh
+```
 
 ## 11. Технические предположения и точки перепроверки
 

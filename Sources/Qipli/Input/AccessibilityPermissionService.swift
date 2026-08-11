@@ -37,34 +37,82 @@ final class AccessibilityPermissionService: ObservableObject, AccessibilityPermi
     private let trustChecker: () -> Bool
     private let promptRequester: () -> Bool
     private let settingsOpener: () -> Void
-    private var hasRequestedAccess = false
+    private let monitoringScheduler: (TimeInterval, @escaping () -> Void) -> () -> Void
+    private let monitoringInterval: TimeInterval
+    private let monitoringPollLimit: Int
+    private var hasRequestedAccess: Bool
+    private var cancelMonitoring: (() -> Void)?
 
     init(
         trustChecker: @escaping () -> Bool = { AXIsProcessTrusted() },
         promptRequester: @escaping () -> Bool = AccessibilityPermissionService.requestSystemPrompt,
-        settingsOpener: @escaping () -> Void = AccessibilityPermissionService.openAccessibilityPane
+        settingsOpener: @escaping () -> Void = AccessibilityPermissionService.openAccessibilityPane,
+        monitoringInterval: TimeInterval = 0.5,
+        monitoringPollLimit: Int = 600,
+        monitoringScheduler: @escaping (TimeInterval, @escaping () -> Void) -> () -> Void = AccessibilityPermissionService.scheduleRepeating
     ) {
         self.trustChecker = trustChecker
         self.promptRequester = promptRequester
         self.settingsOpener = settingsOpener
-        state = trustChecker() ? .granted : .notRequested
+        self.monitoringInterval = monitoringInterval
+        self.monitoringPollLimit = monitoringPollLimit
+        self.monitoringScheduler = monitoringScheduler
+
+        let isTrusted = trustChecker()
+        state = isTrusted ? .granted : .notRequested
+        hasRequestedAccess = isTrusted
+    }
+
+    deinit {
+        cancelMonitoring?()
     }
 
     @discardableResult
     func refresh() -> AccessibilityPermissionState {
-        state = trustChecker() ? .granted : (hasRequestedAccess ? .denied : .notRequested)
-        return state
+        let refreshedState: AccessibilityPermissionState = trustChecker()
+            ? .granted
+            : (hasRequestedAccess ? .denied : .notRequested)
+        if refreshedState != state {
+            state = refreshedState
+        }
+        return refreshedState
     }
 
     @discardableResult
     func requestAccess() -> AccessibilityPermissionState {
         hasRequestedAccess = true
         _ = promptRequester()
-        return refresh()
+        let refreshedState = refresh()
+        if refreshedState != .granted {
+            monitorSystemSettingsChanges()
+        }
+        return refreshedState
     }
 
     func openSystemSettings() {
+        hasRequestedAccess = true
+        monitorSystemSettingsChanges()
         settingsOpener()
+    }
+
+    func stopMonitoringSystemSettingsChanges() {
+        cancelMonitoring?()
+        cancelMonitoring = nil
+    }
+
+    private func monitorSystemSettingsChanges() {
+        stopMonitoringSystemSettingsChanges()
+        let baselineState = refresh()
+        var remainingPolls = monitoringPollLimit
+
+        cancelMonitoring = monitoringScheduler(monitoringInterval) { [weak self] in
+            guard let self else { return }
+            remainingPolls -= 1
+            let refreshedState = self.refresh()
+            if refreshedState != baselineState || remainingPolls <= 0 {
+                self.stopMonitoringSystemSettingsChanges()
+            }
+        }
     }
 
     private static func requestSystemPrompt() -> Bool {
@@ -79,5 +127,14 @@ final class AccessibilityPermissionService: ObservableObject, AccessibilityPermi
             return
         }
         NSWorkspace.shared.open(url)
+    }
+
+    private static func scheduleRepeating(
+        interval: TimeInterval,
+        action: @escaping () -> Void
+    ) -> () -> Void {
+        let timer = Timer(timeInterval: interval, repeats: true) { _ in action() }
+        RunLoop.main.add(timer, forMode: .common)
+        return { timer.invalidate() }
     }
 }

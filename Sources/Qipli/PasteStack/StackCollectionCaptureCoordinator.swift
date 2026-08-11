@@ -17,6 +17,7 @@ final class StackCollectionCaptureCoordinator {
         observedChangeCount: Int,
         stackCaptureContext: StackCaptureContext?
     ) {
+        guard HistoryTextPolicy.shouldCapture(text) else { return }
         guard let entry = historyViewModel.recordExternalText(text) else {
             stackSessionController.recordCaptureFailure(
                 observedChangeCount: observedChangeCount,

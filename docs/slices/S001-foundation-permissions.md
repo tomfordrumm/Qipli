@@ -101,6 +101,7 @@ covers:
 - Status item использует фиксированную видимую ширину и template-иконку clipboard с текстовым fallback.
 - Добавлены singleton AppKit panels c SwiftUI placeholder content для History, Paste Stack и Accessibility onboarding.
 - Добавлен инъецируемый `AccessibilityPermissionService`: проверка trust, явный user-triggered системный prompt и переход в System Settings. При отсутствии trust global input не запускается.
+- После permission prompt/Settings service выполняет bounded polling до реального grant/revoke, публикует только изменившееся состояние и автоматически запускает/останавливает event tap; `applicationDidBecomeActive` добавляет recheck для внешнего Settings flow без постоянного фонового polling.
 - Добавлены изолированные `InputCoordinator` и `GlobalInputEventAdapting`. Production adapter использует active `CGEvent` tap, который потребляет только exact untagged `⌘⇧V`/`⌘⇧C`; обычный `⌘V`, другие combinations и synthetic marker проходят без изменения.
 - Platform spike включает отправку synthetic `⌘V` с process marker, распознавание marker во входящем событии и bounded recovery (две попытки с проверкой результата) после системного отключения event tap.
 - Internal Debug-only hook детерминированно симулирует disabled event tap без установки реального tap и проверяет успешное восстановление и исчерпание двух попыток.
@@ -125,6 +126,7 @@ covers:
 - Xcode Debug build для macOS 14 target с `CODE_SIGNING_ALLOWED=NO` — успешно.
 - Xcode Release build для macOS 14 target с `CODE_SIGNING_ALLOWED=NO` — успешно.
 - Xcode XCTest — успешно: 11 тестов, 0 ошибок.
+- Regression 2026-08-09: focused SwiftPM permission suite — 4 теста, полный SwiftPM suite — 106 тестов, 0 ошибок; grant, revoke и bounded unchanged polling покрыты injected scheduler без реального TCC mutation.
 - `plutil -lint` для `.pbxproj`, `Info.plist` и entitlements — успешно.
 - `git diff --check` — успешно.
 - Статически подтверждено: deployment target 14.0, Hardened Runtime включён, App Sandbox entitlement отсутствует, product code не содержит pasteboard read/logging или network/telemetry API.

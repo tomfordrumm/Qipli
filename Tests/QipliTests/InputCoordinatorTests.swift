@@ -74,6 +74,65 @@ final class AccessibilityPermissionServiceTests: XCTestCase {
         isTrusted = true
         XCTAssertEqual(service.refresh(), .granted)
     }
+
+    func testRequestAccessMonitorsUntilPermissionBecomesGranted() {
+        var isTrusted = false
+        let scheduler = ManualPermissionMonitoringScheduler()
+        let service = AccessibilityPermissionService(
+            trustChecker: { isTrusted },
+            promptRequester: { false },
+            settingsOpener: {},
+            monitoringScheduler: scheduler.schedule
+        )
+
+        XCTAssertEqual(service.requestAccess(), .denied)
+        XCTAssertTrue(scheduler.isScheduled)
+
+        isTrusted = true
+        scheduler.tick()
+
+        XCTAssertEqual(service.state, .granted)
+        XCTAssertEqual(scheduler.cancelCount, 1)
+    }
+
+    func testOpeningSettingsMonitorsPermissionRevocation() {
+        var isTrusted = true
+        var openCount = 0
+        let scheduler = ManualPermissionMonitoringScheduler()
+        let service = AccessibilityPermissionService(
+            trustChecker: { isTrusted },
+            promptRequester: { true },
+            settingsOpener: { openCount += 1 },
+            monitoringScheduler: scheduler.schedule
+        )
+
+        service.openSystemSettings()
+        isTrusted = false
+        scheduler.tick()
+
+        XCTAssertEqual(openCount, 1)
+        XCTAssertEqual(service.state, .denied)
+        XCTAssertEqual(scheduler.cancelCount, 1)
+    }
+
+    func testSettingsMonitoringStopsAfterBoundedUnchangedPolls() {
+        let scheduler = ManualPermissionMonitoringScheduler()
+        let service = AccessibilityPermissionService(
+            trustChecker: { false },
+            promptRequester: { false },
+            settingsOpener: {},
+            monitoringPollLimit: 2,
+            monitoringScheduler: scheduler.schedule
+        )
+
+        service.openSystemSettings()
+        scheduler.tick()
+        XCTAssertEqual(scheduler.cancelCount, 0)
+
+        scheduler.tick()
+        XCTAssertEqual(service.state, .denied)
+        XCTAssertEqual(scheduler.cancelCount, 1)
+    }
 }
 
 final class SyntheticEventMarkerTests: XCTestCase {
@@ -335,5 +394,23 @@ private final class FakeInputAdapter: GlobalInputEventAdapting {
     func emitStatus(_ status: GlobalInputStatus) {
         self.status = status
         onStatusChange?(status)
+    }
+}
+
+private final class ManualPermissionMonitoringScheduler {
+    private var action: (() -> Void)?
+    private(set) var cancelCount = 0
+    var isScheduled: Bool { action != nil }
+
+    lazy var schedule: (TimeInterval, @escaping () -> Void) -> () -> Void = { [weak self] _, action in
+        self?.action = action
+        return { [weak self] in
+            self?.cancelCount += 1
+            self?.action = nil
+        }
+    }
+
+    func tick() {
+        action?()
     }
 }

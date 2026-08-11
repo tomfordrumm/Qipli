@@ -98,20 +98,29 @@ covers:
 
 ### Реализовано
 
-Не начато.
+- Подготовлены два fail-closed command-line workflow: local `Apple Development` package и public Developer ID/notarized release.
+- Общий verifier проверяет signer/Team ID/designated requirement, Hardened Runtime, entitlements, bundle/minimum OS, universal architectures, forbidden xattrs и strict code signature; release после notarization дополнительно проверяет stapled ticket и Gatekeeper.
+- Оба workflow очищают только `FinderInfo`/resource-fork metadata в изолированном temporary archive, создают ZIP без resource/xattr/quarantine/ACL metadata, распаковывают его и повторяют verification до checksum.
+- Notary credentials читаются только из named Keychain profile; certificate names и Team ID передаются явными release environment values, secrets в repository не добавлены.
 
 ### Изменённые файлы
 
-Не начато.
+- `scripts/package-local.sh`
+- `scripts/package-release.sh`
+- `scripts/verify-signed-app.sh`
+- `docs/TECHNICAL.md`, `docs/DECISIONS.md`, `docs/STATE.md` и этот slice
 
 ### Выполненная проверка
 
-Не начато.
+- `bash -n` для всех трёх scripts — успешно.
+- Verifier отклонил существующий `/Applications/Qipli.app` как ad-hoc/no-Team-ID artifact — ожидаемый fail-closed результат.
+- Полный SwiftPM suite (106 тестов) и unsigned Xcode Debug/Release builds — успешно.
+- Полная Developer ID/notarization/Gatekeeper проверка пока не выполнена: credentials отсутствуют.
 
 ### Отклонения от плана
 
-Нет.
+- Pipeline подготовлен до снятия credential blocker, но это не считается выполнением acceptance criteria или release verification.
 
 ### Оставшиеся проблемы
 
-Заблокировано 2026-08-08: у пользователя пока нет платного Apple Developer Program membership, Developer ID Application certificate и notarization credentials. Локальная разработка и S009 могут продолжаться независимо.
+Заблокировано: у пользователя пока нет платного Apple Developer Program membership, Developer ID Application certificate и notarization credentials. Нельзя подтвердить Developer ID archive, notary acceptance, stapling, Gatekeeper или downloaded-artifact clean-machine matrix; S008 остаётся `blocked`.
