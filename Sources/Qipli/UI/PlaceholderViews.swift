@@ -164,8 +164,12 @@ struct HistoryPanelView: View {
                         }
                         .id(entry.id)
                         .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                        .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
+                        .alignmentGuide(.listRowSeparatorTrailing) { $0[.trailing] }
                     }
-                    .listStyle(.inset)
+                    .listStyle(.plain)
+                    .contentMargins(.horizontal, 0, for: .scrollContent)
                     .scrollContentBackground(.hidden)
                     .onAppear {
                         scrollSelectionIntoView(using: proxy)
@@ -506,56 +510,103 @@ private enum HistoryKeyboardActionScheduler {
 
 struct PasteStackPanelView: View {
     @ObservedObject var sessionController: StackSessionController
+    let close: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Spacer()
-                directionToggle
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider()
+            stackContent
 
-            if sessionController.occurrences.isEmpty {
-                ContentUnavailableView(
-                    "Copy text to add it",
-                    systemImage: "doc.on.clipboard",
-                    description: Text("This stack starts empty and collects new copies only.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List {
-                    ForEach(sessionController.occurrences) { occurrence in
-                        occurrenceRow(occurrence)
-                    }
-                    .onMove { source, destination in
-                        execute(.moveOccurrences(source, to: destination))
-                    }
-                    .moveDisabled(!canReorder)
-                }
-                .listStyle(.inset)
-                .scrollContentBackground(.hidden)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-
-            if let pasteFailure = sessionController.pasteFailure {
-                Text(pasteFailure.message)
+            if let statusMessage {
+                Divider()
+                Text(statusMessage)
                     .font(.caption)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
-            } else if sessionController.hasCopyCommandDispatchFailure {
-                Text("Qipli could not send Copy to the active app. Try the Paste Stack shortcut again.")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else if sessionController.hasCaptureError {
-                Text("Qipli could not save the last copied text. Copy it again to retry.")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
             }
         }
-        .padding(16)
         .frame(width: 400, height: 360, alignment: .topLeading)
         .accessibilityIdentifier("paste-stack-panel")
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Button(action: close) {
+                Image(systemName: "xmark.circle.fill")
+                    .symbolRenderingMode(.hierarchical)
+                    .font(.system(size: 17, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.primary)
+            .frame(width: 28, height: 28)
+            .contentShape(Circle())
+            .accessibilityLabel("Cancel Paste Stack")
+            .accessibilityHint("Closes the panel and cancels the unfinished stack.")
+            .help("Cancel Paste Stack")
+
+            Spacer(minLength: 0)
+
+            Text("Paste Stack")
+                .font(.system(size: 15, weight: .semibold))
+                .lineLimit(1)
+                .accessibilityAddTraits(.isHeader)
+
+            Spacer(minLength: 0)
+
+            directionToggle
+                .frame(width: 28, height: 28)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 52)
+        .background {
+            PasteStackWindowDragRegion()
+                .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder
+    private var stackContent: some View {
+        if sessionController.occurrences.isEmpty {
+            ContentUnavailableView(
+                "Copy text to add it",
+                systemImage: "doc.on.clipboard",
+                description: Text("This stack starts empty and collects new copies only.")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(24)
+        } else {
+            List {
+                ForEach(sessionController.occurrences) { occurrence in
+                    occurrenceRow(occurrence)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                }
+                .onMove { source, destination in
+                    execute(.moveOccurrences(source, to: destination))
+                }
+                .moveDisabled(!canReorder)
+            }
+            .listStyle(.plain)
+            .contentMargins(.horizontal, 0, for: .scrollContent)
+            .scrollContentBackground(.hidden)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var statusMessage: String? {
+        if let pasteFailure = sessionController.pasteFailure {
+            pasteFailure.message
+        } else if sessionController.hasCopyCommandDispatchFailure {
+            "Qipli could not send Copy to the active app. Try the Paste Stack shortcut again."
+        } else if sessionController.hasCaptureError {
+            "Qipli could not save the last copied text. Copy it again to retry."
+        } else {
+            nil
+        }
     }
 
     private var directionToggle: some View {
@@ -630,8 +681,8 @@ struct PasteStackPanelView: View {
                 .help("Reactivate")
             }
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
         .opacity(isUsed && !isReactivationPriority ? 0.55 : 1)
         .background {
             if isPriorityNext {
@@ -691,6 +742,20 @@ struct PasteStackPanelView: View {
             schedule: PasteStackPanelIntentScheduler.schedule
         )
         .execute(intent)
+    }
+}
+
+private struct PasteStackWindowDragRegion: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        WindowDragView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class WindowDragView: NSView {
+        override func mouseDown(with event: NSEvent) {
+            window?.performDrag(with: event)
+        }
     }
 }
 
@@ -856,68 +921,5 @@ enum PasteStackPanelAccessibility {
 
     static func reactivateLabel(position: Int) -> String {
         "Reactivate used item \(position + 1)"
-    }
-}
-
-struct PermissionStatusView: View {
-    @ObservedObject var permissionService: AccessibilityPermissionService
-    let requestAccess: () -> Void
-    let openSettings: () -> Void
-
-    var body: some View {
-        let presentation = PermissionPanelPresentation.resolve(state: permissionService.state)
-        VStack(alignment: .leading, spacing: 14) {
-            Text(presentation.message)
-                .fixedSize(horizontal: false, vertical: true)
-            Button(presentation.buttonTitle) {
-                switch presentation.action {
-                case .requestAccess:
-                    requestAccess()
-                case .openSettings:
-                    openSettings()
-                }
-            }
-            .accessibilityLabel(presentation.accessibilityLabel)
-        }
-        .padding(16)
-        .frame(width: 360, alignment: .leading)
-    }
-}
-
-enum PermissionPanelAction: Equatable {
-    case requestAccess
-    case openSettings
-}
-
-struct PermissionPanelPresentation: Equatable {
-    let message: String
-    let buttonTitle: String
-    let accessibilityLabel: String
-    let action: PermissionPanelAction
-
-    static func resolve(state: AccessibilityPermissionState) -> Self {
-        switch state {
-        case .notRequested:
-            Self(
-                message: "Enable Accessibility for global shortcuts and paste.",
-                buttonTitle: "Allow Access",
-                accessibilityLabel: "Allow Accessibility Access",
-                action: .requestAccess
-            )
-        case .denied:
-            Self(
-                message: "Accessibility access is off.",
-                buttonTitle: "Open System Settings",
-                accessibilityLabel: "Open System Settings",
-                action: .openSettings
-            )
-        case .granted:
-            Self(
-                message: "Accessibility access is enabled.",
-                buttonTitle: "Open System Settings",
-                accessibilityLabel: "Open System Settings",
-                action: .openSettings
-            )
-        }
     }
 }

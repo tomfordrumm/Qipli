@@ -359,6 +359,8 @@ final class StackSessionControllerTests: XCTestCase {
                 stackCaptureContext: controller.captureContext
             )
         }
+        monitor.start(interval: 3_600)
+        defer { monitor.stop() }
 
         pasteboard.setText("before start fixture")
         XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: pasteboard.changeCount))
@@ -384,6 +386,8 @@ final class StackSessionControllerTests: XCTestCase {
                 stackCaptureContext: controller.captureContext
             )
         }
+        monitor.start(interval: 3_600)
+        defer { monitor.stop() }
 
         pasteboard.setText("pre-start failure fixture")
         XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: pasteboard.changeCount))
@@ -968,6 +972,8 @@ final class StackSessionControllerTests: XCTestCase {
         let controller = configuredController(with: ["suppression fixture"])
         var observed = 0
         let monitor = PasteboardMonitor(pasteboard: pasteboard) { _ in observed += 1 }
+        monitor.start(interval: 3_600)
+        defer { monitor.stop() }
         let writer = StackPasteboardWriter(pasteboard: pasteboard)
         let executor = StackSequentialPasteExecutor(
             permissionService: StackPastePermission(state: .granted),
@@ -992,6 +998,8 @@ final class StackSessionControllerTests: XCTestCase {
         let controller = configuredController(with: ["reactivation suppression fixture"])
         var observed = 0
         let monitor = PasteboardMonitor(pasteboard: pasteboard) { _ in observed += 1 }
+        monitor.start(interval: 3_600)
+        defer { monitor.stop() }
         let writer = StackPasteboardWriter(pasteboard: pasteboard)
         let finish = QueuedFinishScheduler()
         let executor = StackSequentialPasteExecutor(

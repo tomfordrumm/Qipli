@@ -29,14 +29,13 @@ final class SystemPasteboardReader: PasteboardReading {
 final class PasteboardMonitor {
     private let pasteboard: PasteboardReading
     private let onExternalText: (PasteboardTextChange) -> Void
-    private var lastChangeCount: Int
+    private var lastChangeCount: Int?
     private var ignoredChanges = Set<Int>()
     private var timer: Timer?
 
     init(pasteboard: PasteboardReading = SystemPasteboardReader(), onExternalText: @escaping (PasteboardTextChange) -> Void) {
         self.pasteboard = pasteboard
         self.onExternalText = onExternalText
-        lastChangeCount = pasteboard.changeCount
     }
 
     var currentChangeCount: Int { pasteboard.changeCount }
@@ -61,8 +60,12 @@ final class PasteboardMonitor {
 
     func poll() {
         let currentChangeCount = pasteboard.changeCount
+        guard let lastChangeCount else {
+            self.lastChangeCount = currentChangeCount
+            return
+        }
         guard currentChangeCount != lastChangeCount else { return }
-        lastChangeCount = currentChangeCount
+        self.lastChangeCount = currentChangeCount
 
         // A newer external change makes every older expected self-write irrelevant.
         ignoredChanges = ignoredChanges.filter { $0 >= currentChangeCount }

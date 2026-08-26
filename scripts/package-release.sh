@@ -21,9 +21,6 @@ notary_timeout="${QIPLI_NOTARY_TIMEOUT:-30m}"
 
 [[ "$identity" == "Developer ID Application:"* ]] \
     || fail "release identity must start with 'Developer ID Application:'"
-available_identities=$(security find-identity -v -p codesigning)
-grep -Fq "\"$identity\"" <<<"$available_identities" \
-    || fail "Developer ID Application identity is not available in the keychain: $identity"
 
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/qipli-release.XXXXXX")
 trap 'rm -rf "$work_dir"' EXIT

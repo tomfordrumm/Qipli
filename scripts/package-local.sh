@@ -17,10 +17,6 @@ identity="$QIPLI_APPLE_DEVELOPMENT_IDENTITY"
 team_id="$QIPLI_DEVELOPMENT_TEAM"
 [[ "$identity" == "Apple Development:"* ]] || fail "local identity must start with 'Apple Development:'"
 
-available_identities=$(security find-identity -v -p codesigning)
-grep -Fq "\"$identity\"" <<<"$available_identities" \
-    || fail "Apple Development identity is not available in the keychain: $identity"
-
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/qipli-local.XXXXXX")
 trap 'rm -rf "$work_dir"' EXIT
 archive_path="$work_dir/Qipli.xcarchive"

@@ -33,6 +33,14 @@
 		A00100000000000000000024 /* StackSequentialPasteExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000028 /* StackSequentialPasteExecutor.swift */; };
 		A00100000000000000000029 /* PanelMaterialProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000029 /* PanelMaterialProvider.swift */; };
 		A00100000000000000000030 /* PanelMaterialProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000030 /* PanelMaterialProviderTests.swift */; };
+		A00100000000000000000031 /* ShortcutPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000031 /* ShortcutPreferences.swift */; };
+		A00100000000000000000032 /* LaunchAtLoginService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000032 /* LaunchAtLoginService.swift */; };
+		A00100000000000000000033 /* SettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000033 /* SettingsViewModel.swift */; };
+		A00100000000000000000034 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000034 /* SettingsWindowController.swift */; };
+		A00100000000000000000035 /* SettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000035 /* SettingsTests.swift */; };
+		A00100000000000000000036 /* OnboardingCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000036 /* OnboardingCoordinator.swift */; };
+		A00100000000000000000037 /* OnboardingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000037 /* OnboardingWindowController.swift */; };
+		A00100000000000000000038 /* OnboardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000038 /* OnboardingTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -76,6 +84,14 @@
 		A00200000000000000000028 /* StackSequentialPasteExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackSequentialPasteExecutor.swift; sourceTree = "<group>"; };
 		A00200000000000000000029 /* PanelMaterialProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelMaterialProvider.swift; sourceTree = "<group>"; };
 		A00200000000000000000030 /* PanelMaterialProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelMaterialProviderTests.swift; sourceTree = "<group>"; };
+		A00200000000000000000031 /* ShortcutPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutPreferences.swift; sourceTree = "<group>"; };
+		A00200000000000000000032 /* LaunchAtLoginService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLoginService.swift; sourceTree = "<group>"; };
+		A00200000000000000000033 /* SettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewModel.swift; sourceTree = "<group>"; };
+		A00200000000000000000034 /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
+		A00200000000000000000035 /* SettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsTests.swift; sourceTree = "<group>"; };
+		A00200000000000000000036 /* OnboardingCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingCoordinator.swift; sourceTree = "<group>"; };
+		A00200000000000000000037 /* OnboardingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWindowController.swift; sourceTree = "<group>"; };
+		A00200000000000000000038 /* OnboardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -113,6 +129,8 @@
 				A00400000000000000000009 /* Clipboard */,
 				A00400000000000000000010 /* History */,
 				A00400000000000000000011 /* PasteStack */,
+				A00400000000000000000012 /* Settings */,
+				A00400000000000000000013 /* Onboarding */,
 				A00400000000000000000005 /* UI */,
 				A00400000000000000000008 /* Resources */,
 			);
@@ -147,6 +165,8 @@
 				A00200000000000000000006 /* PanelController.swift */,
 				A00200000000000000000007 /* PlaceholderViews.swift */,
 				A00200000000000000000029 /* PanelMaterialProvider.swift */,
+				A00200000000000000000034 /* SettingsWindowController.swift */,
+				A00200000000000000000037 /* OnboardingWindowController.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -160,8 +180,28 @@
 				A00200000000000000000023 /* HistorySearchPasteTests.swift */,
 				A00200000000000000000026 /* PasteStackTests.swift */,
 				A00200000000000000000030 /* PanelMaterialProviderTests.swift */,
+				A00200000000000000000035 /* SettingsTests.swift */,
+				A00200000000000000000038 /* OnboardingTests.swift */,
 			);
 			path = Tests/QipliTests;
+			sourceTree = "<group>";
+		};
+		A00400000000000000000007 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A00200000000000000000011 /* Qipli.app */,
+				A00200000000000000000012 /* QipliTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A00400000000000000000008 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A00200000000000000000009 /* Info.plist */,
+				A00200000000000000000010 /* Qipli.entitlements */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		A00400000000000000000009 /* Clipboard */ = {
@@ -194,22 +234,22 @@
 			path = PasteStack;
 			sourceTree = "<group>";
 		};
-		A00400000000000000000007 /* Products */ = {
+		A00400000000000000000012 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
-				A00200000000000000000011 /* Qipli.app */,
-				A00200000000000000000012 /* QipliTests.xctest */,
+				A00200000000000000000031 /* ShortcutPreferences.swift */,
+				A00200000000000000000032 /* LaunchAtLoginService.swift */,
+				A00200000000000000000033 /* SettingsViewModel.swift */,
 			);
-			name = Products;
+			path = Settings;
 			sourceTree = "<group>";
 		};
-		A00400000000000000000008 /* Resources */ = {
+		A00400000000000000000013 /* Onboarding */ = {
 			isa = PBXGroup;
 			children = (
-				A00200000000000000000009 /* Info.plist */,
-				A00200000000000000000010 /* Qipli.entitlements */,
+				A00200000000000000000036 /* OnboardingCoordinator.swift */,
 			);
-			path = Resources;
+			path = Onboarding;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -321,6 +361,12 @@
 				A00100000000000000000006 /* PanelController.swift in Sources */,
 				A00100000000000000000007 /* PlaceholderViews.swift in Sources */,
 				A00100000000000000000029 /* PanelMaterialProvider.swift in Sources */,
+				A00100000000000000000031 /* ShortcutPreferences.swift in Sources */,
+				A00100000000000000000032 /* LaunchAtLoginService.swift in Sources */,
+				A00100000000000000000033 /* SettingsViewModel.swift in Sources */,
+				A00100000000000000000034 /* SettingsWindowController.swift in Sources */,
+				A00100000000000000000036 /* OnboardingCoordinator.swift in Sources */,
+				A00100000000000000000037 /* OnboardingWindowController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -334,6 +380,8 @@
 				A00100000000000000000019 /* HistorySearchPasteTests.swift in Sources */,
 				A00100000000000000000022 /* PasteStackTests.swift in Sources */,
 				A00100000000000000000030 /* PanelMaterialProviderTests.swift in Sources */,
+				A00100000000000000000035 /* SettingsTests.swift in Sources */,
+				A00100000000000000000038 /* OnboardingTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -368,9 +416,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = Sources/Qipli/Resources/Qipli.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 97869YN5V9;
+				DEVELOPMENT_TEAM = 3N2R5K4J63;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -390,9 +439,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = Sources/Qipli/Resources/Qipli.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 97869YN5V9;
+				DEVELOPMENT_TEAM = 3N2R5K4J63;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/Qipli/Resources/Info.plist;

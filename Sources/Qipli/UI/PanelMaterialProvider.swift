@@ -69,15 +69,23 @@ final class PanelMaterialProvider {
 
         content.translatesAutoresizingMaskIntoConstraints = false
         contentContainer.addSubview(content)
-        guard let contentLayoutGuide = panel.contentLayoutGuide as? NSLayoutGuide else {
-            preconditionFailure("Titled Qipli panels require NSWindow.contentLayoutGuide")
+        if let contentLayoutGuide = panel.contentLayoutGuide as? NSLayoutGuide {
+            NSLayoutConstraint.activate([
+                content.leadingAnchor.constraint(equalTo: contentLayoutGuide.leadingAnchor),
+                content.trailingAnchor.constraint(equalTo: contentLayoutGuide.trailingAnchor),
+                content.topAnchor.constraint(equalTo: contentLayoutGuide.topAnchor),
+                content.bottomAnchor.constraint(equalTo: contentLayoutGuide.bottomAnchor)
+            ])
+        } else {
+            // Borderless panels have no title-bar safe area. Their feature content
+            // intentionally fills the single material surface edge to edge.
+            NSLayoutConstraint.activate([
+                content.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
+                content.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+                content.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+                content.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor)
+            ])
         }
-        NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: contentLayoutGuide.leadingAnchor),
-            content.trailingAnchor.constraint(equalTo: contentLayoutGuide.trailingAnchor),
-            content.topAnchor.constraint(equalTo: contentLayoutGuide.topAnchor),
-            content.bottomAnchor.constraint(equalTo: contentLayoutGuide.bottomAnchor)
-        ])
         return surface
     }
 
@@ -96,7 +104,11 @@ final class PanelMaterialProvider {
 enum PanelKind: CaseIterable {
     case history
     case pasteStack
-    case permission
+}
+
+enum PanelWindowChrome: Equatable {
+    case native
+    case custom(cornerRadius: CGFloat)
 }
 
 /// Explicitly preserves each panel's pre-S009 AppKit contract while allowing
@@ -105,6 +117,7 @@ struct PanelWindowConfiguration {
     let title: String
     let contentRect: NSRect
     let styleMask: NSWindow.StyleMask
+    let chrome: PanelWindowChrome
 
     static func make(for kind: PanelKind) -> Self {
         switch kind {
@@ -112,19 +125,15 @@ struct PanelWindowConfiguration {
             Self(
                 title: "History",
                 contentRect: NSRect(x: 0, y: 0, width: 460, height: 340),
-                styleMask: [.titled, .closable, .utilityWindow, .fullSizeContentView]
+                styleMask: [.titled, .closable, .utilityWindow, .fullSizeContentView],
+                chrome: .native
             )
         case .pasteStack:
             Self(
                 title: "Paste Stack",
                 contentRect: NSRect(x: 0, y: 0, width: 400, height: 360),
-                styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel, .fullSizeContentView]
-            )
-        case .permission:
-            Self(
-                title: "Accessibility Permission",
-                contentRect: NSRect(x: 0, y: 0, width: 360, height: 150),
-                styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel, .fullSizeContentView]
+                styleMask: [.borderless, .nonactivatingPanel],
+                chrome: .custom(cornerRadius: 18)
             )
         }
     }
@@ -135,18 +144,33 @@ struct PanelWindowConfiguration {
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
-        // `.fullSizeContentView` puts the material behind native titled/closable
-        // chrome; content itself is constrained to `contentLayoutGuide` above.
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.titlebarAppearsTransparent = true
-        // `contentRect` is the feature-owned SwiftUI size. Full-size content
-        // extends the material under native chrome, so compensate for that
-        // chrome before pinning SwiftUI to the unobscured layout rect.
-        let titleBarHeight = panel.contentView!.bounds.height - panel.contentLayoutRect.height
-        panel.setContentSize(NSSize(
-            width: contentRect.width,
-            height: contentRect.height + titleBarHeight
-        ))
+        panel.hasShadow = true
+
+        switch chrome {
+        case .native:
+            // `.fullSizeContentView` puts the material behind native titled/closable
+            // chrome; content itself is constrained to `contentLayoutGuide` above.
+            panel.titlebarAppearsTransparent = true
+            // `contentRect` is the feature-owned SwiftUI size. Full-size content
+            // extends the material under native chrome, so compensate for that
+            // chrome before pinning SwiftUI to the unobscured layout rect.
+            let titleBarHeight = panel.contentView!.bounds.height - panel.contentLayoutRect.height
+            panel.setContentSize(NSSize(
+                width: contentRect.width,
+                height: contentRect.height + titleBarHeight
+            ))
+        case .custom:
+            panel.setContentSize(contentRect.size)
+        }
+    }
+
+    func applySurfacePresentation(to surface: NSView) {
+        guard case let .custom(cornerRadius) = chrome else { return }
+        surface.wantsLayer = true
+        surface.layer?.cornerCurve = .continuous
+        surface.layer?.cornerRadius = cornerRadius
+        surface.layer?.masksToBounds = true
     }
 }

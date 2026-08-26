@@ -13,20 +13,31 @@ final class ApplicationShell: NSObject {
     private let stackCollectionStarter: StackCollectionStarter
     private let stackSequentialPasteExecutor: StackSequentialPasteExecutor
     private let pasteboardMonitor: PasteboardMonitor
+    private let shortcutPreferences: ShortcutPreferences
+    private let settingsViewModel: SettingsViewModel
+    private var settingsWindowController: SettingsWindowController!
+    private var onboardingCoordinator: OnboardingCoordinator!
+    private var onboardingWindowController: OnboardingWindowController!
     private var retentionTimer: Timer?
     private var permissionStateObservation: AnyCancellable?
-    private let statusItem: NSStatusItem
-    private let permissionMenuItem = NSMenuItem()
+    private var statusItem: NSStatusItem?
     private let pasteStackMenuItem = NSMenuItem()
 
     init(
         permissionService: AccessibilityPermissionService = AccessibilityPermissionService(),
-        inputAdapter: GlobalInputEventAdapting = CGEventTapAdapter(),
+        inputAdapter: GlobalInputEventAdapting? = nil,
+        shortcutPreferences: ShortcutPreferences = ShortcutPreferences(),
+        launchAtLoginService: LaunchAtLoginServicing = SystemLaunchAtLoginService(),
+        onboardingCompletionStore: OnboardingCompletionStoring = OnboardingCompletionStore(),
         historyStore: HistoryStoring? = nil,
         pasteCommandDispatcher: TaggedPasteCommandDispatching? = nil,
         copyCommandDispatcher: TaggedCopyCommandDispatching? = nil
     ) {
         self.permissionService = permissionService
+        self.shortcutPreferences = shortcutPreferences
+        let resolvedInputAdapter = inputAdapter ?? CGEventTapAdapter(
+            shortcutSnapshotProvider: { shortcutPreferences.currentSnapshot }
+        )
         let store: HistoryStoring
         if let historyStore {
             store = historyStore
@@ -56,10 +67,10 @@ final class ApplicationShell: NSObject {
         pasteboardMonitor = monitor
         inputCoordinator = InputCoordinator(
             permissionService: permissionService,
-            eventAdapter: inputAdapter
+            eventAdapter: resolvedInputAdapter
         )
         let commandDispatcher = pasteCommandDispatcher
-            ?? (inputAdapter as? TaggedPasteCommandDispatching)
+            ?? (resolvedInputAdapter as? TaggedPasteCommandDispatching)
             ?? UnavailablePasteCommandDispatcher()
         let pasteExecutor = HistoryPasteExecutor(
             permissionService: permissionService,
@@ -90,7 +101,7 @@ final class ApplicationShell: NSObject {
             finishPresentation: { panelController.finishPasteStackAfterCompletion() }
         )
         let resolvedCopyCommandDispatcher = copyCommandDispatcher
-            ?? (inputAdapter as? TaggedCopyCommandDispatching)
+            ?? (resolvedInputAdapter as? TaggedCopyCommandDispatching)
             ?? UnavailableCopyCommandDispatcher()
         stackCollectionStarter = StackCollectionStarter(
             sessionController: stackSessionController,
@@ -98,12 +109,53 @@ final class ApplicationShell: NSObject {
             showStackPanel: { panelController.showPasteStack() },
             copyCommandDispatcher: resolvedCopyCommandDispatcher
         )
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        settingsViewModel = SettingsViewModel(
+            shortcutPreferences: shortcutPreferences,
+            launchAtLoginService: launchAtLoginService
+        )
         super.init()
+
+        onboardingCoordinator = OnboardingCoordinator(
+            completionStore: onboardingCompletionStore,
+            startProductServices: { [weak self] in
+                self?.startProductServices()
+            }
+        )
+        onboardingWindowController = OnboardingWindowController(
+            settingsViewModel: settingsViewModel,
+            permissionService: permissionService,
+            requestAccessibilityAccess: { [weak self] in
+                self?.requestAccessibilityAccessFromOnboarding()
+            },
+            openAccessibilitySettings: { [weak self] in
+                self?.openAccessibilitySettings()
+            },
+            completeFirstRun: { [weak self] in
+                self?.onboardingCoordinator.completeFirstRun()
+            }
+        )
+        settingsWindowController = SettingsWindowController(
+            viewModel: settingsViewModel,
+            permissionService: permissionService,
+            requestAccessibilityAccess: { [weak self] in
+                self?.requestAccessibilityAccess()
+                self?.settingsWindowController.refresh()
+            },
+            openAccessibilitySettings: { [weak self] in
+                self?.openAccessibilitySettings()
+            },
+            refreshSystemState: { [weak self] in
+                self?.refreshInputAvailability()
+                return self?.inputCoordinator.status ?? .stopped
+            },
+            showOnboarding: { [weak self] in
+                self?.showOnboardingAgain()
+            }
+        )
 
         inputCoordinator.onStatusChange = { [weak self] status in
             guard let self else { return }
-            self.updatePermissionMenuTitle()
+            self.settingsViewModel.updateInputStatus(status)
             switch status {
             case .permissionRequired, .unavailable:
                 self.stackSessionController.recordInputUnavailable()
@@ -148,6 +200,12 @@ final class ApplicationShell: NSObject {
     }
 
     func start() {
+        onboardingCoordinator.start { [weak self] mode in
+            self?.onboardingWindowController.show(mode: mode)
+        }
+    }
+
+    private func startProductServices() {
         configureStatusItem()
         observePermissionChanges()
         refreshInputAvailability()
@@ -161,6 +219,7 @@ final class ApplicationShell: NSObject {
     }
 
     func stop() {
+        onboardingWindowController.closeWithoutCompleting()
         permissionService.stopMonitoringSystemSettingsChanges()
         permissionStateObservation?.cancel()
         permissionStateObservation = nil
@@ -169,10 +228,17 @@ final class ApplicationShell: NSObject {
         retentionTimer?.invalidate()
         retentionTimer = nil
         panels.closeAll()
-        NSStatusBar.system.removeStatusItem(statusItem)
+        settingsWindowController.close()
+        if let statusItem {
+            NSStatusBar.system.removeStatusItem(statusItem)
+            self.statusItem = nil
+        }
     }
 
     private func configureStatusItem() {
+        guard statusItem == nil else { return }
+        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        self.statusItem = statusItem
         statusItem.length = NSStatusItem.squareLength
         statusItem.isVisible = true
 
@@ -199,9 +265,7 @@ final class ApplicationShell: NSObject {
         menu.addItem(pasteStackMenuItem)
         menu.addItem(.separator())
 
-        permissionMenuItem.target = self
-        permissionMenuItem.action = #selector(showPermissionStatus)
-        menu.addItem(permissionMenuItem)
+        menu.addItem(menuItem(title: "Settings…", action: #selector(showSettings)))
 
         menu.addItem(.separator())
         menu.addItem(menuItem(title: "Quit Qipli", action: #selector(quit)))
@@ -217,11 +281,14 @@ final class ApplicationShell: NSObject {
 
     private func refreshInputAvailability() {
         inputCoordinator.refreshAndStart()
-        updatePermissionMenuTitle()
     }
 
     func refreshSystemPermissions() {
-        refreshInputAvailability()
+        permissionService.refresh()
+        onboardingWindowController.refresh()
+        if onboardingCoordinator.productServicesStarted {
+            settingsWindowController.refresh()
+        }
     }
 
     private func observePermissionChanges() {
@@ -236,17 +303,6 @@ final class ApplicationShell: NSObject {
                     self?.refreshInputAvailability()
                 }
             }
-    }
-
-    private func updatePermissionMenuTitle() {
-        switch inputCoordinator.status {
-        case .unavailable:
-            permissionMenuItem.title = "Permission: Global input unavailable"
-        case .ready:
-            permissionMenuItem.title = "Permission: Global input ready"
-        case .permissionRequired, .stopped:
-            permissionMenuItem.title = "Permission: \(permissionService.state.menuDescription)"
-        }
     }
 
     private func updatePasteStackMenuTitle() {
@@ -267,12 +323,12 @@ final class ApplicationShell: NSObject {
 
     private func startPasteStackFromHotKey() {
         guard permissionService.refresh() == .granted else {
-            showPermissionStatus()
+            showPermissionSettings()
             return
         }
         refreshInputAvailability()
         guard inputCoordinator.status == .ready else {
-            showPermissionStatus()
+            showPermissionSettings()
             return
         }
         stackCollectionStarter.startFromHotKey()
@@ -281,12 +337,12 @@ final class ApplicationShell: NSObject {
 
     private func startPasteStackFromMenu() {
         guard permissionService.refresh() == .granted else {
-            showPermissionStatus()
+            showPermissionSettings()
             return
         }
         refreshInputAvailability()
         guard inputCoordinator.status == .ready else {
-            showPermissionStatus()
+            showPermissionSettings()
             return
         }
         stackCollectionStarter.startFromMenu()
@@ -298,13 +354,12 @@ final class ApplicationShell: NSObject {
         updatePasteStackMenuTitle()
     }
 
-    @objc private func showPermissionStatus() {
-        permissionService.refresh()
-        refreshInputAvailability()
-        panels.showPermission(
-            requestAccess: { [weak self] in self?.requestAccessibilityAccess() },
-            openSettings: { [weak self] in self?.openAccessibilitySettings() }
-        )
+    @objc private func showSettings() {
+        settingsWindowController.show()
+    }
+
+    private func showPermissionSettings() {
+        settingsWindowController.show(section: .general)
     }
 
     private func requestAccessibilityAccess() {
@@ -312,8 +367,19 @@ final class ApplicationShell: NSObject {
         refreshInputAvailability()
     }
 
+    private func requestAccessibilityAccessFromOnboarding() {
+        permissionService.requestAccess()
+        onboardingWindowController.refresh()
+    }
+
     private func openAccessibilitySettings() {
         permissionService.openSystemSettings()
+    }
+
+    private func showOnboardingAgain() {
+        onboardingCoordinator.showAgain { [weak self] mode in
+            self?.onboardingWindowController.show(mode: mode)
+        }
     }
 
     @objc private func quit() {

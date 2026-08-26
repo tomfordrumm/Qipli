@@ -15,7 +15,6 @@ final class PanelController {
     private let materialProvider: PanelMaterialProvider
     private var historyPanel: NSPanel?
     private var stackPanel: NSPanel?
-    private var permissionPanel: NSPanel?
     private var historyPasteTarget: HistoryPasteTarget?
     private var stackPanelCloseDelegate: StackPanelCloseDelegate?
 
@@ -78,7 +77,10 @@ final class PanelController {
 
     func showPasteStack() {
         let panel = stackPanel ?? makeStackPanel {
-            PasteStackPanelView(sessionController: self.stackSessionController)
+            PasteStackPanelView(
+                sessionController: self.stackSessionController,
+                close: { [weak self] in self?.cancelPasteStack() }
+            )
         }
         stackPanel = panel
         present(panel, activatesApplication: false, placeOnCurrentScreen: true)
@@ -97,21 +99,9 @@ final class PanelController {
         onPasteStackCancelled?()
     }
 
-    func showPermission(requestAccess: @escaping () -> Void, openSettings: @escaping () -> Void) {
-        let panel = permissionPanel ?? makePanel(kind: .permission) {
-            PermissionStatusView(
-                permissionService: self.permissionService,
-                requestAccess: requestAccess,
-                openSettings: openSettings
-            )
-        }
-        permissionPanel = panel
-        present(panel)
-    }
-
     func closeAll() {
         cancelPasteStack()
-        [historyPanel, stackPanel, permissionPanel].forEach { $0?.close() }
+        [historyPanel, stackPanel].forEach { $0?.close() }
     }
 
     private func pasteHistoryEntry(_ entry: HistoryEntry) {
@@ -158,7 +148,8 @@ final class PanelController {
             defer: false
         )
         configuration.applyPresentation(to: panel)
-        materialProvider.install(content: NSHostingView(rootView: content()), in: panel)
+        let surface = materialProvider.install(content: NSHostingView(rootView: content()), in: panel)
+        configuration.applySurfacePresentation(to: surface)
         return panel
     }
 
@@ -171,7 +162,8 @@ final class PanelController {
             defer: false
         )
         configuration.applyPresentation(to: panel)
-        materialProvider.install(content: NSHostingView(rootView: content()), in: panel)
+        let surface = materialProvider.install(content: NSHostingView(rootView: content()), in: panel)
+        configuration.applySurfacePresentation(to: surface)
 
         let closeDelegate = StackPanelCloseDelegate { [weak self] in
             self?.cancelPasteStack()

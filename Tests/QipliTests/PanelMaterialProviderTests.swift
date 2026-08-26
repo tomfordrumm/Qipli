@@ -69,63 +69,10 @@ final class PanelMaterialProviderTests: XCTestCase {
         XCTAssertGreaterThan(surface.bounds.height, content.frame.height)
     }
 
-    func testPermissionPanelKeepsCompactContentLayoutRectInsideNativeTitleBar() {
-        let configuration = PanelWindowConfiguration.make(for: .permission)
-        let panel = NSPanel(
-            contentRect: configuration.contentRect,
-            styleMask: configuration.styleMask,
-            backing: .buffered,
-            defer: false
-        )
-        configuration.applyPresentation(to: panel)
-        let content = NSView()
-        let provider = PanelMaterialProvider(
-            capabilities: FixedPanelMaterialCapabilities(supportsLiquidGlass: false)
-        )
-
-        _ = provider.install(content: content, in: panel)
-        panel.layoutIfNeeded()
-
-        XCTAssertEqual(configuration.contentRect.size, NSSize(width: 360, height: 150))
-        XCTAssertEqual(panel.contentLayoutRect.size, configuration.contentRect.size)
-        XCTAssertEqual(content.frame, panel.contentLayoutRect)
-    }
-
-    func testPermissionPresentationMapsEachStateToOneRelevantAction() {
-        XCTAssertEqual(
-            PermissionPanelPresentation.resolve(state: .notRequested),
-            .init(
-                message: "Enable Accessibility for global shortcuts and paste.",
-                buttonTitle: "Allow Access",
-                accessibilityLabel: "Allow Accessibility Access",
-                action: .requestAccess
-            )
-        )
-        XCTAssertEqual(
-            PermissionPanelPresentation.resolve(state: .denied),
-            .init(
-                message: "Accessibility access is off.",
-                buttonTitle: "Open System Settings",
-                accessibilityLabel: "Open System Settings",
-                action: .openSettings
-            )
-        )
-        XCTAssertEqual(
-            PermissionPanelPresentation.resolve(state: .granted),
-            .init(
-                message: "Accessibility access is enabled.",
-                buttonTitle: "Open System Settings",
-                accessibilityLabel: "Open System Settings",
-                action: .openSettings
-            )
-        )
-    }
-
     func testWindowConfigurationsPreservePanelContractsAndAddOnlySystemPresentation() {
         let expectedTitles: [PanelKind: String] = [
             .history: "History",
-            .pasteStack: "Paste Stack",
-            .permission: "Accessibility Permission"
+            .pasteStack: "Paste Stack"
         ]
 
         for kind in PanelKind.allCases {
@@ -139,24 +86,54 @@ final class PanelMaterialProviderTests: XCTestCase {
             configuration.applyPresentation(to: panel)
 
             XCTAssertEqual(panel.title, expectedTitles[kind])
-            XCTAssertTrue(panel.styleMask.contains(.titled))
-            XCTAssertTrue(panel.styleMask.contains(.closable))
-            XCTAssertTrue(panel.styleMask.contains(.utilityWindow))
-            XCTAssertTrue(panel.styleMask.contains(.fullSizeContentView))
             XCTAssertTrue(panel.isFloatingPanel)
             XCTAssertEqual(panel.level, .floating)
             XCTAssertEqual(panel.collectionBehavior, [.canJoinAllSpaces, .fullScreenAuxiliary])
             XCTAssertFalse(panel.hidesOnDeactivate)
             XCTAssertFalse(panel.isOpaque)
-            XCTAssertTrue(panel.titlebarAppearsTransparent)
+            XCTAssertTrue(panel.hasShadow)
         }
 
+        let historyConfiguration = PanelWindowConfiguration.make(for: .history)
+        XCTAssertEqual(historyConfiguration.chrome, .native)
+        XCTAssertTrue(historyConfiguration.styleMask.contains(.titled))
+        XCTAssertTrue(historyConfiguration.styleMask.contains(.closable))
+        XCTAssertTrue(historyConfiguration.styleMask.contains(.utilityWindow))
+        XCTAssertTrue(historyConfiguration.styleMask.contains(.fullSizeContentView))
+
+        let stackConfiguration = PanelWindowConfiguration.make(for: .pasteStack)
+        XCTAssertEqual(stackConfiguration.chrome, .custom(cornerRadius: 18))
+        XCTAssertFalse(stackConfiguration.styleMask.contains(.titled))
+        XCTAssertFalse(stackConfiguration.styleMask.contains(.closable))
+        XCTAssertFalse(stackConfiguration.styleMask.contains(.utilityWindow))
+        XCTAssertFalse(stackConfiguration.styleMask.contains(.fullSizeContentView))
         XCTAssertFalse(PanelWindowConfiguration.make(for: .history).styleMask.contains(.nonactivatingPanel))
-        XCTAssertTrue(PanelWindowConfiguration.make(for: .pasteStack).styleMask.contains(.nonactivatingPanel))
-        XCTAssertTrue(PanelWindowConfiguration.make(for: .permission).styleMask.contains(.nonactivatingPanel))
+        XCTAssertTrue(stackConfiguration.styleMask.contains(.nonactivatingPanel))
         XCTAssertEqual(PanelWindowConfiguration.make(for: .history).contentRect.size, NSSize(width: 460, height: 340))
-        XCTAssertEqual(PanelWindowConfiguration.make(for: .pasteStack).contentRect.size, NSSize(width: 400, height: 360))
-        XCTAssertEqual(PanelWindowConfiguration.make(for: .permission).contentRect.size, NSSize(width: 360, height: 150))
+        XCTAssertEqual(stackConfiguration.contentRect.size, NSSize(width: 400, height: 360))
+    }
+
+    func testPasteStackCustomChromeClipsTheSingleMaterialSurface() {
+        let configuration = PanelWindowConfiguration.make(for: .pasteStack)
+        let panel = NSPanel(
+            contentRect: configuration.contentRect,
+            styleMask: configuration.styleMask,
+            backing: .buffered,
+            defer: false
+        )
+        configuration.applyPresentation(to: panel)
+        let provider = PanelMaterialProvider(
+            capabilities: FixedPanelMaterialCapabilities(supportsLiquidGlass: false)
+        )
+
+        let surface = provider.install(content: NSView(), in: panel)
+        configuration.applySurfacePresentation(to: surface)
+        panel.layoutIfNeeded()
+
+        XCTAssertEqual(panel.contentLayoutRect.size, configuration.contentRect.size)
+        XCTAssertEqual(surface.layer?.cornerRadius, 18)
+        XCTAssertEqual(surface.layer?.cornerCurve, .continuous)
+        XCTAssertTrue(surface.layer?.masksToBounds == true)
     }
 }
 

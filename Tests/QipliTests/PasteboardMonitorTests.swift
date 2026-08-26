@@ -2,11 +2,21 @@ import XCTest
 @testable import Qipli
 
 final class PasteboardMonitorTests: XCTestCase {
+    func testInitializationDoesNotReadPasteboardBeforeStartupGateOpens() {
+        let pasteboard = FakePasteboard(changeCount: 1)
+
+        _ = PasteboardMonitor(pasteboard: pasteboard) { _ in }
+
+        XCTAssertEqual(pasteboard.changeCountReadCount, 0)
+    }
+
     func testDoesNotImportClipboardContentThatPredatesTheMonitor() {
         let pasteboard = FakePasteboard(changeCount: 1)
         pasteboard.setText("already on clipboard")
         var captured: [String] = []
         let monitor = PasteboardMonitor(pasteboard: pasteboard) { captured.append($0.text) }
+        monitor.start(interval: 3_600)
+        defer { monitor.stop() }
 
         monitor.poll()
         XCTAssertTrue(captured.isEmpty)
@@ -20,6 +30,8 @@ final class PasteboardMonitorTests: XCTestCase {
         let pasteboard = FakePasteboard(changeCount: 1)
         var captured: [String] = []
         let monitor = PasteboardMonitor(pasteboard: pasteboard) { captured.append($0.text) }
+        monitor.start(interval: 3_600)
+        defer { monitor.stop() }
         let multiline = ["line one", "🦊  https://example.test"].joined(separator: "\n")
 
         pasteboard.setText(multiline)
@@ -34,6 +46,8 @@ final class PasteboardMonitorTests: XCTestCase {
         let pasteboard = FakePasteboard(changeCount: 3)
         var captured: [String] = []
         let monitor = PasteboardMonitor(pasteboard: pasteboard) { captured.append($0.text) }
+        monitor.start(interval: 3_600)
+        defer { monitor.stop() }
 
         pasteboard.setUnsupportedValue()
         monitor.poll()
@@ -52,6 +66,8 @@ final class PasteboardMonitorTests: XCTestCase {
         let pasteboard = FakePasteboard(changeCount: 8)
         var captured: [String] = []
         let monitor = PasteboardMonitor(pasteboard: pasteboard) { captured.append($0.text) }
+        monitor.start(interval: 3_600)
+        defer { monitor.stop() }
 
         monitor.registerSelfWrite(changeCount: 9)
         pasteboard.setText("external value")
@@ -63,22 +79,28 @@ final class PasteboardMonitorTests: XCTestCase {
 }
 
 private final class FakePasteboard: PasteboardReading {
-    private(set) var changeCount: Int
+    private var storedChangeCount: Int
+    private(set) var changeCountReadCount = 0
     private var text: String?
 
     init(changeCount: Int) {
-        self.changeCount = changeCount
+        storedChangeCount = changeCount
+    }
+
+    var changeCount: Int {
+        changeCountReadCount += 1
+        return storedChangeCount
     }
 
     func textValue() -> String? { text }
 
     func setText(_ text: String) {
         self.text = text
-        changeCount += 1
+        storedChangeCount += 1
     }
 
     func setUnsupportedValue() {
         text = nil
-        changeCount += 1
+        storedChangeCount += 1
     }
 }

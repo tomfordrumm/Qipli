@@ -18,6 +18,9 @@
 - `docs/slices/S007-stack-recovery-cancel.md` — reactivation и отмена стека.
 - `docs/slices/S008-release-hardening.md` — privacy hardening и подписанный GitHub-релиз.
 - `docs/slices/S009-adaptive-glass-panels.md` — адаптивные стеклянные панели для macOS 14+.
+- `docs/slices/S010-settings-shortcuts-login.md` — Settings, configurable Qipli shortcuts и Launch at Login.
+- `docs/slices/S011-first-run-onboarding.md` — опциональный onboarding до первого pasteboard capture.
+- `docs/slices/S012-borderless-paste-stack-panel.md` — edge-to-edge Paste Stack с кастомным header.
 
 ### Выбор контекста по задаче
 

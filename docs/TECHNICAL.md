@@ -1,8 +1,8 @@
 # Qipli — технический контракт
 
-Статус: архитектура MVP
+Статус: архитектура MVP и первого публичного релиза
 
-Дата базовой проверки платформы: 2026-08-06; S004 input/panel contracts перепроверены: 2026-08-08; Accessibility identity/release signing перепроверены: 2026-08-09
+Дата базовой проверки платформы: 2026-08-06; S004 input/panel contracts перепроверены: 2026-08-08; Accessibility identity/release signing перепроверены: 2026-08-09; Settings/onboarding/ServiceManagement перепроверены: 2026-08-12; реальный Developer ID/notarization pipeline проверен: 2026-08-26
 
 Поддерживаемая платформа: macOS 14+
 
@@ -22,6 +22,9 @@ Qipli — нативное menu bar приложение на Swift. Интер�
 | NEED-004 | Хранить и удалять локальную 30-дневную историю | Core Data SQLite store в Application Support | supported | Локальный компонент приложения, внешняя платформа не требуется. Проверить миграцию, purge и восстановление после ошибки в S002. |
 | NEED-005 | Распространять бинарник вне Store | Developer ID + Hardened Runtime + notarization | supported | Apple поддерживает direct distribution и требует Hardened Runtime для notarization. Проверить credentials и release workflow перед S008. |
 | NEED-006 | Работать в Mac App Store с выбранным event-control дизайном | App Sandbox | unsupported для MVP | App Store требует sandbox; Apple указывает несовместимость accessibility API assistive apps с sandbox. Mac App Store исключён из MVP. |
+| NEED-007 | Сохранять локальные shortcuts и completion onboarding | `UserDefaults` за typed validation boundary | supported | Системное key-value storage достаточно для малых несекретных preferences; S010/S011 проверяют atomic validated snapshot и fallback. |
+| NEED-008 | Запускать main app при входе по явному выбору пользователя | `ServiceManagement.SMAppService.mainApp` | supported на macOS 13+ | Apple документирует register/unregister/status и subsequent-login launch для main application. Qipli поддерживает macOS 14+, helper не нужен. |
+| NEED-009 | Дать быстрый опциональный first-run setup до clipboard capture | AppKit/SwiftUI onboarding + startup gate | supported | Apple HIG рекомендует быстрый optional onboarding, контекстный user-triggered permission request и откладывание необязательной кастомизации. |
 
 ### Авторитетные источники
 
@@ -35,11 +38,14 @@ Qipli — нативное menu bar приложение на Swift. Интер�
 - Apple, [`NSWindow.CollectionBehavior.canJoinAllSpaces`](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/canjoinallspaces) и [`fullScreenAuxiliary`](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/fullscreenauxiliary): вспомогательная panel показывается во всех Spaces и рядом с full-screen window.
 - Apple, [`NSScreen`](https://developer.apple.com/documentation/appkit/nsscreen): список displays и `visibleFrame` для placement временной panel.
 - Apple, [`AXIsProcessTrustedWithOptions`](https://developer.apple.com/documentation/applicationservices/1459186-axisprocesstrustedwithoptions).
+- Apple, [`SMAppService`](https://developer.apple.com/documentation/servicemanagement/smappservice), [`mainApp`](https://developer.apple.com/documentation/servicemanagement/smappservice/mainapp), [`register()`](https://developer.apple.com/documentation/servicemanagement/smappservice/register()) и [`Status`](https://developer.apple.com/documentation/servicemanagement/smappservice/status-swift.enum): main app можно зарегистрировать для последующих login; status различает not registered, enabled, requires approval и not found.
+- Apple, [Updating helper executables from earlier versions of macOS](https://developer.apple.com/documentation/servicemanagement/updating-helper-executables-from-earlier-versions-of-macos): фактический Service Management status нужно отражать в UI и при необходимости открывать Login Items Settings.
+- Apple HIG, [Onboarding](https://developer.apple.com/design/human-interface-guidelines/onboarding) и [Privacy](https://developer.apple.com/design/human-interface-guidelines/privacy): onboarding должен быть быстрым и опциональным; permission запрашивается в понятном контексте после действия пользователя, а необязательная настройка не должна мешать началу работы.
 - Apple, [`TN3127: Inside Code Signing — Requirements`](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements) и [`Creating distribution-signed code for macOS`](https://developer.apple.com/documentation/xcode/creating-distribution-signed-code-for-the-mac): privacy permission identity следует designated requirement; ad-hoc `Sign to Run Locally` привязан к exact build и не является стабильной identity между сборками.
 - Apple, [Protecting user data with App Sandbox](https://developer.apple.com/documentation/security/protecting-user-data-with-app-sandbox) и [App Sandbox](https://developer.apple.com/documentation/security/app-sandbox).
 - Apple, [Preparing your app for distribution](https://developer.apple.com/documentation/xcode/preparing-your-app-for-distribution), [Hardened Runtime](https://developer.apple.com/documentation/security/hardened-runtime) и [Notarizing macOS software before distribution](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
 
-Базовые ссылки и выводы проверены 2026-08-06. S006/S007 повторно сверили scoped input/panel contracts 2026-08-08: `.defaultTap` как active filter (только он может вернуть `nil` и удалить exact event), callback run-loop delivery, permission/mask failure, 64-bit `eventSourceUserData`, ownership `changeCount` и `clearContents()` result; `windowShouldClose(_:)` как user-close interception и `orderOut(_:)` для hiding reusable nonactivating panel. S009 design recheck 2026-08-08 подтвердил HIG material hierarchy и local macOS 26 SDK availability `NSGlassEffectView` при сохранении `NSVisualEffectView` fallback. Release, sandbox/entitlements и остальные platform sources этим recheck не подтверждаются и должны быть перепроверены перед изменением соответствующих контрактов и перед S008.
+Базовые ссылки и выводы проверены 2026-08-06. S006/S007 повторно сверили scoped input/panel contracts 2026-08-08: `.defaultTap` как active filter (только он может вернуть `nil` и удалить exact event), callback run-loop delivery, permission/mask failure, 64-bit `eventSourceUserData`, ownership `changeCount` и `clearContents()` result; `windowShouldClose(_:)` как user-close interception и `orderOut(_:)` для hiding reusable nonactivating panel. S009 design recheck 2026-08-08 подтвердил HIG material hierarchy и local macOS 26 SDK availability `NSGlassEffectView` при сохранении `NSVisualEffectView` fallback. S010/S011 recheck 2026-08-12 подтвердил `SMAppService.mainApp` register/unregister/status для macOS 14+ и HIG optional/contextual onboarding guidance. Release signing, sandbox/entitlements и остальные platform sources этим recheck не подтверждаются и должны быть перепроверены перед S008.
 
 ## 3. Компоненты и ответственность
 
@@ -52,13 +58,18 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
                               │
                               ├──> StackSession ──> Stack NSPanel
                               └──> PasteExecutor ──> prior frontmost app
+
+Local preferences ──> SettingsService ──> Shortcut snapshot ──> InputCoordinator
+System login items ──> LaunchAtLoginService ──> Settings / Onboarding
+First-run state ──> OnboardingCoordinator ──> startup gate ──> PasteboardMonitor
 ```
 
 ### Application shell
 
 - управляет жизненным циклом menu bar utility и единственным экземпляром приложения;
-- предоставляет команды «История», «Начать/закрыть Paste Stack», состояние разрешения и «Выйти»;
-- создаёт панели истории и стека, не смешивая оконную логику с доменными правилами.
+- предоставляет команды «История», «Начать/закрыть Paste Stack», Settings, состояние разрешения и «Выйти»;
+- создаёт панели истории/стека и singleton Settings/onboarding windows, не смешивая оконную логику с доменными правилами;
+- на первом локальном запуске удерживает старт `PasteboardMonitor` за onboarding gate; после Finish/Skip/close запускает normal shell services ровно один раз.
 
 ### PasteboardMonitor
 
@@ -99,13 +110,34 @@ Keyboard event tap ──> InputCoordinator             History NSPanel
 - реагируют на системное отключение event tap, пытаются безопасно переустановить его и показывают ошибку при неуспехе.
 - после системного prompt или открытия Accessibility Settings выполняют ограниченный polling официального trust API; реальный переход grant/revoke публикуется в UI и соответственно запускает/останавливает event tap без перезапуска приложения. При повторной активации Qipli trust также перепроверяется; clipboard/search payload в этот путь не попадает.
 
+S010 заменяет hard-coded History/Stack/Reactivate Previous match значениями из immutable validated shortcut snapshot. Event tap по-прежнему потребляет только exact untagged keyDown текущих трёх Qipli commands; ordinary `⌘V`, active-Stack `Esc`, synthetic marker, keyUp и narrow reactivation admission остаются отдельными неизменяемыми контрактами. Snapshot меняется атомарно без teardown здорового event tap. Валидация гарантирует уникальность Qipli bindings и защищает системные/продуктовые input actions, но не заявляет глобальную осведомлённость о shortcuts сторонних приложений.
+
+### Settings, preferences и launch at login
+
+- Settings window — singleton active AppKit window со SwiftUI content; она не наследует nonactivating/floating behavior Stack и не создаёт постоянный Dock icon;
+- typed preferences service загружает три shortcuts и onboarding completion из `UserDefaults`, валидирует весь shortcut snapshot и fail closed восстанавливает defaults при несовместимых данных;
+- invalid edit не записывается и не меняет runtime snapshot; Reset to Defaults затрагивает только shortcuts;
+- существующий `AccessibilityPermissionService` остаётся единственным permission source of truth для History fallback, Settings и onboarding; отдельные status-menu item и Permission panel отсутствуют;
+- `LaunchAtLoginServicing` изолирует `SMAppService.mainApp.status`, `register()`, `unregister()` и открытие Login Items Settings. `requiresApproval` не считается enabled; errors видимы и retryable;
+- production login-item adapter не требует helper bundle, LaunchAgent, daemon, новой entitlement или network access;
+- при активации Qipli и открытии Settings фактические Accessibility/login-item states refresh-ятся, чтобы внешние изменения в System Settings не маскировались локальным toggle state.
+
+### OnboardingCoordinator
+
+- решает только first-run/reopen presentation и idempotent startup gate, переиспользуя permission, shortcut и launch-at-login services S010;
+- fresh profile показывает privacy/value screen до первого pasteboard read; Finish, Skip или explicit close сохраняют completion и один раз запускают normal monitoring;
+- crash/force quit до сохранённого dismissal оставляет flow pending; manual re-open не останавливает уже работающий monitor и не меняет completion;
+- permission request и login-item registration происходят только после соответствующего явного действия пользователя;
+- onboarding не читает clipboard payload и не создаёт тестовую history entry.
+
 ### Panel material boundary
 
 - `PanelController` сохраняет ownership, lifecycle, activation, focus, close delegate, level, Spaces/full-screen и display-placement contracts; material wrapper не принимает feature decisions;
-- один AppKit factory/provider оборачивает existing `NSHostingView` каждой History/Paste Stack/Permission panel в ровно один outer material surface;
+- один AppKit factory/provider оборачивает existing `NSHostingView` каждой History/Paste Stack panel в ровно один outer material surface;
 - на macOS 26+ provider использует `NSGlassEffectView` style `regular`; вызов закрыт `#available(macOS 26.0, *)`, поэтому deployment target остаётся macOS 14;
 - на macOS 14–25 provider использует `NSVisualEffectView` с semantic `.popover` material, `.behindWindow` blending и system-managed state; implementation не имитирует Liquid Glass custom blur/shader;
-- panel использует `.fullSizeContentView` вместе с clear nonopaque background и transparent title bar, поэтому outer material покрывает native title bar; feature-owned `NSHostingView` constraint’ится к `contentLayoutGuide`, чтобы не попасть под traffic lights/toolbar area при сохранённых titled/closable chrome, dragging и accessibility semantics;
+- History использует `.fullSizeContentView` вместе с clear nonopaque background и transparent title bar, поэтому outer material покрывает native title bar; feature-owned `NSHostingView` constraint’ится к `contentLayoutGuide`, чтобы не попасть под traffic lights/toolbar area;
+- Paste Stack использует отдельную borderless `.nonactivatingPanel` configuration поверх того же единственного outer material. Material surface клипится continuous corner radius, panel сохраняет system shadow, а custom header передаёт исходный mouse-down в `NSWindow.performDrag(with:)`; Close вызывает существующий cancel path. List не является window drag region;
 - Lists, rows и individual controls не получают отдельные custom glass layers. На macOS 26 standard controls принимают актуальное системное оформление автоматически;
 - system labels/selection colors и accessibility settings определяют contrast. Reduce Transparency может сделать surface непрозрачнее, и код не пытается обходить этот выбор пользователя;
 - capability selection имеет injected deterministic seam, но ни tests, ни provider не читают clipboard payload.
@@ -179,6 +211,15 @@ Domain property называется `activityAt`, но SQLite/Core Data attribu
 | `reactivationPriority` | временный признак «вставить следующим» |
 | `lastSuccessfullyDispatchedOccurrenceID` | exact UUID для узкого Reactivate Previous; не является undo history и очищается вместе с session |
 
+### Локальные preferences
+
+| Данные | Назначение |
+|---|---|
+| shortcut snapshot | bindings History, Start/Collect Paste Stack и Reactivate Previous; загружаются и валидируются атомарно |
+| onboarding completion | one-time dismissal для текущего preferences domain |
+
+Launch-at-login state не дублируется в `UserDefaults`: источником истины является `SMAppService.mainApp.status`.
+
 ### Владение и жизненный цикл
 
 - Store находится в Application Support текущего пользователя и не синхронизируется через iCloud.
@@ -190,6 +231,7 @@ Domain property называется `activityAt`, но SQLite/Core Data attribu
 ## 6. Разрешения и безопасность
 
 - До запроса Accessibility приложение объясняет, что разрешение нужно для глобальных сочетаний и отправки вставки в активное стороннее приложение.
+- На fresh profile privacy/onboarding surface показывается до начала чтения pasteboard и сообщает о 30-дневной локальной истории и отсутствии автоматической фильтрации секретов.
 - Проверка доверия выполняется официальным API; отказ пользователя оставляет просмотр, поиск и удаление доступными, но блокирует системную вставку и Paste Stack с явным объяснением.
 - Изменение Accessibility в System Settings обнаруживается автоматически: во время собственного permission flow Qipli выполняет bounded polling, а при возвращении в приложение — немедленный recheck. Одинаковое состояние повторно не публикуется и не пересоздаёт здоровый event tap.
 - App Sandbox выключен только по причине основного системного сценария; Hardened Runtime остаётся включённым, исключения добавляются только при доказанной необходимости.
@@ -225,6 +267,7 @@ Qipli app target
   History/           model, repository/service, history feature
   PasteStack/        state machine, panel feature
   Input/             permissions, hotkeys, event tap, paste executor
+  Settings/          validated preferences, Settings/onboarding UI, login item adapter
   Shared/            narrowly shared types and utilities
 QipliTests/           domain and adapter-contract tests
 QipliUITests/         in-app keyboard and panel flows
@@ -245,6 +288,8 @@ QipliUITests/         in-app keyboard and panel flows
 - S004: session uniqueness/duplicates/release, save-before-append, stale deferred capture token/start watermark, hotkey start → panel → tagged source-Copy ordering/repeat/menu-empty/failure, Escape active-filter contract и pure multi-display placement clamp;
 - S005: 0/1/N direct/reverse next, exact-ID reorder with duplicate text, contiguous positions, invalid atomic rejection, append after reorder, traversal lock and drag/accessibility intent seam;
 - S009: capability/provider selection, one-surface-per-panel configuration и неизменность History activation/Paste Stack nonactivation/window lifecycle contracts;
+- S010: shortcut codec/atomic validation/default recovery/runtime matching, singleton Settings lifecycle и injected `SMAppService` status/register/unregister adapter;
+- S011: fresh/completed/interrupted/reopened onboarding state machine, startup gate idempotence и отсутствие implicit permission/login-item side effects;
 - build: Debug и Release для deployment target macOS 14.
 
 ### Вручную на чистой системе
@@ -256,17 +301,19 @@ QipliUITests/         in-app keyboard and panel flows
 - удаление истории и проверка отсутствия её записей после перезапуска;
 - запуск подписанного notarized артефакта, Gatekeeper и повторная проверка разрешения после обновления.
 - S009 visual matrix на macOS 26+ и fallback macOS 14–25: все панели, Light/Dark, Reduce Transparency, Increase Contrast, разные desktop backgrounds, focus/nonactivation и clean console.
+- S010 custom-shortcut/restart/reset matrix и Launch at Login enable → logout/login → disable, включая external disable/requires-approval/error.
+- S011 clean-profile onboarding до pasteboard capture: Finish, Skip, close, deny/grant, interruption/relaunch и manual re-open from Settings.
 
 ## 10. Сборка и распространение
 
 - Xcode project/Swift package configuration хранится в репозитории; зависимости по возможности ограничены системными frameworks.
-- Deployment target — macOS 14. Архитектуры релизного бинарника должны быть явно выбраны в S008 по доступной build-инфраструктуре; universal binary предпочтителен, но пока является предположением.
+- Deployment target — macOS 14. Реальный Developer ID release archive 2026-08-26 подтвердил universal binary `arm64+x86_64`.
 - Debug может использовать development signing. Локальный устанавливаемый ZIP создаётся только `scripts/package-local.sh` со стабильной `Apple Development` identity; ad-hoc `Sign to Run Locally` отклоняется и не должен использоваться для проверки сохранения TCC-разрешения между rebuilds.
 - Public release создаётся только `scripts/package-release.sh`: Developer ID Application, Hardened Runtime, secure timestamp, notarization через Keychain profile, stapled ticket и повторная проверка распакованного ZIP. Pipeline fail-closed отклоняет ad-hoc/no-Team-ID, `get-task-allow`, App Sandbox/network entitlements, неверный bundle/minimum OS, non-universal binary, `FinderInfo`/resource-fork metadata, отсутствие stapled ticket или Gatekeeper acceptance.
-- Release artifact публикуется через GitHub Releases вместе с checksum и краткими инструкциями по Accessibility и локальному хранению.
+- Release artifact публикуется через GitHub Releases вместе с checksum и краткими инструкциями по onboarding, Accessibility, локальному хранению, Settings, shortcuts и Launch at Login.
 - Notarization требует внешней сети и Apple credentials только в release pipeline; работа установленного Qipli от них не зависит.
 
-Локальная package-команда требует full certificate name из `security find-identity -v -p codesigning`:
+Обе package-команды требуют full certificate common name. `security find-identity -v -p codesigning` может показать file-based identity, но не перечисляет Data Protection Keychain identities; фактическая Xcode подпись и последующий verifier остаются источником истины:
 
 ```sh
 QIPLI_DEVELOPMENT_TEAM=TEAM_ID \
@@ -287,7 +334,8 @@ scripts/package-release.sh
 
 - Core Data достаточно для объёма 30-дневной текстовой истории; до оптимизации нужно измерить реальный объём и поиск на репрезентативном локальном наборе.
 - Одного Accessibility-разрешения достаточно для выбранного event tap/paste flow на macOS 14+; S001 обязан проверить это на чистом профиле и не скрывать дополнительное системное требование, если оно появится.
-- Developer ID учётная запись и signing credentials будут доступны к S008; отсутствие credentials не блокирует S001–S007.
+- Developer ID учётная запись и signing credentials будут доступны к S008; отсутствие credentials не блокирует S001–S007 и S009–S011.
+- `UserDefaults` достаточно для малых несекретных preferences; несовместимая shortcut schema должна fail closed к defaults, а login-item status никогда не кэшируется как source of truth.
 - Menu bar оболочка и отсутствие Dock icon — предложение агента, а не решение из исходного брифа.
 - Universal release (Apple Silicon + Intel) — предпочтение, которое нужно подтвердить доступной CI/build-машиной перед S008.
 

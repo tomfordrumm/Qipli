@@ -168,8 +168,68 @@
 
 - Статус: `accepted`
 - Дата: 2026-08-09
-- Источник: пользователь; Apple TN3127, distribution signing и notarization guidance перепроверены 2026-08-09
+- Источник: пользователь; Apple TN3127, distribution signing и notarization guidance перепроверены 2026-08-09; реальный Developer ID/notarization pipeline проверен 2026-08-26
 - Контекст: установленный ad-hoc build имел CDHash-only designated requirement, `get-task-allow` и запрещённый `FinderInfo` xattr. System Settings показывал включённую запись Qipli, пока текущий процесс и UI не получали пригодную стабильную identity/state.
 - Решение: разделить два явных packaging channel. Local install требует `Apple Development` identity и предназначен только для команды подписанта. Public release требует Developer ID Application, secure timestamp, Hardened Runtime, notarization, stapling и Gatekeeper. Оба channel запрещают ad-hoc fallback, проверяют Team ID/designated requirement/architectures/xattrs и повторно проверяют распакованный ZIP; release дополнительно запрещает `get-task-allow`, App Sandbox и network entitlements.
 - Причина: macOS связывает privacy permissions с designated requirement; только стабильная signer-based identity переживает rebuild/upgrade, а fail-closed pipeline не позволяет принять локальный тестовый artifact за релиз.
-- Последствия: без соответствующего certificate packaging завершается ошибкой. S008 остаётся `blocked` до Developer ID/notarization credentials, хотя воспроизводимый workflow уже подготовлен. Signing secrets не передаются через environment или repository: notary authentication использует named Keychain profile.
+- Последствия: без соответствующего certificate packaging завершается ошибкой. Signing secrets не передаются через environment или repository: notary authentication использует named Keychain profile. Certificate precheck не полагается на `security find-identity`, потому что он не перечисляет Data Protection Keychain identities; источником истины служат фактическая Xcode подпись и строгий verifier. Реальные Developer ID/notarization credentials подтверждены 2026-08-26, но S008 остаётся `blocked` до S011 и полной release verification matrix.
+
+## D-018 — Settings и onboarding входят в первый публичный релиз после core MVP
+
+- Статус: `accepted`
+- Дата: 2026-08-12
+- Источник: пользователь
+- Контекст: core History/Paste Stack уже подтверждён ежедневным использованием владельцем, но Developer ID/notarization credentials ожидаются позднее. Настройки и first-run experience можно подготовить до release gate.
+- Решение: не переопределять подтверждённую границу core MVP, а добавить S010/S011 как ранний post-MVP setup layer, обязательный перед первым публичным релизом. S008 зависит от обоих срезов и проверяет их на clean signed install.
+- Причина: это позволяет продолжать продуктовую работу без ложного завершения S008 и не выпускать внешний artifact без понятного onboarding/settings path.
+- Последствия: S011 начинается после завершения S010. S008 остаётся dependency-bound до завершения S011 и полной release verification matrix; credential blocker снят 2026-08-26.
+
+## D-019 — Launch at Login через main app service и только explicit opt-in
+
+- Статус: `accepted`
+- Дата: 2026-08-12
+- Источник: пользователь; Apple ServiceManagement documentation перепроверена 2026-08-12
+- Контекст: menu bar utility полезна при постоянной работе, но запуск без согласия пользователя и локальный boolean, расходящийся с System Settings, создают недоверие и ложное состояние.
+- Решение: использовать `SMAppService.mainApp` без helper process. Settings и onboarding читают фактический `status`; register/unregister выполняются только после явного действия. Onboarding показывает автозапуск выключенным по умолчанию, а `requiresApproval` ведёт в Login Items Settings.
+- Причина: системный API поддерживает main application как login item на macOS 13+, предоставляет status/register/unregister и соответствует deployment target macOS 14.
+- Последствия: login-item state не дублируется в `UserDefaults`; errors и external disable видимы. S010 тестирует adapter без изменения реального system state, manual logout/login повторяется в S008 на подписанном artifact.
+
+## D-020 — Настраиваются три Qipli shortcuts, а `⌘V` и `Esc` остаются фиксированными
+
+- Статус: `accepted`
+- Дата: 2026-08-12
+- Источник: пользователь; safety constraints следуют из действующих input contracts
+- Контекст: пользователь хочет переопределять горячие клавиши, но ordinary paste и narrow active-Stack cancel являются фундаментальными pass-through/consume guarantees.
+- Решение: настраиваются History, Start/Collect Paste Stack и Reactivate Previous; defaults — `⌘⇧V`, `⌘⇧C`, `⌘⇧Z`. Обычный `⌘V` и `Esc` не настраиваются. Bindings применяются атомарным validated snapshot, не могут конфликтовать друг с другом или с защищёнными input actions; все внешние app conflicts не обещаются.
+- Причина: пользователь получает нужную гибкость без размывания главной гарантии «обычный `⌘V` не меняется вне active Stack» и без частично применённых комбинаций.
+- Последствия: event adapter получает current immutable snapshot; invalid/corrupt preferences сохраняют последнее рабочее значение или fail closed восстанавливают defaults. S010 обязан покрыть runtime update, restart, reset и regression event-tap matrix.
+
+## D-021 — Onboarding одноразовый, опциональный и контекстно запрашивает разрешение
+
+- Статус: `accepted`
+- Дата: 2026-08-12
+- Источник: пользователь; Apple HIG Onboarding/Privacy перепроверены 2026-08-12
+- Контекст: внешний пользователь должен понять локальную историю, чувствительные данные, permissions и hotkeys, но обязательный мастер или prompt на старте создаёт лишний барьер.
+- Решение: на fresh local preferences profile onboarding показывается до первого pasteboard read, допускает Finish, Skip и close, запрашивает Accessibility и включает Launch at Login только по явному действию и доступен повторно из Settings. Повторный запуск не сбрасывает настройки или completion.
+- Причина: быстрый optional flow даёт privacy context до capture/permission, сохраняя возможность сразу продолжить в честном degraded state.
+- Последствия: startup shell получает idempotent onboarding gate; crash до сохранённого dismissal повторяет flow, а manual re-open не останавливает monitor. S011 реализуется после общих services S010.
+
+## D-022 — Borderless chrome применяется только к Paste Stack
+
+- Статус: `accepted`
+- Дата: 2026-08-12
+- Источник: пользователь; Apple AppKit `borderless`, `nonactivatingPanel` и `performDrag(with:)` documentation перепроверены 2026-08-12
+- Контекст: пользователь выбрал edge-to-edge Paste Stack с custom header вместо native title bar, сохранив компактную overlay-модель и существующую stack behavior.
+- Решение: узко заменить D-016 только для Paste Stack: panel использует borderless nonactivating style, один прежний adaptive material surface, system shadow и continuous clipping. Header владеет Cancel, единственным title и direction toggle; отдельная background drag-region передаёт исходный mouse-down в `NSWindow.performDrag(with:)`. History и Permission сохраняют native chrome.
+- Причина: edge-to-edge список и компактный header соответствуют выбранному референсу, а системный drag API сохраняет Spaces/window-server behavior без превращения всего List в movable background.
+- Последствия: native red close и title bar исчезают только у Paste Stack; custom Close обязан вызывать existing idempotent cancel path, panel остаётся nonactivating, а drag/reorder/input/accessibility contracts проверяются в S012.
+
+## D-023: Accessibility управляется через Settings без отдельной панели
+
+- Статус: `accepted`
+- Дата: 2026-08-26
+- Источник: пользователь после визуальной проверки S010
+- Контекст: после появления Accessibility state и actions в Settings General пункт `Permission: …` в status menu и отдельная Permission panel показывали тот же функционал вторым путём.
+- Решение: удалить Permission item, Permission panel, её SwiftUI presentation и window configuration. Если Paste Stack нельзя запустить из-за Accessibility или input listener, Qipli открывает singleton Settings на General.
+- Причина: один понятный путь убирает лишнюю строку status menu и второе окно, не меняя системный permission service.
+- Последствия: `AccessibilityPermissionService`, grant/revoke polling и event-tap start/stop остаются прежними. Permission-specific части D-016 и D-022 сохраняются как история реализованных срезов, но больше не описывают текущий UI.

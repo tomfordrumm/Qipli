@@ -16,9 +16,14 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
     private var recoveryPolicy = EventTapRecoveryPolicy(maximumAttempts: 2)
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    private let shortcutSnapshotProvider: () -> ShortcutSnapshot
     static let eventTapOptions: CGEventTapOptions = .defaultTap
     private(set) var status: GlobalInputStatus = .stopped {
         didSet { onStatusChange?(status) }
+    }
+
+    init(shortcutSnapshotProvider: @escaping () -> ShortcutSnapshot = { .defaults }) {
+        self.shortcutSnapshotProvider = shortcutSnapshotProvider
     }
 
     @discardableResult
@@ -96,7 +101,8 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
             event: event,
             stackSessionIsActive: adapter.shouldConsumeEscape?() ?? false,
             stackPasteInterception: adapter.stackPasteInterception,
-            reactivationPreviousInterception: adapter.reactivationPreviousInterception
+            reactivationPreviousInterception: adapter.reactivationPreviousInterception,
+            shortcutSnapshot: adapter.shortcutSnapshotProvider()
         )
         adapter.handle(type: type, event: event, action: action)
         return action == nil ? Unmanaged.passUnretained(event) : nil
@@ -133,28 +139,24 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
     }
 
     /// Pure classification seam used by adapter tests without installing a global event tap.
-    static func hotKey(for event: CGEvent) -> GlobalHotKey? {
+    static func hotKey(
+        for event: CGEvent,
+        shortcutSnapshot: ShortcutSnapshot = .defaults
+    ) -> GlobalHotKey? {
         guard !SyntheticEventMarker.isQipliSynthetic(
             sourceUserData: event.getIntegerValueField(.eventSourceUserData)
         ) else {
             return nil
         }
 
-        let flags = event.flags
-        guard flags.contains(.maskCommand), flags.contains(.maskShift),
-              !flags.contains(.maskAlternate), !flags.contains(.maskControl)
-        else {
-            return nil
-        }
-
-        switch event.getIntegerValueField(.keyboardEventKeycode) {
-        case Int64(kVK_ANSI_V):
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        if shortcutSnapshot.history.matches(keyCode: keyCode, flags: event.flags) {
             return .history
-        case Int64(kVK_ANSI_C):
-            return .pasteStack
-        default:
-            return nil
         }
+        if shortcutSnapshot.pasteStack.matches(keyCode: keyCode, flags: event.flags) {
+            return .pasteStack
+        }
+        return nil
     }
 
     /// This is the full active-filter contract before stack traversal starts.
@@ -172,7 +174,8 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         event: CGEvent,
         stackSessionIsActive: Bool,
         stackPasteInterception: (() -> StackPasteInputDisposition)? = nil,
-        reactivationPreviousInterception: (() -> StackReactivationInputDisposition)? = nil
+        reactivationPreviousInterception: (() -> StackReactivationInputDisposition)? = nil,
+        shortcutSnapshot: ShortcutSnapshot = .defaults
     ) -> GlobalInputAction? {
         guard type == .keyDown,
               !SyntheticEventMarker.isQipliSynthetic(
@@ -182,11 +185,14 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
             return nil
         }
 
-        if let hotKey = hotKey(for: event) {
+        if let hotKey = hotKey(for: event, shortcutSnapshot: shortcutSnapshot) {
             return .hotKey(hotKey)
         }
 
-        if isExactCommandShiftZ(event) {
+        if shortcutSnapshot.reactivatePrevious.matches(
+            keyCode: event.getIntegerValueField(.keyboardEventKeycode),
+            flags: event.flags
+        ) {
             switch reactivationPreviousInterception?() ?? .passThrough {
             case .passThrough:
                 return nil
@@ -222,14 +228,6 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         return event.getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_ANSI_V)
             && flags.contains(.maskCommand)
             && flags.intersection([.maskShift, .maskControl, .maskAlternate]).isEmpty
-    }
-
-    private static func isExactCommandShiftZ(_ event: CGEvent) -> Bool {
-        let flags = event.flags
-        return event.getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_ANSI_Z)
-            && flags.contains(.maskCommand)
-            && flags.contains(.maskShift)
-            && flags.intersection([.maskControl, .maskAlternate]).isEmpty
     }
 
     private func recoverFromDisabledTap() {
