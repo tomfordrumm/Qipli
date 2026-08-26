@@ -21,6 +21,16 @@
 - `docs/slices/S010-settings-shortcuts-login.md` — Settings, configurable Qipli shortcuts и Launch at Login.
 - `docs/slices/S011-first-run-onboarding.md` — опциональный onboarding до первого pasteboard capture.
 - `docs/slices/S012-borderless-paste-stack-panel.md` — edge-to-edge Paste Stack с кастомным header.
+- `docs/slices/S013-versioning-public-ci.md` — единый контракт версий и безопасный unsigned CI для публичной разработки.
+- `docs/slices/S014-public-signed-github-releases.md` — публичный репозиторий и подписанные notarized GitHub-релизы по тегу.
+- `docs/slices/S015-sparkle-secure-updates.md` — ручная и opt-in автоматическая проверка обновлений через Sparkle.
+
+### Подход к поставке
+
+- Профиль: `production`, потому что публичная сборка обрабатывает чувствительные локальные данные и устанавливает исполняемые обновления.
+- Timebox: не задан.
+- Push и pull request используют только unsigned CI без release secrets. Полные signing, notarization, update и clean-machine gates выполняются на этапах, заданных в `docs/PLAN.md`.
+- Для реализации существующего среза используйте `docs/STATE.md`, выбранный slice и только связанные требования. Повторно запускайте Easy PRD лишь при изменении продуктовой границы, интеграции или release-контракта.
 
 ### Выбор контекста по задаче
 

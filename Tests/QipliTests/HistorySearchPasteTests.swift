@@ -84,6 +84,23 @@ final class HistoryViewModelSearchTests: XCTestCase {
         XCTAssertEqual(viewModel.searchFocusRequestID, 1)
     }
 
+    func testClearAllReportsSuccessAndFailureWithoutClaimingAFalseEmptyState() {
+        let entry = makeEntry("private", offset: 1)
+        let store = InMemoryHistoryStore(entries: [entry])
+        let viewModel = HistoryViewModel(service: HistoryService(store: store))
+        viewModel.reload(selectFirstResult: true)
+
+        store.clearAllError = HistoryStoreError.unavailable
+        XCTAssertFalse(viewModel.clearAll())
+        XCTAssertEqual(viewModel.state, .error)
+        XCTAssertEqual(store.entries, [entry])
+
+        store.clearAllError = nil
+        XCTAssertTrue(viewModel.clearAll())
+        XCTAssertEqual(viewModel.state, .empty)
+        XCTAssertTrue(store.entries.isEmpty)
+    }
+
     private func makeEntry(_ text: String, offset: TimeInterval) -> HistoryEntry {
         HistoryEntry(id: UUID(), text: text, activityAt: Date.now.addingTimeInterval(offset))
     }
@@ -544,6 +561,7 @@ private final class HistoryPanelIntentTrace {
 private final class InMemoryHistoryStore: HistoryStoring {
     var entries: [HistoryEntry]
     var markUsedError: Error?
+    var clearAllError: Error?
 
     init(entries: [HistoryEntry] = [], markUsedError: Error? = nil) {
         self.entries = entries
@@ -579,6 +597,7 @@ private final class InMemoryHistoryStore: HistoryStoring {
     }
 
     func clearAll() throws {
+        if let clearAllError { throw clearAllError }
         entries = []
     }
 }

@@ -7,21 +7,13 @@ struct HistoryPanelView: View {
     let openAccessibilitySettings: () -> Void
     let pasteEntry: (HistoryEntry) -> Void
     let close: () -> Void
-    @State private var confirmsClearAll = false
+    @State private var hoveredEntryID: UUID?
     @FocusState private var searchIsFocused: Bool
     @State private var handledPresentationViewportResetRequestID: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                searchField
-
-                if case .list = viewModel.state {
-                    Button("Clear All", role: .destructive) {
-                        confirmsClearAll = true
-                    }
-                }
-            }
+            searchField
 
             content
 
@@ -38,14 +30,6 @@ struct HistoryPanelView: View {
             HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
                 searchIsFocused = true
             }
-        }
-        .alert("Clear all Qipli history?", isPresented: $confirmsClearAll) {
-            Button("Clear All", role: .destructive) {
-                viewModel.clearAll()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This deletes Qipli’s local history. It does not change your current system clipboard.")
         }
     }
 
@@ -123,6 +107,7 @@ struct HistoryPanelView: View {
                 ScrollViewReader { proxy in
                     List(entries) { entry in
                         let isSelected = viewModel.selectedEntryID == entry.id
+                        let showsDelete = isSelected || hoveredEntryID == entry.id
                         HStack(alignment: .top, spacing: 12) {
                             Button {
                                 schedule(.select(entry.id))
@@ -149,6 +134,9 @@ struct HistoryPanelView: View {
                             .accessibilityLabel("Delete")
                             .accessibilityHint("Removes this history entry.")
                             .help("Delete")
+                            .opacity(showsDelete ? 1 : 0)
+                            .allowsHitTesting(showsDelete)
+                            .accessibilityHidden(false)
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
@@ -167,6 +155,14 @@ struct HistoryPanelView: View {
                         .listRowInsets(EdgeInsets())
                         .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
                         .alignmentGuide(.listRowSeparatorTrailing) { $0[.trailing] }
+                        .contentShape(Rectangle())
+                        .onHover { isHovering in
+                            if isHovering {
+                                hoveredEntryID = entry.id
+                            } else if hoveredEntryID == entry.id {
+                                hoveredEntryID = nil
+                            }
+                        }
                     }
                     .listStyle(.plain)
                     .contentMargins(.horizontal, 0, for: .scrollContent)
@@ -536,14 +532,10 @@ struct PasteStackPanelView: View {
     private var header: some View {
         HStack(spacing: 12) {
             Button(action: close) {
-                Image(systemName: "xmark.circle.fill")
-                    .symbolRenderingMode(.hierarchical)
-                    .font(.system(size: 17, weight: .semibold))
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .semibold))
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.primary)
-            .frame(width: 28, height: 28)
-            .contentShape(Circle())
+            .modifier(PasteStackHeaderButtonChrome())
             .accessibilityLabel("Cancel Paste Stack")
             .accessibilityHint("Closes the panel and cancels the unfinished stack.")
             .help("Cancel Paste Stack")
@@ -558,7 +550,6 @@ struct PasteStackPanelView: View {
             Spacer(minLength: 0)
 
             directionToggle
-                .frame(width: 28, height: 28)
         }
         .padding(.horizontal, 14)
         .frame(height: 52)
@@ -617,8 +608,9 @@ struct PasteStackPanelView: View {
             execute(.setTraversalDirection(configuration.nextDirection))
         } label: {
             Image(systemName: configuration.iconSystemName)
+                .font(.system(size: 13, weight: .semibold))
         }
-        .buttonStyle(.borderless)
+        .modifier(PasteStackHeaderButtonChrome())
         .disabled(!canChooseDirection)
         .accessibilityLabel(PasteStackPanelAccessibility.directionLabel)
         .accessibilityValue(configuration.accessibilityValue)
@@ -642,7 +634,9 @@ struct PasteStackPanelView: View {
                     .accessibilityHidden(true)
             }
             Text("\(index + 1).")
+                .monospacedDigit()
                 .foregroundStyle(.secondary)
+                .frame(width: 28, alignment: .trailing)
             Text(StackPreview.text(for: occurrence.text))
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -742,6 +736,24 @@ struct PasteStackPanelView: View {
             schedule: PasteStackPanelIntentScheduler.schedule
         )
         .execute(intent)
+    }
+}
+
+private struct PasteStackHeaderButtonChrome: ViewModifier {
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovered = false
+
+    func body(content: Content) -> some View {
+        content
+            .buttonStyle(.plain)
+            .foregroundStyle(isEnabled ? Color.primary : Color.secondary.opacity(0.55))
+            .frame(width: 28, height: 28)
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isHovered && isEnabled ? Color.primary.opacity(0.08) : Color.clear)
+            }
+            .contentShape(Rectangle())
+            .onHover { isHovered = $0 }
     }
 }
 

@@ -172,7 +172,7 @@
 - Контекст: установленный ad-hoc build имел CDHash-only designated requirement, `get-task-allow` и запрещённый `FinderInfo` xattr. System Settings показывал включённую запись Qipli, пока текущий процесс и UI не получали пригодную стабильную identity/state.
 - Решение: разделить два явных packaging channel. Local install требует `Apple Development` identity и предназначен только для команды подписанта. Public release требует Developer ID Application, secure timestamp, Hardened Runtime, notarization, stapling и Gatekeeper. Оба channel запрещают ad-hoc fallback, проверяют Team ID/designated requirement/architectures/xattrs и повторно проверяют распакованный ZIP; release дополнительно запрещает `get-task-allow`, App Sandbox и network entitlements.
 - Причина: macOS связывает privacy permissions с designated requirement; только стабильная signer-based identity переживает rebuild/upgrade, а fail-closed pipeline не позволяет принять локальный тестовый artifact за релиз.
-- Последствия: без соответствующего certificate packaging завершается ошибкой. Signing secrets не передаются через environment или repository: notary authentication использует named Keychain profile. Certificate precheck не полагается на `security find-identity`, потому что он не перечисляет Data Protection Keychain identities; источником истины служат фактическая Xcode подпись и строгий verifier. Реальные Developer ID/notarization credentials подтверждены 2026-08-26, но S008 остаётся `blocked` до S011 и полной release verification matrix.
+- Последствия: без соответствующего certificate packaging завершается ошибкой. Локальный pipeline не передаёт signing secrets через environment или repository и использует named Keychain profile. Защищённая CI-передача credentials позднее регулируется D-025. Certificate precheck не полагается на `security find-identity`, потому что он не перечисляет Data Protection Keychain identities; источником истины служат фактическая Xcode подпись и строгий verifier. Реальные Developer ID/notarization credentials подтверждены 2026-08-26, но S008 остаётся `blocked` до полной release verification matrix.
 
 ## D-018 — Settings и onboarding входят в первый публичный релиз после core MVP
 
@@ -182,7 +182,7 @@
 - Контекст: core History/Paste Stack уже подтверждён ежедневным использованием владельцем, но Developer ID/notarization credentials ожидаются позднее. Настройки и first-run experience можно подготовить до release gate.
 - Решение: не переопределять подтверждённую границу core MVP, а добавить S010/S011 как ранний post-MVP setup layer, обязательный перед первым публичным релизом. S008 зависит от обоих срезов и проверяет их на clean signed install.
 - Причина: это позволяет продолжать продуктовую работу без ложного завершения S008 и не выпускать внешний artifact без понятного onboarding/settings path.
-- Последствия: S011 начинается после завершения S010. S008 остаётся dependency-bound до завершения S011 и полной release verification matrix; credential blocker снят 2026-08-26.
+- Последствия: S011 начинается после завершения S010. S008 остаётся финальным release gate до завершения S011/S012, S014/S015 и полной release verification matrix; локальный credential blocker снят 2026-08-26, hosted CI credentials проверяются в S014.
 
 ## D-019 — Launch at Login через main app service и только explicit opt-in
 
@@ -233,3 +233,33 @@
 - Решение: удалить Permission item, Permission panel, её SwiftUI presentation и window configuration. Если Paste Stack нельзя запустить из-за Accessibility или input listener, Qipli открывает singleton Settings на General.
 - Причина: один понятный путь убирает лишнюю строку status menu и второе окно, не меняя системный permission service.
 - Последствия: `AccessibilityPermissionService`, grant/revoke polling и event-tap start/stop остаются прежними. Permission-specific части D-016 и D-022 сохраняются как история реализованных срезов, но больше не описывают текущий UI.
+
+## D-024: Публичный source и release distribution живут в одном GitHub-репозитории
+
+- Статус: `accepted`
+- Дата: 2026-08-26
+- Источник: пользователь
+- Контекст: пользователь планирует открыть текущий репозиторий. Отдельный public release repository добавил бы вторые permissions, token и publication lifecycle без подтверждённой пользы.
+- Решение: после public-readiness audit текущий Qipli repository становится публичным. Его GitHub Releases хранят ZIP/checksum/release notes, а GitHub Pages публикует stable Sparkle appcast. Source, issues и release history остаются в одном месте.
+- Причина: public assets доступны пользователю и Sparkle без GitHub authentication, а same-repository `GITHUB_TOKEN` не требует cross-repository PAT.
+- Последствия: до смены visibility нужно выбрать лицензию, добавить README/SECURITY, проверить current tree и Git history на secrets/user data и настроить branch protection. Реальная смена visibility остаётся явным внешним действием и не выполняется во время подготовки документов.
+
+## D-025: Pull request не получает release secrets, релиз создаётся только из защищённого тега
+
+- Статус: `accepted`
+- Дата: 2026-08-26
+- Источник: пользователь после обсуждения release automation; GitHub Actions и Apple notarization sources перепроверены 2026-08-26
+- Контекст: публичный repository принимает fork pull requests, но signing и update keys позволяют распространять исполняемый код от имени Qipli.
+- Решение: PR и push в `main` запускают только unsigned tests/build с read-only permissions. Stable tag `vX.Y.Z` на разрешённом commit запускает отдельный protected release Environment, временный Keychain, Developer ID signing, App Store Connect API notarization, verifier и draft GitHub Release. Environment gate остаётся перед доступом к secrets и stable publication.
+- Причина: tag делает release input однозначным, а разделение workflows не исполняет непроверенный PR code рядом с приватными ключами.
+- Последствия: нужен exportable Developer ID `.p12`, App Store Connect `.p8` и минимальные GitHub permissions. Temporary credentials удаляются unconditional cleanup step. Release workflow fail closed завершает run при несовпадении tag/version/build или любой проверке подписи.
+
+## D-026: Sparkle отвечает только за обновления и использует отдельную EdDSA signature
+
+- Статус: `accepted`
+- Дата: 2026-08-26
+- Источник: пользователь после обсуждения auto-update; Sparkle documentation перепроверена 2026-08-26
+- Контекст: Developer ID и notarization позволяют macOS доверять app bundle, но не дают приложению update discovery, feed или безопасную загрузку новой версии.
+- Решение: первый публичный релиз включает Sparkle 2 через Swift Package Manager, manual `Check for Updates…`, выключенные по умолчанию automatic checks и user-confirmed install. Public key хранится в app, private EdDSA key только в release Environment. GitHub Pages appcast публикуется после готового GitHub Release asset.
+- Причина: Apple code signature и Sparkle EdDSA закрывают разные границы доверия. Явный opt-in сохраняет локальную privacy-модель Qipli и не включает фоновую сеть молча.
+- Последствия: update request является единственным runtime network path и не получает clipboard/history/search payload. Первый stable channel использует полный ZIP; beta channel, delta updates, phased rollout и silent install остаются вне scope. S015 обязан доказать реальный update между двумя production-signed версиями и сохранение данных/preferences с Accessibility recheck.

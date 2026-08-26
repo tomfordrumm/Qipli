@@ -150,6 +150,9 @@ final class ApplicationShell: NSObject {
             },
             showOnboarding: { [weak self] in
                 self?.showOnboardingAgain()
+            },
+            clearHistory: { [weak self] in
+                self?.historyViewModel.clearAll() ?? false
             }
         )
 

@@ -10,6 +10,7 @@ final class SettingsWindowController {
     private let openAccessibilitySettings: () -> Void
     private let refreshSystemState: () -> GlobalInputStatus
     private let showOnboarding: () -> Void
+    private let clearHistory: () -> Bool
     private let applicationActivator: QipliApplicationActivating
     private var window: NSWindow?
 
@@ -22,7 +23,8 @@ final class SettingsWindowController {
         requestAccessibilityAccess: @escaping () -> Void,
         openAccessibilitySettings: @escaping () -> Void,
         refreshSystemState: @escaping () -> GlobalInputStatus,
-        showOnboarding: @escaping () -> Void = {}
+        showOnboarding: @escaping () -> Void = {},
+        clearHistory: @escaping () -> Bool = { true }
     ) {
         self.viewModel = viewModel
         self.permissionService = permissionService
@@ -30,6 +32,7 @@ final class SettingsWindowController {
         self.openAccessibilitySettings = openAccessibilitySettings
         self.refreshSystemState = refreshSystemState
         self.showOnboarding = showOnboarding
+        self.clearHistory = clearHistory
         self.applicationActivator = applicationActivator ?? SystemQipliApplicationActivator()
     }
 
@@ -77,7 +80,8 @@ final class SettingsWindowController {
                 permissionService: permissionService,
                 requestAccessibilityAccess: requestAccessibilityAccess,
                 openAccessibilitySettings: openAccessibilitySettings,
-                showOnboarding: showOnboarding
+                showOnboarding: showOnboarding,
+                clearHistory: clearHistory
             )
         )
         return settingsWindow
@@ -90,6 +94,7 @@ private struct SettingsRootView: View {
     let requestAccessibilityAccess: () -> Void
     let openAccessibilitySettings: () -> Void
     let showOnboarding: () -> Void
+    let clearHistory: () -> Bool
 
     var body: some View {
         TabView(selection: $viewModel.selectedSection) {
@@ -98,7 +103,8 @@ private struct SettingsRootView: View {
                 permissionService: permissionService,
                 requestAccessibilityAccess: requestAccessibilityAccess,
                 openAccessibilitySettings: openAccessibilitySettings,
-                showOnboarding: showOnboarding
+                showOnboarding: showOnboarding,
+                clearHistory: clearHistory
             )
             .tabItem { Label("General", systemImage: "gearshape") }
             .tag(SettingsSection.general)
@@ -118,6 +124,9 @@ private struct GeneralSettingsView: View {
     let requestAccessibilityAccess: () -> Void
     let openAccessibilitySettings: () -> Void
     let showOnboarding: () -> Void
+    let clearHistory: () -> Bool
+    @State private var confirmsClearHistory = false
+    @State private var historyClearFailed = false
 
     var body: some View {
         Form {
@@ -179,8 +188,31 @@ private struct GeneralSettingsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            Section("History") {
+                Button("Clear History…", role: .destructive) {
+                    confirmsClearHistory = true
+                }
+                .accessibilityHint("Deletes all Qipli history after confirmation.")
+                Text("Permanently delete Qipli’s local history without changing the current system clipboard.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if historyClearFailed {
+                    Label("Qipli could not clear local history. Try again.", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("History error: Qipli could not clear local history. Try again.")
+                }
+            }
         }
         .formStyle(.grouped)
+        .alert("Clear all Qipli history?", isPresented: $confirmsClearHistory) {
+            Button("Clear History", role: .destructive) {
+                historyClearFailed = !clearHistory()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes Qipli’s local history. It does not change your current system clipboard.")
+        }
     }
 }
 

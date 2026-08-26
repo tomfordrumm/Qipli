@@ -134,7 +134,8 @@ final class HistoryViewModel: ObservableObject {
         }
     }
 
-    func clearAll() {
+    @discardableResult
+    func clearAll() -> Bool {
         do {
             try service.clearAll()
             allEntries = []
@@ -142,9 +143,11 @@ final class HistoryViewModel: ObservableObject {
             selectedEntryID = nil
             pasteFailure = nil
             state = .empty
+            return true
         } catch {
             state = .error
             selectedEntryID = nil
+            return false
         }
     }
 

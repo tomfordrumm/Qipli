@@ -1,8 +1,8 @@
 # Qipli — план поставки MVP и первого публичного релиза
 
-Статус: core MVP подтверждён; ранний post-MVP setup готов к реализации
+Статус: core MVP подтверждён; setup реализован, public delivery и secure updates запланированы
 
-Дата: 2026-08-12
+Дата: 2026-08-26
 
 Источник оперативных статусов: [`STATE.md`](STATE.md)
 
@@ -32,13 +32,21 @@
 9. [`S009 — Адаптивные стеклянные панели`](slices/S009-adaptive-glass-panels.md) — зависит от S001, S003 и S007; может выполняться до S008, пока release credentials недоступны.
 10. [`S010 — Settings, пользовательские сочетания и запуск при входе`](slices/S010-settings-shortcuts-login.md) — зависит от S001, S007 и S009; завершён.
 11. [`S011 — Опциональный first-run onboarding`](slices/S011-first-run-onboarding.md) — зависит от S010; реализован и ожидает ручной проверки.
-12. [`S012 — Edge-to-edge Paste Stack с кастомным header`](slices/S012-borderless-paste-stack-panel.md) — зависит от S007 и S009 и узко заменяет только window chrome Paste Stack; может выполняться независимо от S010/S011.
+12. [`S012 — Edge-to-edge Paste Stack с кастомным header`](slices/S012-borderless-paste-stack-panel.md) — зависит от S007 и S009; реализован и ожидает ручной visual/interaction matrix.
 
 Результат: визуально цельный Qipli имеет единое Settings window, пользовательские shortcuts, явный launch-at-login control и опциональный first-run onboarding до начала clipboard capture.
 
-## Milestone M4 — Публичный MVP
+## Milestone M4 — Публичная поставка и безопасные обновления
 
-8. [`S008 — Приватность и релиз через GitHub`](slices/S008-release-hardening.md) — зависит от S003, S007, S010 и S011 и остаётся заблокированным до завершения S011 и полной release verification matrix.
+13. [`S013 — Версии и безопасный public CI`](slices/S013-versioning-public-ci.md) — первый ready slice нового milestone; нормализует version contract, добавляет unsigned CI и public-readiness audit без доступа к release secrets.
+14. [`S014 — Публичный репозиторий и подписанные GitHub-релизы`](slices/S014-public-signed-github-releases.md) — зависит от S013; заблокирован до выбора open-source лицензии и настройки exportable Developer ID/App Store Connect credentials в защищённом GitHub Environment.
+15. [`S015 — Безопасные обновления через Sparkle`](slices/S015-sparkle-secure-updates.md) — зависит от S014; добавляет ручную и opt-in автоматическую проверку и доказывает реальный upgrade между двумя подписанными версиями.
+
+Результат: публичный репозиторий проверяет вклад без signing secrets, версионный tag создаёт один проверенный release artifact, а установленный Qipli может безопасно перейти на следующую подписанную версию.
+
+## Milestone M5 — Публичный MVP
+
+8. [`S008 — Приватность и первый стабильный релиз через GitHub`](slices/S008-release-hardening.md) — финальный release gate; зависит от S003, S007, S010–S012 и S014–S015 и остаётся заблокированным до завершения manual/clean-machine matrix.
 
 Результат: подписанный notarized артефакт для macOS 14+, заново скачанный и проверенный на чистой системе вместе с onboarding, Settings, permission, custom-shortcut и launch-at-login flows.
 
@@ -50,10 +58,11 @@ S002 -> S004 -> S005 -> S006 -> S007
 S001 + S003 + S007 -> S009
 S007 + S009 -> S012
 S001 + S007 + S009 -> S010 -> S011
-S003 + S007 + S010 + S011 -> S008
+S013 -> S014 -> S015
+S003 + S007 + S010 + S011 + S012 + S014 + S015 -> S008
 ```
 
-Граф ацикличен. S010 завершён, поэтому S011 имеет статус `ready`. S008 зависит от завершения S011 и полной release matrix. Изменения общих pasteboard/input, permission, ServiceManagement или window lifecycle contracts должны сначала согласовываться в `TECHNICAL.md`.
+Граф ацикличен. S013 имеет статус `ready`. S014 заблокирован конкретными внешними prerequisites, S015 остаётся `planned` до S014. S011 и S012 реализованы и требуют ручной проверки. S008 остаётся финальным gate. Изменения pasteboard/input, permission, ServiceManagement, network, dependency, signing или update contracts должны сначала согласовываться в `TECHNICAL.md` и `DECISIONS.md`.
 
 ## Покрытие требований
 
@@ -80,6 +89,9 @@ S003 + S007 + S010 + S011 -> S008
 | FR-019 | S010, S008 |
 | FR-020 | S010, S008 |
 | FR-021 | S011, S008 |
+| FR-022 | S014 |
+| FR-023 | S014, S008 |
+| FR-024–FR-025 | S015, S008 |
 | BR-001–BR-004 | S002, S004 |
 | BR-005 | S005 |
 | BR-006 | S007 |
@@ -88,14 +100,20 @@ S003 + S007 + S010 + S011 -> S008
 | BR-011–BR-012 | S010 |
 | BR-013 | S010, S011 |
 | BR-014 | S011 |
+| BR-015–BR-016 | S013, S014 |
+| BR-017 | S014, S015 |
+| BR-018 | S015 |
 | NFR-001 | S001, S008 |
-| NFR-002–NFR-003 | S002, S008 |
+| NFR-002–NFR-003 | S002, S008, S015 |
 | NFR-004 | S001, S006, S010, S008 |
 | NFR-005–NFR-006 | S003, S004, S006, S007, S009, S012 |
 | NFR-007 | S008 |
-| NFR-008 | S001–S007, S009–S012 |
+| NFR-008 | S001–S007, S009–S015 |
 | NFR-009 | S009, S012 |
 | NFR-010–NFR-011 | S010, S011 |
+| NFR-012–NFR-013 | S013, S014 |
+| NFR-014 | S014, S015, S008 |
+| NFR-015 | S015, S008 |
 
 Каждое must-have требование покрыто хотя бы одним срезом. Детальные acceptance criteria и verification находятся только в соответствующих slice-файлах.
 
