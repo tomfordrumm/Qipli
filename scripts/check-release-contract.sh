@@ -41,6 +41,12 @@ grep -Fq 'trap cleanup EXIT INT TERM' "$hosted_packager" \
     || fail "hosted credential cleanup trap is missing"
 grep -Fq '/usr/bin/security delete-keychain' "$hosted_packager" \
     || fail "ephemeral Keychain cleanup is missing"
+grep -Fq '/usr/bin/security list-keychains -d user -s' "$hosted_packager" \
+    || fail "ephemeral Keychain search-list setup is missing"
+grep -Fq 'original_user_keychains' "$hosted_packager" \
+    || fail "original Keychain search-list restoration is missing"
+grep -Fq '/usr/bin/security find-identity -v -p codesigning' "$hosted_packager" \
+    || fail "imported Developer ID identity preflight is missing"
 grep -Fq 'release $release_tag is already published and immutable' "$publisher" \
     || fail "published release immutability check is missing"
 grep -Fq 'gh release download' "$publisher" \
