@@ -62,7 +62,7 @@ covers:
 
 - [x] Пользователь выбрал MIT; repository содержит README, LICENSE и SECURITY с корректными install, privacy и vulnerability-reporting instructions.
 - [x] Current tree и доступная Git history не содержат real secrets, private signing material или пользовательский clipboard payload; пять старых `dist/*` paths проверены и по решению пользователя остаются без history rewrite.
-- [ ] Repository публичный, `main` защищён обязательным S013 CI, а release Environment требует разрешённый gate перед secrets и publication.
+- [x] Repository публичный, `main` защищён обязательным S013 CI, а release Environment требует `tomfordrumm` approval перед secrets и publication и принимает только tags `v*.*.*`.
 - [ ] Stable tag `vX.Y.Z` совпадает с built short version, использует strictly increasing numeric build и указывает на разрешённый commit.
 - [ ] Hosted runner импортирует Developer ID identity в ephemeral Keychain, собирает universal `arm64+x86_64`, выполняет strict pre-notarization verification и не ослабляет entitlements checks.
 - [ ] `notarytool` использует App Store Connect API credential, submission получает `Accepted`, ticket stapled, а `spctl`/verifier принимают app и повторно распакованный ZIP.
@@ -97,9 +97,11 @@ covers:
 - Shell syntax, release/CI static contracts, workflow YAML parse и `git diff --check` прошли.
 - Полный SwiftPM suite: 150 tests, 0 failures. Unsigned Xcode Debug и Release builds прошли; built metadata соответствует `1.0.0 (1)`, Release executable universal `x86_64 arm64` с deployment target macOS 14.
 - Public-readiness audit проверил 87 current paths и 43 revisions без вывода payload values; blocking paths и credential-shaped values не найдены. Пять старых ignored `dist/*` paths сохранены по D-028.
+- Commit `7dbd37dc117305f6b3c695f0505c079e7572fee0` прошёл hosted unsigned CI run `33162629048`: version, CI/release contract, audit, 150 tests, Debug/Release builds и built metadata завершились успешно.
+- `tomfordrumm/Qipli` переведён в public после audit. `main` требует strict `test-and-build`, linear history, conversation resolution и запрещает force-push/delete с enforce-admins. Environment `release` требует `tomfordrumm` approval и custom tag policy `v*.*.*`.
+- Unauthenticated public-view smoke получил HTTP 200 для repository, README, LICENSE и SECURITY. Включены private vulnerability reporting, Dependabot security updates, secret scanning и push protection.
 
 ### Отклонения и остаточные риски
 
-- GitHub repository пока private. Branch protection, required reviewer, release Environment, public-view smoke и security settings настраиваются после commit/push и непосредственно перед/после смены visibility.
-- Hosted `.p12`, `.p8`, Key ID и Issuer ID пока не предоставлены. Поэтому реальный protected tag run, hosted universal archive, Apple submission и публикация release asset не проверены.
+- Hosted `.p12`, `.p8`, Key ID и Issuer ID пока не предоставлены и Environment secrets пусты. Поэтому реальный protected tag run, hosted universal archive, Apple submission и публикация release asset не проверены.
 - Clean-machine launch на macOS 14 остаётся отдельным release gate S008.
