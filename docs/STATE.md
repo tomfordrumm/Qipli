@@ -42,7 +42,7 @@
 
 Product-code blockers для S011, S012 и S016 отсутствуют; срезы реализованы и ожидают ручной проверки. S013 реализован, локально проверен и прошёл hosted push-to-main и обычный PR CI.
 
-- S013 ожидает fork-style run без release secrets и write permissions. Push-to-main run `33158358277` обнаружил несовместимый macOS 15 SDK; после перехода на `macos-26` run `33158511887` прошёл полностью. Обычный PR run `33159567400` также прошёл.
+- S013 ожидает fork-style run без release secrets и write permissions. Для проверки создан приватный fork `404-Hub/Qipli`; проверочная ветка должна открыть PR обратно в `tomfordrumm/Qipli`. Push-to-main run `33158358277` обнаружил несовместимый macOS 15 SDK; после перехода на `macos-26` run `33158511887` прошёл полностью. Обычный PR run `33159567400` также прошёл.
 - S014 заблокирован: S013 ещё не прошёл fork hosted CI gate, пользователь не выбрал open-source license, а exportable Developer ID `.p12` и App Store Connect API `.p8` не настроены в protected GitHub Environment.
 - S015 ожидает S014, потому что real appcast/update proof требует публичного immutable release asset.
 - S008 заблокирован: S011/S012/S016 manual checks, S014/S015 и clean-machine/manual release matrix не завершены.
@@ -137,3 +137,4 @@ Product-code blockers для S011, S012 и S016 отсутствуют; срез
 | 2026-08-28 | S013 реализован и переведён в `needs_verification`. | Единый version xcconfig, pure tag/version/build validator, read-only pinned unsigned CI и nonpayload public-readiness audit прошли локальные проверки. SwiftPM: 150 tests; unsigned Debug/Release universal build: `arm64+x86_64`, macOS 14, version `1.0.0 (1)`. Остаются real GitHub PR, main и fork-style runs. |
 | 2026-08-28 | Подтверждён push-to-main CI gate S013. | Первый run выявил отсутствие macOS 26 SDK на `macos-15`; runner сменён на `macos-26` без изменения deployment target macOS 14. Run `33158511887` на commit `05259898d646ae18f85c08d7a230266b21326ec1` прошёл все read-only unsigned проверки. Остаются обычный PR и fork-style PR. |
 | 2026-08-28 | Подтверждён обычный pull request CI gate S013. | PR `#1` запустил `pull_request` run `33159567400` на commit `16ef5a7da4e9a7f94e312764229a17aee3d89cc4`; read-only unsigned job прошёл за 1 минуту 31 секунду. Остался fork-style PR. |
+| 2026-08-28 | Подготовлен fork-style CI gate S013. | Создан приватный fork `404-Hub/Qipli`; отдельная ветка используется только для реального PR обратно в upstream и проверки read-only CI без release secrets. |
