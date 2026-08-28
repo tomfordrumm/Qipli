@@ -70,6 +70,12 @@ while IFS= read -r -d '' item; do
     done
 done < <(find "$app_path" -print0)
 
+resign_arguments=(--identity "$identity")
+if [[ -n "$signing_keychain" ]]; then
+    resign_arguments+=(--keychain "$signing_keychain")
+fi
+"$script_dir/resign-sparkle-for-release.sh" "${resign_arguments[@]}" "$app_path"
+
 "$script_dir/verify-signed-app.sh" \
     --mode release \
     --team-id "$team_id" \

@@ -89,6 +89,7 @@ covers:
 - `v1.0.1 (2)` зафиксирован как первая Sparkle-enabled версия. В app встроены HTTPS `SUFeedURL` и public EdDSA key; private key создан в Keychain и добавлен только как protected `release` Environment secret.
 - Release workflow до signing сверяет private key с встроенным public key, после packaging генерирует и проверяет signed appcast, публикует GitHub Release и только затем передаёт feed в pinned official GitHub Pages deployment. GitHub Pages включён в workflow mode с enforced HTTPS.
 - Добавлены fail-closed проверки exact tag/version/build/minimum macOS/immutable asset URL/archive length/EdDSA, public asset availability, update privacy boundary и ordering release-before-feed.
+- Первый protected `v1.0.1` recovery run дошёл до Apple notarization и выявил ad-hoc signatures без timestamp у вложенных Sparkle helpers. Release packaging теперь повторно подписывает их в обязательном inside-out порядке и fail closed проверяет Developer ID, Team ID, Hardened Runtime и secure timestamp каждого компонента до отправки Apple.
 
 ### Проверено
 
@@ -96,10 +97,12 @@ covers:
 - Unsigned Xcode Release `1.0.1 (2)` собран universal `arm64+x86_64`; app содержит universal Sparkle.framework, `SUFeedURL` и `SUPublicEDKey`.
 - Public key из Info.plist совпадает с generated Keychain keypair; test appcast для production-shaped ZIP прошёл XML, version/build, minimum macOS, immutable URL, length и EdDSA verification.
 - `scripts/check-update-privacy.sh`, release contract tests, plist/project lint и `git diff --check` прошли.
+- Nested signing regression fixture подтвердил шесть вызовов в exact inside-out порядке, preservation entitlements только для Downloader и отказ при отсутствующем helper; обновлённый release contract содержит 11/11 passing cases.
 - PR `#6` hosted CI run `33171371342` прошёл полный read-only version/public-readiness/SwiftPM/unsigned Debug+Release/built metadata gate без release secrets.
 
 ### Отклонения и остаточные риски
 
 - Публичный `v1.0.0` выпущен без Sparkle и требует ручной установки следующей версии. Первый реальный updater proof возможен только между `v1.0.1` и `v1.0.2`.
 - GitHub Pages production feed пока намеренно не опубликован: он появится только после verified public `v1.0.1` asset. Protected tag run, signed/notarized artifact и manual UI/failure matrix ещё не пройдены.
+- Notarization submission `f0b52e36-f273-4dd5-9b63-5a306c53074f` ожидаемо отклонена до публикации artifact/feed из-за nested Sparkle signing gap; исправленный protected run ещё не выполнен.
 - Standard checking/up-to-date/available/download/install/relaunch/error presentation и version admission принадлежат Sparkle; Qipli unit tests покрывают только собственный adapter/settings contract. Tampered/offline/interrupted path остаётся обязательной manual integration проверкой.

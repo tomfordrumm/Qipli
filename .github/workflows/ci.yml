@@ -37,6 +37,9 @@ jobs:
       - name: Audit public readiness
         run: scripts/audit-public-readiness.sh
 
+      - name: Validate release packaging contract
+        run: scripts/tests/release-contract-tests.sh
+
       - name: Run SwiftPM tests
         run: swift test
 
