@@ -67,7 +67,9 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO
 
-      - name: Verify built release metadata
+      - name: Verify built release metadata and runtime linking
         run: |
           scripts/check-project-version.sh \
             --built-plist "$RUNNER_TEMP/QipliRelease/Build/Products/Release/Qipli.app/Contents/Info.plist"
+          scripts/verify-runtime-linking.sh \
+            "$RUNNER_TEMP/QipliRelease/Build/Products/Release/Qipli.app"

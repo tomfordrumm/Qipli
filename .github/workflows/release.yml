@@ -65,6 +65,8 @@ jobs:
           scripts/check-project-version.sh \
             --tag "${{ steps.release.outputs.tag }}" \
             --built-plist "$RUNNER_TEMP/QipliReleaseGate/Build/Products/Release/Qipli.app/Contents/Info.plist"
+          scripts/verify-runtime-linking.sh \
+            "$RUNNER_TEMP/QipliReleaseGate/Build/Products/Release/Qipli.app"
 
       - name: Sign, notarize, staple, and package
         env:

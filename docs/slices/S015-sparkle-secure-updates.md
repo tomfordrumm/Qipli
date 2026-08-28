@@ -20,7 +20,7 @@ covers:
 
 ## Результат
 
-Пользователь установленной Sparkle-enabled версии Qipli вручную или после явного opt-in обнаруживает новый stable release, подтверждает установку и возвращается в обновлённое приложение с сохранённой History и Settings. Повреждённое или неподписанное обновление не заменяет рабочую версию. `v1.0.1` впервые добавляет Sparkle и устанавливается вручную; `v1.0.2` доказывает реальный update path.
+Пользователь установленной Sparkle-enabled версии Qipli вручную или после явного opt-in обнаруживает новый stable release, подтверждает установку и возвращается в обновлённое приложение с сохранённой History и Settings. Повреждённое или неподписанное обновление не заменяет рабочую версию. Broken `v1.0.1` впервые добавил Sparkle, но не запускался без embedded-framework runpath; `v1.0.2` устанавливается вручную как hotfix, а `v1.0.3` доказывает реальный update path.
 
 ## В scope
 
@@ -51,7 +51,7 @@ covers:
 - Updater получает только public feed/archive URL и version metadata. Он не имеет доступа к HistoryService, StackSession, search query или clipboard preview.
 - `CFBundleVersion` определяет ordering; short version показывается пользователю. Feed item с неувеличенным build игнорируется.
 - Update archive должен пройти Sparkle EdDSA и ожидаемую Apple code-signing identity. Redirect или host change не обходят verification.
-- Feed публикуется последним. `v1.0.1` создаёт первый production stable appcast только после immutable release asset; `v1.0.2` доказывает old-to-new path. Failed release не меняет current stable appcast.
+- Feed публикуется последним. `v1.0.1` создал первый production stable appcast только после immutable release asset; `v1.0.2` заменяет его только после verified runtime hotfix asset, а `v1.0.3` доказывает old-to-new path. Failed release не меняет current stable appcast.
 - Offline, invalid XML, incompatible minimum OS, invalid signature, interrupted download или install failure оставляет текущую версию запускаемой и показывает retryable state только в update UI.
 
 ## Acceptance criteria
@@ -61,7 +61,7 @@ covers:
 - [ ] Status menu и Settings предлагают manual `Check for Updates…`; action доступно с клавиатуры и VoiceOver и не включает background checks.
 - [ ] Automatic-check toggle по умолчанию выключен, сохраняет explicit opt-in и может быть отключён без изменения History/Paste Stack behavior.
 - [x] Appcast использует HTTPS, immutable versioned GitHub Release URL, increasing numeric build, short version, minimum macOS и EdDSA signature.
-- [ ] Release workflow готовит stable appcast только после успешного S014 asset verification; failed/draft release не становится update candidate. `v1.0.1` устанавливается вручную и создаёт первый production feed, `v1.0.2` подтверждает update через этот feed.
+- [ ] Release workflow готовит stable appcast только после успешного S014 asset verification; failed/draft release не становится update candidate. `v1.0.2` устанавливается вручную как первый запускаемый Sparkle-enabled build, `v1.0.3` подтверждает update через production feed.
 - [ ] Manual check различает checking, up-to-date, available, progress, relaunch и retryable error; invalid signature не предлагает или не устанавливает update.
 - [x] Update request и updater logs не содержат clipboard text, history, search query, previews или локальный Qipli identifier.
 - [ ] Реальный update с предыдущего production-signed build на следующий сохраняет Core Data history, shortcut preferences, onboarding completion и фактический Launch at Login state.
@@ -90,10 +90,11 @@ covers:
 - Release workflow до signing сверяет private key с встроенным public key, после packaging генерирует и проверяет signed appcast, публикует GitHub Release и только затем передаёт feed в pinned official GitHub Pages deployment. GitHub Pages включён в workflow mode с enforced HTTPS.
 - Добавлены fail-closed проверки exact tag/version/build/minimum macOS/immutable asset URL/archive length/EdDSA, public asset availability, update privacy boundary и ordering release-before-feed.
 - Первый protected `v1.0.1` recovery run дошёл до Apple notarization и выявил ad-hoc signatures без timestamp у вложенных Sparkle helpers. Release packaging теперь повторно подписывает их в обязательном inside-out порядке и fail closed проверяет Developer ID, Team ID, Hardened Runtime и secure timestamp каждого компонента до отправки Apple.
+- Установленный public `v1.0.1` воспроизвёл launch-time `dyld` crash: dependency `@rpath/Sparkle.framework/Versions/B/Sparkle` существовала и была signed/notarized, но executable содержал только `/usr/lib/swift` runtime path. `v1.0.2 (3)` добавляет `@executable_path/../Frameworks`; один verifier проверяет dependency и `LC_RPATH` каждой architecture в PR CI, unsigned release gate и signed packages.
 
 ### Проверено
 
-- Focused updater tests: 3/3. Full SwiftPM: 153/153. Full Xcode XCTest: 153/153.
+- Focused updater tests: 3/3. Full SwiftPM: 153/153. Full Xcode XCTest: 153/153; после runpath hotfix повторный Xcode Debug XCTest также прошёл 153/153.
 - Unsigned Xcode Release `1.0.1 (2)` собран universal `arm64+x86_64`; app содержит universal Sparkle.framework, `SUFeedURL` и `SUPublicEDKey`.
 - Public key из Info.plist совпадает с generated Keychain keypair; test appcast для production-shaped ZIP прошёл XML, version/build, minimum macOS, immutable URL, length и EdDSA verification.
 - `scripts/check-update-privacy.sh`, release contract tests, plist/project lint и `git diff --check` прошли.
@@ -102,10 +103,11 @@ covers:
 - PR `#7` и push-to-main run `33173641626` проверили nested-signing regression contract на hosted runner. Protected tag run `33174121960` attempt 2 прошёл exact-tag admission, 153 tests, EdDSA key preflight, universal build, inside-out Developer ID signing, nested Team ID/runtime/timestamp verification, Apple notarization, stapling, Gatekeeper, credential cleanup и immutable public release verification.
 - Публичный `Qipli-1.0.1.zip` имеет SHA-256 `a5f5ff23857adee6b7821377316ee0f2fe514065c29fc4d1f7f59e7ffe2bc882`. Независимое unauthenticated скачивание подтвердило checksum, version `1.0.1 (2)`, все пять nested Sparkle signatures, stapler и Gatekeeper `source=Notarized Developer ID`.
 - Production `https://tomfordrumm.github.io/Qipli/appcast.xml` опубликован после release asset и независимо прошёл XML, immutable URL, build/version, minimum macOS, length и public availability checks. Для `github-pages` сохранён `main` и добавлена отдельная deployment policy только для stable tags `v*.*.*`.
+- Regression gate ожидаемо отклонил установленный `v1.0.1` для `x86_64` из-за missing `LC_RPATH`. Новый unsigned universal Release `v1.0.2 (3)` содержит exact runpath и проходит dependency/runtime resolution для `x86_64 arm64`; повторный полный Xcode suite прошёл 153/153.
 
 ### Отклонения и остаточные риски
 
-- Публичный `v1.0.0` выпущен без Sparkle и требует ручной установки следующей версии. Первый реальный updater proof возможен только между `v1.0.1` и `v1.0.2`.
+- Публичный `v1.0.0` выпущен без Sparkle, а `v1.0.1` падает до запуска updater. Оба требуют ручной установки `v1.0.2`; первый реальный updater proof возможен только между `v1.0.2` и `v1.0.3`.
 - Первый submission `f0b52e36-f273-4dd5-9b63-5a306c53074f` ожидаемо отклонён до публикации artifact/feed из-за nested Sparkle signing gap; исправленный protected run прошёл и заменил этот release candidate.
-- `v1.0.1` и production feed опубликованы. Остаются ручная установка первой Sparkle-enabled версии, UI/accessibility/failure matrix и реальный signed/notarized update `v1.0.1 → v1.0.2` с проверкой сохранности данных.
+- `v1.0.1` и production feed опубликованы, но release не запускается и остаётся immutable. Остаются protected `v1.0.2` hotfix release, его ручная установка/UI smoke и реальный signed/notarized update `v1.0.2 → v1.0.3` с accessibility/failure/data-preservation matrix.
 - Standard checking/up-to-date/available/download/install/relaunch/error presentation и version admission принадлежат Sparkle; Qipli unit tests покрывают только собственный adapter/settings contract. Tampered/offline/interrupted path остаётся обязательной manual integration проверкой.

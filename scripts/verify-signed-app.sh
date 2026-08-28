@@ -11,6 +11,8 @@ fail() {
     exit 1
 }
 
+script_dir=$(cd "$(dirname "$0")" && pwd)
+
 mode=""
 team_id=""
 pre_notarization=false
@@ -51,6 +53,8 @@ done
 [[ -n "$team_id" ]] || fail "--team-id is required"
 [[ -d "$app_path" ]] || fail "app bundle not found: $app_path"
 [[ -x "$app_path/Contents/MacOS/Qipli" ]] || fail "Qipli executable is missing"
+
+"$script_dir/verify-runtime-linking.sh" "$app_path"
 
 signature_info=$(codesign --display --verbose=4 --requirements - "$app_path" 2>&1)
 

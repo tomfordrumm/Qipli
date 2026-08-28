@@ -10,7 +10,7 @@
 - Milestone M1 — рабочая локальная история — завершён.
 - Milestone M2 — Paste Stack — завершён.
 - Milestone M3 — visual polish и product setup — активен: S009 и S010 завершены, S011 и S012 реализованы и ожидают ручной проверки.
-- Milestone M4 — public delivery и secure updates — активен: repository public, S013 завершён, protected release run опубликовал signed/notarized `v1.0.0`. S014 `needs_verification`; S015 `in_progress` с подтверждённым путём `v1.0.1 → v1.0.2`.
+- Milestone M4 — public delivery и secure updates — активен: repository public, S013 завершён, protected release run опубликовал signed/notarized `v1.0.0`. S014 `needs_verification`; S015 `in_progress`, `v1.0.2` исправляет broken launch `v1.0.1`, update proof перенесён на `v1.0.2 → v1.0.3`.
 - Corrective slice S016 `needs_verification`: History-only keyboard routing, single paste transaction, fresh capture и passive click-away реализованы; SwiftPM и unsigned Xcode build пройдены, остаётся manual macOS interaction matrix.
 - S008 остаётся финальным blocked release gate до завершения S011/S012, S014–S016 и полной clean-machine/manual release matrix. Локальные Developer ID и notarization credentials подтверждены 2026-08-26.
 - Fail-closed release workflow опубликовал первый Developer ID-signed и notarized GitHub Release `v1.0.0`; публичный ZIP независимо скачан и принят Gatekeeper.
@@ -35,7 +35,7 @@
 | S012 | Edge-to-edge Paste Stack с кастомным header | `needs_verification` | S007, S009 |
 | S013 | Версии и безопасный public CI | `done` | — |
 | S014 | Публичный репозиторий и подписанные GitHub-релизы | `needs_verification` | public `v1.0.0` опубликован; остаются immutable rerun и clean-machine macOS 14 launch |
-| S015 | Безопасные обновления через Sparkle | `in_progress` | реализация разрешена параллельно manual gates S014; `v1.0.1 → v1.0.2` |
+| S015 | Безопасные обновления через Sparkle | `in_progress` | `v1.0.2` runtime hotfix; затем `v1.0.2 → v1.0.3` |
 | S016 | Надёжная навигация и закрытие History | `needs_verification` | S003 |
 
 ## Блокеры и recheck points
@@ -44,12 +44,12 @@ Product-code blockers для S011, S012 и S016 отсутствуют; срез
 
 - S013: push-to-main run `33158358277` обнаружил несовместимый macOS 15 SDK; после перехода на `macos-26` run `33158511887` прошёл. Обычный PR run `33159567400` и fork-style run `33160652451` из `404-Hub/Qipli` также прошли без release secrets и write permissions.
 - S014 не имеет implementation/credential blocker: protected run `33165198739` опубликовал `v1.0.0`, а публичный ZIP прошёл повторную unauthenticated проверку. До `done` остаются immutable rerun proof и clean-machine macOS 14 launch.
-- S015 опубликовал первую Sparkle-enabled версию `v1.0.1 (2)`: protected run `33174121960` прошёл exact-tag admission, EdDSA preflight, inside-out Developer ID signing всех helpers, notarization, stapling, Gatekeeper и public asset verification. HTTPS production appcast опубликован через GitHub Pages после immutable Release asset. До закрытия нужны ручная установка `v1.0.1` и реальный update на `v1.0.2` с UI/accessibility/failure/data-preservation matrix.
+- S015 public `v1.0.1 (2)` прошёл signing/notarization/stapling/Gatekeeper, но реальная установка выявила `dyld` crash до `main`: executable не имел embedded-framework `LC_RPATH`. Пользователь подтвердил immutable hotfix strategy. `v1.0.2 (3)` добавляет runpath и fail-closed per-architecture runtime-linking gate; затем нужны protected release/manual launch и реальный update `v1.0.2 → v1.0.3`.
 - S008 заблокирован: S011/S012/S016 manual checks, S014/S015 и clean-machine/manual release matrix не завершены.
 - Developer ID Application, Team ID и `qipli-notary` Keychain profile проверены реальной accepted notarization submission.
 - В S008 повторить подтверждённый в S001 Accessibility/event-tap flow на чистой минимально поддерживаемой macOS 14 с подписанным release artifact.
 - S014 повторил universal `arm64+x86_64` сборку на GitHub-hosted runner, Apple notarization, stapling и Gatekeeper verification.
-- S015 локально: 153 SwiftPM и 153 Xcode tests прошли; unsigned universal Release `1.0.1 (2)` содержит Sparkle.framework и production feed metadata. Public key совпал с Keychain keypair, тестовый appcast прошёл XML/metadata/length/EdDSA verification, privacy/release contract scripts прошли. После первого отклонения notarization nested-signing fixture и обновлённый release contract прошли 11/11 cases, полный SwiftPM suite повторно прошёл 153/153. PR `#6`, fix PR `#7`, main run `33173641626` и protected tag run `33174121960` прошли. Public ZIP SHA-256: `a5f5ff23857adee6b7821377316ee0f2fe514065c29fc4d1f7f59e7ffe2bc882`; независимая проверка подтвердила nested signatures, stapler/Gatekeeper и production appcast `1.0.1 (2)`.
+- S015 локально: public `v1.0.1 (2)` checksum/signatures/stapler/Gatekeeper были корректны, но crash report подтвердил `DYLD Library missing`; `otool` показал только `/usr/lib/swift`. Новый gate ожидаемо отклоняет installed `v1.0.1`. Unsigned universal `v1.0.2 (3)` собран и проходит Sparkle dependency плюс `LC_RPATH @executable_path/../Frameworks` для `x86_64 arm64`; повторный полный Xcode suite прошёл 153/153, hosted gates ещё не запущены.
 
 ## Последнее проверенное состояние
 
@@ -145,3 +145,5 @@ Product-code blockers для S011, S012 и S016 отсутствуют; срез
 | 2026-08-28 | S015 реализован локально и остаётся `in_progress`. | `v1.0.1 (2)` подключает exact Sparkle `2.9.6`, manual/opt-in update UI и изолированный adapter. EdDSA key, fail-closed appcast/release ordering и workflow-based HTTPS GitHub Pages подготовлены; 153 SwiftPM и 153 Xcode tests, universal Release, key/appcast/privacy/contract checks прошли. Требуются protected tag, manual `v1.0.1` install и реальный `v1.0.1 → v1.0.2` update/failure matrix. |
 | 2026-08-28 | Подтверждён hosted PR gate S015. | PR `#6` run `33171371342` за 2 минуты 10 секунд прошёл read-only version, CI contract, public-readiness, SwiftPM, unsigned Debug/Release и built metadata checks. Release secrets не были доступны; S015 ждёт merge/protected `v1.0.1` tag и реальную update matrix. |
 | 2026-08-28 | Опубликован первый Sparkle-enabled release `v1.0.1`; S015 остаётся `in_progress`. | Первый notarization run fail closed выявил ad-hoc nested Sparkle helpers; PR `#7` добавил обязательную inside-out Developer ID подпись и nested verifier. Protected run `33174121960` attempt 2 прошёл signing/notarization/stapling/Gatekeeper, опубликовал immutable ZIP и production appcast. Независимое скачивание подтвердило SHA-256, version `1.0.1 (2)`, nested signatures и public feed. Остаются manual install и реальный `v1.0.1 → v1.0.2` update matrix. |
+| 2026-08-28 | Подтверждён launch blocker `v1.0.1`; начат immutable `v1.0.2` hotfix. | Три crash reports воспроизвели `DYLD Library missing` до `main`; executable ссылался на embedded Sparkle через `@rpath`, но не содержал `@executable_path/../Frameworks`. Пользователь запретил implicit rewrite публичной истории и подтвердил versioned hotfix: `v1.0.2 (3)` получает runpath/per-architecture gate, update proof переносится на `v1.0.2 → v1.0.3`. |
+| 2026-08-28 | Локально проверен runtime hotfix `v1.0.2 (3)`. | Новый fail-closed gate отклонил installed `v1.0.1` и принял unsigned universal Release для `x86_64 arm64`; обе architecture содержат `@executable_path/../Frameworks`. Повторный Xcode Debug XCTest прошёл 153/153. Остаются hosted PR/main gates, protected release и ручной launch публичного ZIP. |
