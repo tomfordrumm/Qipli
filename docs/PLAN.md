@@ -40,7 +40,7 @@
 ## Milestone M4 — Публичная поставка и безопасные обновления
 
 13. [`S013 — Версии и безопасный public CI`](slices/S013-versioning-public-ci.md) — завершён; локальные, push-to-main, обычный PR и fork-style runs прошли без release secrets и write permissions.
-14. [`S014 — Публичный репозиторий и подписанные GitHub-релизы`](slices/S014-public-signed-github-releases.md) — prerequisite S013 завершён; MIT/public/history/approver decisions приняты, release pipeline подготовлен; срез заблокирован до настройки exportable Developer ID/App Store Connect credentials и real protected tag run.
+14. [`S014 — Публичный репозиторий и подписанные GitHub-релизы`](slices/S014-public-signed-github-releases.md) — prerequisite S013 завершён; repository public, MIT/README/SECURITY, branch protection, release Environment и pipeline готовы; срез заблокирован до настройки exportable Developer ID/App Store Connect credentials и real protected tag run.
 15. [`S015 — Безопасные обновления через Sparkle`](slices/S015-sparkle-secure-updates.md) — зависит от S014; добавляет ручную и opt-in автоматическую проверку и доказывает реальный upgrade между двумя подписанными версиями.
 
 Результат: публичный репозиторий проверяет вклад без signing secrets, версионный tag создаёт один проверенный release artifact, а установленный Qipli может безопасно перейти на следующую подписанную версию.
