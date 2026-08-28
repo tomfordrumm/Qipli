@@ -65,6 +65,31 @@ if [[ "$mode" == "release" ]]; then
     grep -Fq "Authority=Developer ID Application:" <<<"$signature_info" \
         || fail "release is not signed with Developer ID Application"
     grep -Fq "Timestamp=" <<<"$signature_info" || fail "release signature has no secure timestamp"
+
+    sparkle_framework="$app_path/Contents/Frameworks/Sparkle.framework"
+    nested_release_code=(
+        "$sparkle_framework/Versions/B/XPCServices/Installer.xpc"
+        "$sparkle_framework/Versions/B/XPCServices/Downloader.xpc"
+        "$sparkle_framework/Versions/B/Autoupdate"
+        "$sparkle_framework/Versions/B/Updater.app"
+        "$sparkle_framework"
+    )
+
+    for nested_path in "${nested_release_code[@]}"; do
+        [[ -e "$nested_path" ]] || fail "required Sparkle code is missing: $nested_path"
+        nested_signature_info=$(/usr/bin/codesign --display --verbose=4 "$nested_path" 2>&1)
+        grep -Fq "TeamIdentifier=$team_id" <<<"$nested_signature_info" \
+            || fail "nested Sparkle code does not use Team ID $team_id: $nested_path"
+        grep -Fq "Authority=Developer ID Application:" <<<"$nested_signature_info" \
+            || fail "nested Sparkle code is not signed with Developer ID Application: $nested_path"
+        grep -Fq "Timestamp=" <<<"$nested_signature_info" \
+            || fail "nested Sparkle code has no secure timestamp: $nested_path"
+        grep -Eq 'flags=.*runtime' <<<"$nested_signature_info" \
+            || fail "nested Sparkle code does not use Hardened Runtime: $nested_path"
+        grep -Fq "Signature=adhoc" <<<"$nested_signature_info" \
+            && fail "nested Sparkle code is ad-hoc signed: $nested_path"
+        /usr/bin/codesign --verify --strict --verbose=4 "$nested_path"
+    done
 else
     grep -Fq "Authority=Apple Development:" <<<"$signature_info" \
         || fail "local package is not signed with Apple Development"

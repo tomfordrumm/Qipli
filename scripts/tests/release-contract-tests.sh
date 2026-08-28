@@ -65,6 +65,41 @@ plutil -insert id -string rejected-submission "$rejected_plist"
 expect_success "accepted notarization" "$notary_validator" "$accepted_plist"
 expect_failure "rejected notarization" "$notary_validator" "$rejected_plist"
 
+sparkle_app="$fixture_dir/Qipli.app"
+sparkle_framework="$sparkle_app/Contents/Frameworks/Sparkle.framework"
+mkdir -p \
+    "$sparkle_framework/Versions/B/XPCServices/Installer.xpc" \
+    "$sparkle_framework/Versions/B/XPCServices/Downloader.xpc" \
+    "$sparkle_framework/Versions/B/Updater.app"
+touch "$sparkle_framework/Versions/B/Autoupdate"
+codesign_log="$fixture_dir/codesign.log"
+QIPLI_CODESIGN_BIN="$repository_root/scripts/tests/fixtures/fake-codesign.sh" \
+QIPLI_CODESIGN_LOG="$codesign_log" \
+    "$repository_root/scripts/resign-sparkle-for-release.sh" \
+    --identity 'Developer ID Application: Test (ABCDEFGHIJ)' \
+    "$sparkle_app" >/dev/null
+expected_codesign_log="$fixture_dir/expected-codesign.log"
+printf '%s|false|true|true|%s\n%s|true|true|true|%s\n%s|false|true|true|%s\n%s|false|true|true|%s\n%s|false|true|true|%s\n%s|false|true|true|%s\n' \
+    "$sparkle_framework/Versions/B/XPCServices/Installer.xpc" \
+    'Developer ID Application: Test (ABCDEFGHIJ)' \
+    "$sparkle_framework/Versions/B/XPCServices/Downloader.xpc" \
+    'Developer ID Application: Test (ABCDEFGHIJ)' \
+    "$sparkle_framework/Versions/B/Autoupdate" \
+    'Developer ID Application: Test (ABCDEFGHIJ)' \
+    "$sparkle_framework/Versions/B/Updater.app" \
+    'Developer ID Application: Test (ABCDEFGHIJ)' \
+    "$sparkle_framework" \
+    'Developer ID Application: Test (ABCDEFGHIJ)' \
+    "$sparkle_app" \
+    'Developer ID Application: Test (ABCDEFGHIJ)' > "$expected_codesign_log"
+expect_success "Sparkle inside-out signing order" cmp "$expected_codesign_log" "$codesign_log"
+expect_failure "missing Sparkle helper" \
+    env QIPLI_CODESIGN_BIN="$repository_root/scripts/tests/fixtures/fake-codesign.sh" \
+    QIPLI_CODESIGN_LOG="$codesign_log" \
+    "$repository_root/scripts/resign-sparkle-for-release.sh" \
+    --identity 'Developer ID Application: Test (ABCDEFGHIJ)' \
+    "$fixture_dir/missing.app"
+
 admission_repository="$fixture_dir/admission"
 mkdir -p "$admission_repository/Config"
 git -C "$admission_repository" init -q

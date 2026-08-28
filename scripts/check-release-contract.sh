@@ -15,6 +15,9 @@ publisher="$repository_root/scripts/publish-github-release.sh"
 appcast_generator="$repository_root/scripts/generate-sparkle-appcast.sh"
 pages_stager="$repository_root/scripts/stage-sparkle-pages.sh"
 sparkle_key_validator="$repository_root/scripts/validate-sparkle-release-key.sh"
+sparkle_resigner="$repository_root/scripts/resign-sparkle-for-release.sh"
+release_packager="$repository_root/scripts/package-release.sh"
+signed_app_verifier="$repository_root/scripts/verify-signed-app.sh"
 
 [[ -f "$workflow" ]] || fail "missing .github/workflows/release.yml"
 [[ -f "$hosted_packager" ]] || fail "missing hosted release packager"
@@ -22,6 +25,7 @@ sparkle_key_validator="$repository_root/scripts/validate-sparkle-release-key.sh"
 [[ -f "$appcast_generator" ]] || fail "missing Sparkle appcast generator"
 [[ -f "$pages_stager" ]] || fail "missing Sparkle Pages stager"
 [[ -f "$sparkle_key_validator" ]] || fail "missing Sparkle key validator"
+[[ -f "$sparkle_resigner" ]] || fail "missing Sparkle release resigner"
 
 grep -Eq '^  push:$' "$workflow" || fail "release workflow must have a push trigger"
 grep -Fq "      - 'v*.*.*'" "$workflow" || fail "release workflow must be limited to version tags"
@@ -79,6 +83,33 @@ grep -Fq -- '--ed-key-file -' "$appcast_generator" \
     || fail "appcast private key must be passed over standard input"
 grep -Fq -- '--require-public' "$pages_stager" \
     || fail "Pages stager must verify the public immutable asset"
+grep -Fq 'resign-sparkle-for-release.sh' "$release_packager" \
+    || fail "release packaging must re-sign nested Sparkle code"
+resign_step_line=$(grep -n 'resign-sparkle-for-release.sh' "$release_packager" | cut -d: -f1)
+pre_notary_verify_line=$(grep -n '"$script_dir/verify-signed-app.sh" \\' "$release_packager" | head -n 1 | cut -d: -f1)
+(( resign_step_line < pre_notary_verify_line )) \
+    || fail "nested Sparkle signing must run before pre-notarization verification"
+
+installer_line=$(grep -n 'resign_target "$installer_xpc"' "$sparkle_resigner" | cut -d: -f1)
+downloader_line=$(grep -n 'resign_target --preserve-metadata=entitlements "$downloader_xpc"' "$sparkle_resigner" | cut -d: -f1)
+autoupdate_line=$(grep -n 'resign_target "$autoupdate"' "$sparkle_resigner" | cut -d: -f1)
+updater_line=$(grep -n 'resign_target "$updater_app"' "$sparkle_resigner" | cut -d: -f1)
+framework_line=$(grep -n 'resign_target "$framework"' "$sparkle_resigner" | cut -d: -f1)
+outer_app_line=$(grep -n 'resign_target --preserve-metadata=identifier,entitlements,requirements "$app_path"' "$sparkle_resigner" | cut -d: -f1)
+(( installer_line < downloader_line \
+    && downloader_line < autoupdate_line \
+    && autoupdate_line < updater_line \
+    && updater_line < framework_line \
+    && framework_line < outer_app_line )) \
+    || fail "Sparkle code must be signed inside-out before the outer app"
+if grep -Fq -- '--deep' "$sparkle_resigner"; then
+    fail "Sparkle release signing must not use --deep"
+fi
+
+for nested_component in Installer.xpc Downloader.xpc Autoupdate Updater.app Sparkle.framework; do
+    grep -Fq "$nested_component" "$signed_app_verifier" \
+        || fail "release verifier must inspect nested Sparkle component: $nested_component"
+done
 
 release_line=$(grep -n 'scripts/publish-github-release.sh' "$workflow" | head -n 1 | cut -d: -f1)
 appcast_line=$(grep -n 'scripts/stage-sparkle-pages.sh' "$workflow" | head -n 1 | cut -d: -f1)
