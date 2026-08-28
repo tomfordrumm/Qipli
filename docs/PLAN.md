@@ -41,7 +41,7 @@
 
 13. [`S013 — Версии и безопасный public CI`](slices/S013-versioning-public-ci.md) — завершён; локальные, push-to-main, обычный PR и fork-style runs прошли без release secrets и write permissions.
 14. [`S014 — Публичный репозиторий и подписанные GitHub-релизы`](slices/S014-public-signed-github-releases.md) — repository public, protected tag run опубликовал Developer ID-signed/notarized `v1.0.0`; статус `needs_verification` до immutable rerun proof и clean-machine macOS 14 launch.
-15. [`S015 — Безопасные обновления через Sparkle`](slices/S015-sparkle-secure-updates.md) — зависит от S014; добавляет ручную и opt-in автоматическую проверку и доказывает реальный upgrade между двумя подписанными версиями.
+15. [`S015 — Безопасные обновления через Sparkle`](slices/S015-sparkle-secure-updates.md) — `in_progress` параллельно manual gates S014; updater, exact dependency, EdDSA/appcast pipeline и workflow-based GitHub Pages подготовлены для `v1.0.1`, а `v1.0.2` должен доказать реальный upgrade.
 
 Результат: публичный репозиторий проверяет вклад без signing secrets, версионный tag создаёт один проверенный release artifact, а установленный Qipli может безопасно перейти на следующую подписанную версию.
 
@@ -64,7 +64,7 @@ S013 -> S014 -> S015
 S003 + S007 + S010 + S011 + S012 + S014 + S015 + S016 -> S008
 ```
 
-Граф ацикличен. S013 завершён после локальных и hosted main/PR/fork CI runs. S014 опубликовал реальный `v1.0.0` и остаётся `needs_verification` до immutable rerun и clean-machine proof; S015 остаётся `planned` до завершения S014. S011, S012 и S016 реализованы и требуют ручной проверки. S008 остаётся финальным gate. Изменения pasteboard/input, permission, ServiceManagement, network, dependency, signing или update contracts должны сначала согласовываться в `TECHNICAL.md` и `DECISIONS.md`.
+Граф ацикличен. S013 завершён после локальных и hosted main/PR/fork CI runs. S014 опубликовал реальный `v1.0.0` и остаётся `needs_verification` до immutable rerun и clean-machine proof. Пользователь разрешил начать S015 параллельно, потому что implementation/credential blocker снят; `v1.0.1` добавляет Sparkle, `v1.0.2` доказывает update. S011, S012 и S016 реализованы и требуют ручной проверки. S008 остаётся финальным gate. Изменения pasteboard/input, permission, ServiceManagement, network, dependency, signing или update contracts должны сначала согласовываться в `TECHNICAL.md` и `DECISIONS.md`.
 
 ## Покрытие требований
 

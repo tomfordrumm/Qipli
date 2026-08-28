@@ -16,21 +16,29 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var launchAtLoginStatus: LaunchAtLoginStatus
     @Published private(set) var launchAtLoginError: String?
     @Published private(set) var inputStatus: GlobalInputStatus = .stopped
+    @Published private(set) var canCheckForUpdates: Bool
+    @Published private(set) var automaticallyChecksForUpdates: Bool
 
     private let shortcutPreferences: ShortcutPreferences
     private let launchAtLoginService: LaunchAtLoginServicing
+    private let secureUpdater: SecureUpdaterServicing
     private var shortcutObservation: AnyCancellable?
     private var recoveryObservation: AnyCancellable?
 
     init(
         shortcutPreferences: ShortcutPreferences,
-        launchAtLoginService: LaunchAtLoginServicing
+        launchAtLoginService: LaunchAtLoginServicing,
+        secureUpdater: SecureUpdaterServicing? = nil
     ) {
+        let resolvedSecureUpdater = secureUpdater ?? UnavailableSecureUpdater()
         self.shortcutPreferences = shortcutPreferences
         self.launchAtLoginService = launchAtLoginService
+        self.secureUpdater = resolvedSecureUpdater
         shortcuts = shortcutPreferences.snapshot
         recoveredShortcutDefaults = shortcutPreferences.recoveredDefaults
         launchAtLoginStatus = launchAtLoginService.status
+        canCheckForUpdates = resolvedSecureUpdater.snapshot.canCheckForUpdates
+        automaticallyChecksForUpdates = resolvedSecureUpdater.snapshot.automaticallyChecksForUpdates
 
         shortcutObservation = shortcutPreferences.$snapshot
             .removeDuplicates()
@@ -42,6 +50,9 @@ final class SettingsViewModel: ObservableObject {
             .sink { [weak self] recovered in
                 self?.recoveredShortcutDefaults = recovered
             }
+        resolvedSecureUpdater.onStateChange = { [weak self] snapshot in
+            self?.applyUpdaterSnapshot(snapshot)
+        }
     }
 
     var launchAtLoginIsEnabled: Bool {
@@ -70,12 +81,21 @@ final class SettingsViewModel: ObservableObject {
         }
     }
 
+    var updateCheckDescription: String {
+        if automaticallyChecksForUpdates {
+            "Qipli checks periodically. Installing an update always requires confirmation."
+        } else {
+            "Qipli checks only when you ask. Installing an update always requires confirmation."
+        }
+    }
+
     func refresh(inputStatus: GlobalInputStatus? = nil) {
         launchAtLoginStatus = launchAtLoginService.status
         launchAtLoginError = nil
         if let inputStatus {
             self.inputStatus = inputStatus
         }
+        applyUpdaterSnapshot(secureUpdater.snapshot)
     }
 
     func updateInputStatus(_ inputStatus: GlobalInputStatus) {
@@ -120,5 +140,20 @@ final class SettingsViewModel: ObservableObject {
 
     func openLoginItemsSettings() {
         launchAtLoginService.openSystemSettings()
+    }
+
+    func checkForUpdates() {
+        guard canCheckForUpdates else { return }
+        secureUpdater.checkForUpdates()
+    }
+
+    func setAutomaticallyChecksForUpdates(_ isEnabled: Bool) {
+        secureUpdater.setAutomaticallyChecksForUpdates(isEnabled)
+        applyUpdaterSnapshot(secureUpdater.snapshot)
+    }
+
+    private func applyUpdaterSnapshot(_ snapshot: SecureUpdaterSnapshot) {
+        canCheckForUpdates = snapshot.canCheckForUpdates
+        automaticallyChecksForUpdates = snapshot.automaticallyChecksForUpdates
     }
 }

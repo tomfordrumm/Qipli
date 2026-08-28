@@ -24,5 +24,13 @@
     <true/>
     <key>NSAccessibilityUsageDescription</key>
     <string>Qipli uses Accessibility access for global shortcuts and to send paste commands to the active app.</string>
+    <key>SUEnableAutomaticChecks</key>
+    <false/>
+    <key>SUAutomaticallyUpdate</key>
+    <false/>
+    <key>SUFeedURL</key>
+    <string>https://tomfordrumm.github.io/Qipli/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>sO6HXxN/nQRwdqMt6M19vx9CM9odKyNZc28eKSIkbKI=</string>
 </dict>
 </plist>

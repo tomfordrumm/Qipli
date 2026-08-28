@@ -1,7 +1,7 @@
 ---
 id: S015
 title: Безопасные обновления через Sparkle
-status: planned
+status: in_progress
 depends_on:
   - S014
 covers:
@@ -20,16 +20,16 @@ covers:
 
 ## Результат
 
-Пользователь установленной предыдущей версии Qipli вручную или после явного opt-in обнаруживает новый stable release, подтверждает установку и возвращается в обновлённое приложение с сохранённой History и Settings. Повреждённое или неподписанное обновление не заменяет рабочую версию.
+Пользователь установленной Sparkle-enabled версии Qipli вручную или после явного opt-in обнаруживает новый stable release, подтверждает установку и возвращается в обновлённое приложение с сохранённой History и Settings. Повреждённое или неподписанное обновление не заменяет рабочую версию. `v1.0.1` впервые добавляет Sparkle и устанавливается вручную; `v1.0.2` доказывает реальный update path.
 
 ## В scope
 
-- Sparkle 2 через фиксированную Swift Package Manager dependency;
+- Sparkle `2.9.6` через exact Swift Package Manager dependency;
 - изолированный updater adapter и `SPUStandardUpdaterController` lifecycle;
 - `Check for Updates…` в status menu и Settings General;
 - выключенный по умолчанию toggle автоматической проверки;
 - публичный GitHub Pages appcast для одного stable channel;
-- изолированный verification appcast для real old-to-new test до первого stable release;
+- изолированный verification appcast для подготовки old-to-new test до публикации первого production Sparkle feed;
 - `SUPublicEDKey`, release-side private EdDSA key и `generate_appcast`;
 - manual check, up-to-date, available, download/install/relaunch и retryable failure states;
 - публикация feed только после готового immutable GitHub Release asset;
@@ -41,7 +41,7 @@ covers:
 - beta/nightly channels, phased rollout и delta updates;
 - silent install без подтверждения пользователя;
 - собственный update server, account, telemetry или device identifier;
-- обновление версии, которая была публично выпущена без Sparkle;
+- автоматическое обновление уже опубликованного `v1.0.0`, который не содержит Sparkle;
 - Mac App Store update mechanism.
 
 ## Поведение и контракты
@@ -51,17 +51,17 @@ covers:
 - Updater получает только public feed/archive URL и version metadata. Он не имеет доступа к HistoryService, StackSession, search query или clipboard preview.
 - `CFBundleVersion` определяет ordering; short version показывается пользователю. Feed item с неувеличенным build игнорируется.
 - Update archive должен пройти Sparkle EdDSA и ожидаемую Apple code-signing identity. Redirect или host change не обходят verification.
-- Feed публикуется последним. S015 проверяет этот порядок на isolated verification path; первый production stable appcast публикуется только через S008. Failed release не меняет current stable appcast.
+- Feed публикуется последним. `v1.0.1` создаёт первый production stable appcast только после immutable release asset; `v1.0.2` доказывает old-to-new path. Failed release не меняет current stable appcast.
 - Offline, invalid XML, incompatible minimum OS, invalid signature, interrupted download или install failure оставляет текущую версию запускаемой и показывает retryable state только в update UI.
 
 ## Acceptance criteria
 
-- [ ] Production Xcode target и Swift Package tests используют одну зафиксированную совместимую Sparkle 2 dependency без ослабления deployment target macOS 14.
+- [x] Production Xcode target и Swift Package tests используют exact Sparkle `2.9.6` без ослабления deployment target macOS 14.
 - [ ] Built app содержит корректные `SUFeedURL` и `SUPublicEDKey`; private EdDSA key отсутствует в app, repository, GitHub Release assets и logs.
 - [ ] Status menu и Settings предлагают manual `Check for Updates…`; action доступно с клавиатуры и VoiceOver и не включает background checks.
 - [ ] Automatic-check toggle по умолчанию выключен, сохраняет explicit opt-in и может быть отключён без изменения History/Paste Stack behavior.
 - [ ] Appcast использует HTTPS, immutable versioned GitHub Release URL, increasing numeric build, short version, minimum macOS и EdDSA signature.
-- [ ] Release workflow готовит stable appcast только после успешного S014 asset verification; failed/draft release не становится update candidate. До S008 реальный old-to-new proof использует отдельный verification URL, который не является production `SUFeedURL`.
+- [ ] Release workflow готовит stable appcast только после успешного S014 asset verification; failed/draft release не становится update candidate. `v1.0.1` устанавливается вручную и создаёт первый production feed, `v1.0.2` подтверждает update через этот feed.
 - [ ] Manual check различает checking, up-to-date, available, progress, relaunch и retryable error; invalid signature не предлагает или не устанавливает update.
 - [ ] Update request и updater logs не содержат clipboard text, history, search query, previews или локальный Qipli identifier.
 - [ ] Реальный update с предыдущего production-signed build на следующий сохраняет Core Data history, shortcut preferences, onboarding completion и фактический Launch at Login state.
@@ -72,7 +72,7 @@ covers:
 
 - [ ] Unit tests updater preferences, manual/automatic admission, version ordering и failure mapping через injected adapter.
 - [ ] Static privacy check подтверждает отсутствие product payload access и private EdDSA material.
-- [ ] Generated verification appcast проходит XML/signature validation и указывает на существующий immutable GitHub Release asset; production stable path остаётся под gate S008.
+- [ ] Generated appcast проходит XML/signature validation и указывает на существующий immutable GitHub Release asset; production feed не меняется до завершения release verification.
 - [ ] Tampered archive и wrong EdDSA key отклоняются production-signed old build.
 - [ ] Offline, invalid feed, interrupted download и install failure regression сохраняет текущую версию и локальные данные.
 - [ ] Full SwiftPM/Xcode suite, universal Release и S014 signing/notarization gate.
@@ -83,12 +83,23 @@ covers:
 
 ### Реализовано
 
-Не заполнено.
+- 2026-08-28 пользователь подтвердил параллельный старт при открытых manual gates S014, последовательность `v1.0.1 → v1.0.2`, генерацию отдельного EdDSA key и настройку GitHub Pages.
+- Exact Sparkle `2.9.6` подключён к Swift Package и production Xcode target; `SparkleSecureUpdater` владеет `SPUStandardUpdaterController` и не получает product payload services.
+- Status menu и Settings General получили manual `Check for Updates…`; automatic checks выключены plist-контрактом и меняются только explicit toggle. Automatic install выключен.
+- `v1.0.1 (2)` зафиксирован как первая Sparkle-enabled версия. В app встроены HTTPS `SUFeedURL` и public EdDSA key; private key создан в Keychain и добавлен только как protected `release` Environment secret.
+- Release workflow до signing сверяет private key с встроенным public key, после packaging генерирует и проверяет signed appcast, публикует GitHub Release и только затем передаёт feed в pinned official GitHub Pages deployment. GitHub Pages включён в workflow mode с enforced HTTPS.
+- Добавлены fail-closed проверки exact tag/version/build/minimum macOS/immutable asset URL/archive length/EdDSA, public asset availability, update privacy boundary и ordering release-before-feed.
 
 ### Проверено
 
-Не заполнено.
+- Focused updater tests: 3/3. Full SwiftPM: 153/153. Full Xcode XCTest: 153/153.
+- Unsigned Xcode Release `1.0.1 (2)` собран universal `arm64+x86_64`; app содержит universal Sparkle.framework, `SUFeedURL` и `SUPublicEDKey`.
+- Public key из Info.plist совпадает с generated Keychain keypair; test appcast для production-shaped ZIP прошёл XML, version/build, minimum macOS, immutable URL, length и EdDSA verification.
+- `scripts/check-update-privacy.sh`, release contract tests, plist/project lint и `git diff --check` прошли.
+- PR `#6` hosted CI run `33171371342` прошёл полный read-only version/public-readiness/SwiftPM/unsigned Debug+Release/built metadata gate без release secrets.
 
 ### Отклонения и остаточные риски
 
-Не заполнено.
+- Публичный `v1.0.0` выпущен без Sparkle и требует ручной установки следующей версии. Первый реальный updater proof возможен только между `v1.0.1` и `v1.0.2`.
+- GitHub Pages production feed пока намеренно не опубликован: он появится только после verified public `v1.0.1` asset. Protected tag run, signed/notarized artifact и manual UI/failure matrix ещё не пройдены.
+- Standard checking/up-to-date/available/download/install/relaunch/error presentation и version admission принадлежат Sparkle; Qipli unit tests покрывают только собственный adapter/settings contract. Tampered/offline/interrupted path остаётся обязательной manual integration проверкой.

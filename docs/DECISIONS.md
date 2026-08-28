@@ -258,11 +258,11 @@
 
 - Статус: `accepted`
 - Дата: 2026-08-26
-- Источник: пользователь после обсуждения auto-update; Sparkle documentation перепроверена 2026-08-26
-- Контекст: Developer ID и notarization позволяют macOS доверять app bundle, но не дают приложению update discovery, feed или безопасную загрузку новой версии.
-- Решение: первый публичный релиз включает Sparkle 2 через Swift Package Manager, manual `Check for Updates…`, выключенные по умолчанию automatic checks и user-confirmed install. Public key хранится в app, private EdDSA key только в release Environment. GitHub Pages appcast публикуется после готового GitHub Release asset.
+- Источник: пользователь после обсуждения auto-update; Sparkle documentation и GitHub Pages workflow deployment перепроверены 2026-08-28
+- Контекст: Developer ID и notarization позволяют macOS доверять app bundle, но не дают приложению update discovery, feed или безопасную загрузку новой версии. `v1.0.0` уже опубликован без Sparkle и не может получить updater задним числом.
+- Решение: `v1.0.1` добавляет exact Sparkle `2.9.6` через Swift Package Manager, manual `Check for Updates…`, выключенные по умолчанию automatic checks и user-confirmed install; пользователь устанавливает эту версию вручную. `v1.0.2` является первым реальным Sparkle update proof. Public key хранится в app, private EdDSA key только в release Environment. GitHub Pages appcast публикуется официальным workflow deployment после готового GitHub Release asset; branch push/PAT не используются.
 - Причина: Apple code signature и Sparkle EdDSA закрывают разные границы доверия. Явный opt-in сохраняет локальную privacy-модель Qipli и не включает фоновую сеть молча.
-- Последствия: update request является единственным runtime network path и не получает clipboard/history/search payload. Первый stable channel использует полный ZIP; beta channel, delta updates, phased rollout и silent install остаются вне scope. S015 обязан доказать реальный update между двумя production-signed версиями и сохранение данных/preferences с Accessibility recheck.
+- Последствия: `v1.0.0` обновляется только ручной установкой `v1.0.1`. Update request является единственным runtime network path и не получает clipboard/history/search payload. Первый stable channel использует полный ZIP; beta channel, delta updates, phased rollout и silent install остаются вне scope. S015 обязан доказать реальный update `v1.0.1 → v1.0.2` и сохранение данных/preferences с Accessibility recheck.
 
 ## D-027: History keyboard и dismissal принадлежат AppKit window lifecycle
 

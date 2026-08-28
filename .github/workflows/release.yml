@@ -46,6 +46,11 @@ jobs:
       - name: Run SwiftPM tests
         run: swift test
 
+      - name: Validate protected Sparkle key
+        env:
+          QIPLI_SPARKLE_PRIVATE_KEY: ${{ secrets.QIPLI_SPARKLE_PRIVATE_KEY }}
+        run: scripts/validate-sparkle-release-key.sh
+
       - name: Build unsigned release gate
         run: |
           xcodebuild \
@@ -80,8 +85,46 @@ jobs:
             exit 1
           fi
 
+      - name: Prepare signed Sparkle appcast
+        env:
+          QIPLI_SPARKLE_PRIVATE_KEY: ${{ secrets.QIPLI_SPARKLE_PRIVATE_KEY }}
+        run: |
+          scripts/generate-sparkle-appcast.sh \
+            "${{ steps.release.outputs.tag }}" \
+            "$RUNNER_TEMP/appcast.xml"
+
       - name: Verify draft candidate and publish
         env:
           GH_TOKEN: ${{ github.token }}
           QIPLI_DEVELOPMENT_TEAM: ${{ secrets.QIPLI_DEVELOPMENT_TEAM }}
         run: scripts/publish-github-release.sh "${{ steps.release.outputs.tag }}"
+
+      - name: Publish Sparkle appcast last
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          scripts/stage-sparkle-pages.sh \
+            "${{ steps.release.outputs.tag }}" \
+            "$RUNNER_TEMP/appcast.xml" \
+            "$RUNNER_TEMP/sparkle-pages"
+
+      - name: Upload verified Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ runner.temp }}/sparkle-pages
+
+  deploy-appcast:
+    needs: signed-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy Sparkle appcast to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

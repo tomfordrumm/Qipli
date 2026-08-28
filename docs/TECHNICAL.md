@@ -2,7 +2,7 @@
 
 Статус: архитектура MVP, публичной поставки и безопасных обновлений
 
-Дата базовой проверки платформы: 2026-08-06; S004 input/panel contracts перепроверены: 2026-08-08; Accessibility identity/release signing перепроверены: 2026-08-09; Settings/onboarding/ServiceManagement перепроверены: 2026-08-12; Developer ID/notarization, GitHub Actions/Releases и Sparkle contracts перепроверены: 2026-08-26
+Дата базовой проверки платформы: 2026-08-06; S004 input/panel contracts перепроверены: 2026-08-08; Accessibility identity/release signing перепроверены: 2026-08-09; Settings/onboarding/ServiceManagement перепроверены: 2026-08-12; Developer ID/notarization и GitHub Actions/Releases перепроверены: 2026-08-26; Sparkle `2.9.6` contracts перепроверены: 2026-08-28
 
 Поддерживаемая платформа: macOS 14+
 
@@ -51,7 +51,7 @@ Qipli — нативное menu bar приложение на Swift. Интер�
 - GitHub, [GitHub-hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners), [Using secrets in GitHub Actions](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets), [Triggering a workflow](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow) и [Managing releases](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository): macOS runners, protected secrets, tag filters и release assets поддерживают выбранный pipeline.
 - Sparkle, [Documentation](https://sparkle-project.org/documentation/) и [Publishing an update](https://sparkle-project.org/documentation/publishing/): regular app update требует возрастающий `CFBundleVersion`, HTTPS feed, Developer ID code signature и EdDSA-signed archive; `generate_appcast` является рекомендуемым способом создания feed.
 
-Базовые ссылки и выводы проверены 2026-08-06. S006/S007 повторно сверили scoped input/panel contracts 2026-08-08: `.defaultTap` как active filter, callback run-loop delivery, permission/mask failure, 64-bit `eventSourceUserData`, ownership `changeCount` и `clearContents()` result; `windowShouldClose(_:)` как user-close interception и `orderOut(_:)` для hiding reusable nonactivating panel. S009 design recheck 2026-08-08 подтвердил HIG material hierarchy и local macOS 26 SDK availability `NSGlassEffectView` при сохранении `NSVisualEffectView` fallback. S010/S011 recheck 2026-08-12 подтвердил `SMAppService.mainApp` и HIG optional/contextual onboarding guidance. S013–S015 platform recheck 2026-08-26 подтвердил GitHub-hosted macOS runners, protected secrets, tag triggers, same-repository Releases, Apple automated notarization и Sparkle HTTPS/Developer ID/EdDSA update chain. Реальный CI release и old-to-new Sparkle update остаются непроверенными до соответствующих срезов.
+Базовые ссылки и выводы проверены 2026-08-06. S006/S007 повторно сверили scoped input/panel contracts 2026-08-08: `.defaultTap` как active filter, callback run-loop delivery, permission/mask failure, 64-bit `eventSourceUserData`, ownership `changeCount` и `clearContents()` result; `windowShouldClose(_:)` как user-close interception и `orderOut(_:)` для hiding reusable nonactivating panel. S009 design recheck 2026-08-08 подтвердил HIG material hierarchy и local macOS 26 SDK availability `NSGlassEffectView` при сохранении `NSVisualEffectView` fallback. S010/S011 recheck 2026-08-12 подтвердил `SMAppService.mainApp` и HIG optional/contextual onboarding guidance. S013/S014 platform recheck 2026-08-26 подтвердил GitHub-hosted macOS runners, protected secrets, tag triggers, same-repository Releases и Apple automated notarization. S015 recheck 2026-08-28 подтвердил current stable Sparkle `2.9.6`, programmatic `SPUStandardUpdaterController`, Info.plist `SUFeedURL`/`SUPublicEDKey`, explicit automatic-check preference и EdDSA appcast tooling. Реальный old-to-new Sparkle update остаётся непроверенным до `v1.0.1 → v1.0.2`.
 
 ## 3. Компоненты и ответственность
 
@@ -81,11 +81,12 @@ Sparkle updater ──> public HTTPS appcast ──> EdDSA-verified ZIP ──> 
 - notarization использует App Store Connect API key из GitHub Secrets; `.p12`, `.p8`, пароли и Sparkle private key никогда не коммитятся и не печатаются;
 - existing fail-closed verifier остаётся общей границей для local и CI packaging. CI не дублирует ослабленную проверку;
 - GitHub Release сначала создаётся как draft. Asset, checksum и release notes публикуются до update feed; failed run не меняет текущий stable feed;
+- EdDSA secret проходит раннюю fail-closed сверку с `SUPublicEDKey`; после публичной проверки release asset appcast упаковывается в отдельный Pages artifact и разворачивается pinned official Pages Actions;
 - временный Keychain и key files удаляются в unconditional cleanup step. Fork/PR code не исполняется в контексте release secrets.
 
 ### SecureUpdater
 
-- Sparkle 2 подключается через Swift Package Manager к production Xcode target; версия dependency фиксируется и обновляется отдельным reviewable change;
+- Sparkle `2.9.6` подключается через exact Swift Package Manager dependency к production Xcode target и обновляется отдельным reviewable change;
 - `SPUStandardUpdaterController` или изолированный adapter владеет check/download/install lifecycle, а Application shell предоставляет `Check for Updates…` и Settings binding;
 - automatic checks выключены по умолчанию и включаются только явным действием пользователя. Silent install без подтверждения не используется в первой версии;
 - `SUFeedURL` указывает на публичный GitHub Pages HTTPS appcast; `SUPublicEDKey` хранит только public key, private EdDSA key доступен release job;
@@ -352,7 +353,7 @@ QipliUITests/         in-app keyboard and panel flows
 
 ## 10. Сборка и распространение
 
-- Xcode project/Swift package configuration хранится в репозитории. Sparkle 2 является единственной новой runtime dependency первого публичного релиза и фиксируется через Swift Package Manager.
+- Xcode project/Swift package configuration хранится в репозитории. Sparkle `2.9.6` является единственной новой runtime dependency `v1.0.1` и фиксируется exact через Swift Package Manager. `v1.0.0` updater не содержит и обновляется вручную.
 - Deployment target — macOS 14. Реальный Developer ID release archive 2026-08-26 подтвердил universal binary `arm64+x86_64`.
 - `CFBundleShortVersionString` получает `MARKETING_VERSION`, `CFBundleVersion` получает возрастающий `CURRENT_PROJECT_VERSION`; stable tag `vX.Y.Z` обязан совпадать с short version до начала signing.
 - `.github/workflows/ci.yml` запускается на pull request и push в `main`, использует `contents: read`, не получает release secrets и выполняет tests плюс unsigned build.
@@ -360,7 +361,7 @@ QipliUITests/         in-app keyboard and panel flows
 - Debug может использовать development signing. Локальный устанавливаемый ZIP создаётся только `scripts/package-local.sh` со стабильной `Apple Development` identity; ad-hoc `Sign to Run Locally` отклоняется и не должен использоваться для проверки сохранения TCC-разрешения между rebuilds.
 - Public release создаётся только `scripts/package-release.sh`: Developer ID Application, Hardened Runtime, secure timestamp, notarization через локальный Keychain profile или CI App Store Connect API credential, stapled ticket и повторная проверка распакованного ZIP. Pipeline fail-closed отклоняет ad-hoc/no-Team-ID, `get-task-allow`, App Sandbox/network entitlements, неверный bundle/minimum OS, non-universal binary, forbidden metadata, отсутствие stapled ticket или Gatekeeper acceptance.
 - Release artifact сначала загружается в draft GitHub Release вместе с checksum и release notes. Workflow скачивает candidate через authenticated draft-asset API и проверяет его до stable publication; после публикации S014/S008 повторяют проверку через публичный URL без GitHub authentication.
-- Sparkle `generate_appcast` подписывает archive отдельным EdDSA key. GitHub Pages appcast обновляется только после готового stable asset; feed не хранит private key и не ссылается на mutable `latest` URL.
+- Sparkle `generate_appcast` подписывает archive отдельным EdDSA key. GitHub Pages использует workflow-based HTTPS deployment без publishing branch или PAT; appcast разворачивается только после готового stable asset, не хранит private key и не ссылается на mutable `latest` URL.
 - Notarization требует внешней сети и Apple credentials только в release pipeline; установленному Qipli эти credentials никогда не нужны.
 - Core History/Paste Stack работают без сети. Manual или opt-in update check требует HTTPS-доступ к GitHub Pages и GitHub Releases.
 

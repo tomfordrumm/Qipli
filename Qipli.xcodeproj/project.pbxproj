@@ -41,6 +41,9 @@
 		A00100000000000000000036 /* OnboardingCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000036 /* OnboardingCoordinator.swift */; };
 		A00100000000000000000037 /* OnboardingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000037 /* OnboardingWindowController.swift */; };
 		A00100000000000000000038 /* OnboardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000038 /* OnboardingTests.swift */; };
+		A00100000000000000000039 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A01300000000000000000001 /* Sparkle */; };
+		A00100000000000000000040 /* SecureUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000040 /* SecureUpdater.swift */; };
+		A00100000000000000000041 /* UpdatesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000041 /* UpdatesTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -93,6 +96,8 @@
 		A00200000000000000000037 /* OnboardingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWindowController.swift; sourceTree = "<group>"; };
 		A00200000000000000000038 /* OnboardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingTests.swift; sourceTree = "<group>"; };
 		A00200000000000000000039 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
+		A00200000000000000000040 /* SecureUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureUpdater.swift; sourceTree = "<group>"; };
+		A00200000000000000000041 /* UpdatesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatesTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -100,6 +105,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A00100000000000000000039 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -133,6 +139,7 @@
 				A00400000000000000000011 /* PasteStack */,
 				A00400000000000000000012 /* Settings */,
 				A00400000000000000000013 /* Onboarding */,
+				A00400000000000000000015 /* Updates */,
 				A00400000000000000000005 /* UI */,
 				A00400000000000000000008 /* Resources */,
 			);
@@ -184,6 +191,7 @@
 				A00200000000000000000030 /* PanelMaterialProviderTests.swift */,
 				A00200000000000000000035 /* SettingsTests.swift */,
 				A00200000000000000000038 /* OnboardingTests.swift */,
+				A00200000000000000000041 /* UpdatesTests.swift */,
 			);
 			path = Tests/QipliTests;
 			sourceTree = "<group>";
@@ -262,6 +270,14 @@
 			path = Config;
 			sourceTree = "<group>";
 		};
+		A00400000000000000000015 /* Updates */ = {
+			isa = PBXGroup;
+			children = (
+				A00200000000000000000040 /* SecureUpdater.swift */,
+			);
+			path = Updates;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -278,6 +294,9 @@
 			dependencies = (
 			);
 			name = Qipli;
+			packageProductDependencies = (
+				A01300000000000000000001 /* Sparkle */,
+			);
 			productName = Qipli;
 			productReference = A00200000000000000000011 /* Qipli.app */;
 			productType = "com.apple.product-type.application";
@@ -326,6 +345,9 @@
 				Base,
 			);
 			mainGroup = A00400000000000000000001;
+			packageReferences = (
+				A01400000000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			productRefGroup = A00400000000000000000007 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -377,6 +399,7 @@
 				A00100000000000000000034 /* SettingsWindowController.swift in Sources */,
 				A00100000000000000000036 /* OnboardingCoordinator.swift in Sources */,
 				A00100000000000000000037 /* OnboardingWindowController.swift in Sources */,
+				A00100000000000000000040 /* SecureUpdater.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -392,6 +415,7 @@
 				A00100000000000000000030 /* PanelMaterialProviderTests.swift in Sources */,
 				A00100000000000000000035 /* SettingsTests.swift in Sources */,
 				A00100000000000000000038 /* OnboardingTests.swift in Sources */,
+				A00100000000000000000041 /* UpdatesTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -527,6 +551,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-	};
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A01400000000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.9.6;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A01300000000000000000001 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A01400000000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
+};
 	rootObject = A01000000000000000000001 /* Project object */;
 }

@@ -32,6 +32,11 @@ fork or an unsigned CI run as an installed release.
 You can change the three Qipli shortcuts in Settings. The normal `Command-V` and
 `Escape` behavior are not configurable.
 
+Use `Check for Updates…` from the menu bar or Settings to check the public stable
+feed manually. Periodic checks are off by default and start only after you enable
+`Automatically check for updates` in Settings. Installing an update still requires
+confirmation.
+
 ## Privacy
 
 Qipli stores clipboard history locally on the current Mac for 30 days. It has no
@@ -40,8 +45,10 @@ automatically recognize passwords, API keys, or other sensitive text, so copied
 secrets can enter local history. You can delete one history item or clear all
 Qipli history at any time.
 
-The current version does not make runtime network requests. Secure update checks
-will be added separately and will remain off by default until the user opts in.
+The only runtime network path is Sparkle: a manual check, or periodic checks after
+explicit opt-in, reads Qipli's public GitHub Pages appcast and a selected GitHub
+Release archive. Clipboard text, History, searches, previews, and local identifiers
+are not added to update requests.
 
 ## Build and test
 
