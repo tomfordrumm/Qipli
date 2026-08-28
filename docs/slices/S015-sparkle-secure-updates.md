@@ -91,6 +91,7 @@ covers:
 - Добавлены fail-closed проверки exact tag/version/build/minimum macOS/immutable asset URL/archive length/EdDSA, public asset availability, update privacy boundary и ordering release-before-feed.
 - Первый protected `v1.0.1` recovery run дошёл до Apple notarization и выявил ad-hoc signatures без timestamp у вложенных Sparkle helpers. Release packaging теперь повторно подписывает их в обязательном inside-out порядке и fail closed проверяет Developer ID, Team ID, Hardened Runtime и secure timestamp каждого компонента до отправки Apple.
 - Установленный public `v1.0.1` воспроизвёл launch-time `dyld` crash: dependency `@rpath/Sparkle.framework/Versions/B/Sparkle` существовала и была signed/notarized, но executable содержал только `/usr/lib/swift` runtime path. `v1.0.2 (3)` добавляет `@executable_path/../Frameworks`; один verifier проверяет dependency и `LC_RPATH` каждой architecture в PR CI, unsigned release gate и signed packages.
+- `v1.0.3 (4)` добавляет в нижний правый угол History минимальный keyboard guide: keycaps `↑`/`↓` с `Navigation` и Return с `Paste`. Guide не меняет keyboard routing, paste transaction или размер панели и имеет одну VoiceOver-инструкцию.
 
 ### Проверено
 
@@ -107,10 +108,11 @@ covers:
 - PR `#9`, push-to-main run `33177566269` и protected tag run `33177849702` прошли exact version, 153 tests, universal runtime-linking gate, Developer ID nested signing, Apple notarization, stapling, Gatekeeper, immutable release и appcast-last deployment.
 - Публичный `Qipli-1.0.2.zip` имеет SHA-256 `46071a23522edec7e358653f91a006eac8779e0a26f79c68590b4c6d9e14d45b`. Независимое скачивание подтвердило checksum, version `1.0.2 (3)`, обе architecture, embedded Sparkle resolution, все nested signatures, stapler и Gatekeeper `source=Notarized Developer ID`; production appcast указывает на exact public asset.
 - Независимо скачанный public app успешно запущен из временного каталога: процесс оставался активен, исходный `dyld` crash не воспроизвёлся и новый crash report не появился. После smoke-test временный процесс завершён.
+- Пользователь заменил установленное приложение на public `v1.0.2` и подтвердил, что оно открывается и работает. History guide для `v1.0.3 (4)` прошёл focused presentation test, Light snapshot при неизменной панели 460×340, полный SwiftPM/Xcode suite 154/154 и clean universal Release с version/runtime-linking/privacy/release-contract gates.
 
 ### Отклонения и остаточные риски
 
 - Публичный `v1.0.0` выпущен без Sparkle, а `v1.0.1` падает до запуска updater. Оба требуют ручной установки `v1.0.2`; первый реальный updater proof возможен только между `v1.0.2` и `v1.0.3`.
 - Первый submission `f0b52e36-f273-4dd5-9b63-5a306c53074f` ожидаемо отклонён до публикации artifact/feed из-за nested Sparkle signing gap; исправленный protected run прошёл и заменил этот release candidate.
-- `v1.0.1` и его исторический release остаются immutable. `v1.0.2` опубликован и launch smoke исходного blocker прошёл; остаются установка в `/Applications`, ручной UI smoke и реальный signed/notarized update `v1.0.2 → v1.0.3` с accessibility/failure/data-preservation matrix.
+- `v1.0.1` и его исторический release остаются immutable. `v1.0.2` установлен и запускается; остаётся реальный signed/notarized update `v1.0.2 → v1.0.3` с UI/accessibility/failure/data-preservation matrix.
 - Standard checking/up-to-date/available/download/install/relaunch/error presentation и version admission принадлежат Sparkle; Qipli unit tests покрывают только собственный adapter/settings contract. Tampered/offline/interrupted path остаётся обязательной manual integration проверкой.
