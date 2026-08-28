@@ -96,9 +96,10 @@ covers:
 - Unsigned Xcode Release `1.0.1 (2)` собран universal `arm64+x86_64`; app содержит universal Sparkle.framework, `SUFeedURL` и `SUPublicEDKey`.
 - Public key из Info.plist совпадает с generated Keychain keypair; test appcast для production-shaped ZIP прошёл XML, version/build, minimum macOS, immutable URL, length и EdDSA verification.
 - `scripts/check-update-privacy.sh`, release contract tests, plist/project lint и `git diff --check` прошли.
+- PR `#6` hosted CI run `33171371342` прошёл полный read-only version/public-readiness/SwiftPM/unsigned Debug+Release/built metadata gate без release secrets.
 
 ### Отклонения и остаточные риски
 
 - Публичный `v1.0.0` выпущен без Sparkle и требует ручной установки следующей версии. Первый реальный updater proof возможен только между `v1.0.1` и `v1.0.2`.
-- GitHub Pages production feed пока намеренно не опубликован: он появится только после verified public `v1.0.1` asset. Hosted PR/tag run, signed/notarized artifact и manual UI/failure matrix ещё не пройдены.
+- GitHub Pages production feed пока намеренно не опубликован: он появится только после verified public `v1.0.1` asset. Protected tag run, signed/notarized artifact и manual UI/failure matrix ещё не пройдены.
 - Standard checking/up-to-date/available/download/install/relaunch/error presentation и version admission принадлежат Sparkle; Qipli unit tests покрывают только собственный adapter/settings contract. Tampered/offline/interrupted path остаётся обязательной manual integration проверкой.
