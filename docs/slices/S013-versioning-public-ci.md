@@ -82,9 +82,10 @@ covers:
 - Unsigned Xcode Debug и Release builds прошли; Release app universal `arm64+x86_64`, deployment target macOS 14.
 - Static CI contract, shell syntax, plist/project syntax и `git diff --check` прошли.
 - Public-readiness audit проверил 75 current paths и 34 Git revisions. Credential-shaped values, private signing material и запрещённые clipboard fixtures не найдены.
+- Push-to-main run `33158511887` для commit `05259898d646ae18f85c08d7a230266b21326ec1` прошёл на GitHub-hosted `macos-26`: version checks, CI contract, public-readiness audit, 150 SwiftPM tests и unsigned Debug/Release builds завершились успешно без release secrets и artifacts.
 
 ### Отклонения и остаточные риски
 
-- Реальный GitHub pull request, push-to-main и fork-style run ещё не выполнялись. До этих трёх hosted checks срез остаётся `needs_verification`.
+- Push-to-main проверен. Реальный GitHub pull request и fork-style run ещё не выполнялись. До этих двух hosted checks срез остаётся `needs_verification`.
 - Audit сообщил о пяти старых `dist/*` paths в Git history. Они не содержат обнаруженного private signing material, сейчас `dist/` ignored и `git ls-files dist` пуст. Решение о возможной очистке history относится к public-readiness gate S014.
 - Workflow фиксирует официальный `actions/checkout` v7.0.1 по commit SHA и использует поддерживаемый GitHub-hosted label `macos-26`, сверенные 2026-08-28.

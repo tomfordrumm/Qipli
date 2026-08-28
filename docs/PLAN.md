@@ -39,7 +39,7 @@
 
 ## Milestone M4 — Публичная поставка и безопасные обновления
 
-13. [`S013 — Версии и безопасный public CI`](slices/S013-versioning-public-ci.md) — реализован и локально проверен; ожидает real GitHub PR, push-to-main и fork-style runs без release secrets.
+13. [`S013 — Версии и безопасный public CI`](slices/S013-versioning-public-ci.md) — реализован; локальные проверки и push-to-main run прошли, ожидаются real GitHub PR и fork-style runs без release secrets.
 14. [`S014 — Публичный репозиторий и подписанные GitHub-релизы`](slices/S014-public-signed-github-releases.md) — зависит от S013; заблокирован до выбора open-source лицензии и настройки exportable Developer ID/App Store Connect credentials в защищённом GitHub Environment.
 15. [`S015 — Безопасные обновления через Sparkle`](slices/S015-sparkle-secure-updates.md) — зависит от S014; добавляет ручную и opt-in автоматическую проверку и доказывает реальный upgrade между двумя подписанными версиями.
 
