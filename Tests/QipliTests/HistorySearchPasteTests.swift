@@ -421,6 +421,26 @@ final class PanelActivationPresenterTests: XCTestCase {
     }
 }
 
+final class HistoryKeyboardGuidePresentationTests: XCTestCase {
+    func testGuideShowsNavigationAndPasteKeysWithOneAccessibleInstruction() {
+        XCTAssertEqual(
+            HistoryKeyboardGuidePresentation.navigation,
+            HistoryKeyboardGuideItem(
+                symbolSystemNames: ["arrow.up", "arrow.down"],
+                title: "Navigation"
+            )
+        )
+        XCTAssertEqual(
+            HistoryKeyboardGuidePresentation.paste,
+            HistoryKeyboardGuideItem(symbolSystemNames: ["return"], title: "Paste")
+        )
+        XCTAssertEqual(
+            HistoryKeyboardGuidePresentation.accessibilityLabel,
+            "Use Up and Down Arrow to navigate. Press Return to paste."
+        )
+    }
+}
+
 @MainActor
 final class HistoryPanelIntentTests: XCTestCase {
     func testKeyboardIntentsDriveSelectionPasteAndClose() {

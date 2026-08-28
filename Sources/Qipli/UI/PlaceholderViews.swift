@@ -206,6 +206,46 @@ struct HistoryPanelView: View {
                     Button("Open Settings", action: openAccessibilitySettings)
                 }
             }
+
+            HStack {
+                Spacer(minLength: 0)
+                keyboardGuide
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var keyboardGuide: some View {
+        HStack(spacing: 12) {
+            keyboardGuideItem(HistoryKeyboardGuidePresentation.navigation)
+            keyboardGuideItem(HistoryKeyboardGuidePresentation.paste)
+        }
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(HistoryKeyboardGuidePresentation.accessibilityLabel)
+    }
+
+    private func keyboardGuideItem(_ item: HistoryKeyboardGuideItem) -> some View {
+        HStack(spacing: 5) {
+            HStack(spacing: 2) {
+                ForEach(item.symbolSystemNames, id: \.self) { symbolSystemName in
+                    Image(systemName: symbolSystemName)
+                        .font(.system(size: 8, weight: .semibold))
+                        .frame(width: 16, height: 14)
+                        .background {
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(Color(nsColor: .controlBackgroundColor))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                                }
+                        }
+                        .accessibilityHidden(true)
+                }
+            }
+
+            Text(item.title)
         }
     }
 
@@ -253,6 +293,23 @@ struct HistoryPanelView: View {
             }
         }
     }
+}
+
+struct HistoryKeyboardGuideItem: Equatable {
+    let symbolSystemNames: [String]
+    let title: String
+}
+
+enum HistoryKeyboardGuidePresentation {
+    static let navigation = HistoryKeyboardGuideItem(
+        symbolSystemNames: ["arrow.up", "arrow.down"],
+        title: "Navigation"
+    )
+    static let paste = HistoryKeyboardGuideItem(
+        symbolSystemNames: ["return"],
+        title: "Paste"
+    )
+    static let accessibilityLabel = "Use Up and Down Arrow to navigate. Press Return to paste."
 }
 
 /// Intent is separated from SwiftUI event callbacks so keyboard and row actions
