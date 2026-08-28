@@ -273,3 +273,13 @@
 - Решение: exact unmodified Up/Down/Enter/Escape маршрутизируются локальным AppKit monitor только для key History panel; `windowDidBecomeKey` повторно запрашивает Search focus. `windowDidResignKey` и History-only local/global mouse monitor выполняют passive `orderOut` без активации captured target, тогда как explicit Escape сохраняет прежний focus-restoring cancel. History допускает только одну paste transaction до completion и использует workspace activation notification с bounded timer fallback.
 - Причина: window lifecycle является устойчивой границей для межприложного focus, а один transaction token исключает повторные clipboard writes и synthetic paste commands во время delayed activation.
 - Последствия: Paste Stack остаётся nonactivating и не наследует click-away behavior. Modified keys и text editing проходят native responder chain. Реальный macOS focus/paste/click-away path остаётся manual gate S016.
+
+## D-028: Qipli публикуется под MIT без переписывания безопасной Git-истории
+
+- Статус: `accepted`
+- Дата: 2026-08-28
+- Источник: пользователь после public-readiness audit S013
+- Контекст: перед открытием repository оставались выбор лицензии, судьба пяти старых ignored `dist/*` paths и владелец ручного release gate. Audit не обнаружил credentials, private signing material или clipboard fixtures; inventory старых ZIP содержит только Qipli app bundles.
+- Решение: публиковать Qipli под MIT с copyright `Sviatoslav Zhilichev`; сохранить существующую Git-историю без rewrite; назначить `tomfordrumm` required reviewer protected Environment `release`; после финального успешного audit разрешено перевести repository в public.
+- Причина: MIT соответствует бесплатному open-source utility без copyleft-требования. Безопасная история сохраняет существующие commits и fork, а ручное подтверждение владельца остаётся перед доступом к release secrets и stable publication.
+- Последствия: repository получает `LICENSE`, `README.md` и `SECURITY.md`; пять исторических release-output paths остаются видимы как старые бинарные артефакты и checksums. Любой новый credential или пользовательский payload всё равно блокирует public visibility и требует отдельного remediation plan.

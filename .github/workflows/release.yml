@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing stable tag to recover
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  signed-release:
+    runs-on: macos-26
+    timeout-minutes: 60
+    environment: release
+
+    steps:
+      - name: Check out exact tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve and validate release input
+        id: release
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          scripts/check-release-admission.sh "$RELEASE_TAG"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release contract
+        run: scripts/tests/release-contract-tests.sh
+
+      - name: Run SwiftPM tests
+        run: swift test
+
+      - name: Build unsigned release gate
+        run: |
+          xcodebuild \
+            -project Qipli.xcodeproj \
+            -scheme Qipli \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/QipliReleaseGate" \
+            build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+          scripts/check-project-version.sh \
+            --tag "${{ steps.release.outputs.tag }}" \
+            --built-plist "$RUNNER_TEMP/QipliReleaseGate/Build/Products/Release/Qipli.app/Contents/Info.plist"
+
+      - name: Sign, notarize, staple, and package
+        env:
+          QIPLI_DEVELOPMENT_TEAM: ${{ secrets.QIPLI_DEVELOPMENT_TEAM }}
+          QIPLI_DEVELOPER_ID_APPLICATION: ${{ secrets.QIPLI_DEVELOPER_ID_APPLICATION }}
+          QIPLI_DEVELOPER_ID_P12_BASE64: ${{ secrets.QIPLI_DEVELOPER_ID_P12_BASE64 }}
+          QIPLI_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.QIPLI_DEVELOPER_ID_P12_PASSWORD }}
+          QIPLI_NOTARY_KEY_P8_BASE64: ${{ secrets.QIPLI_NOTARY_KEY_P8_BASE64 }}
+          QIPLI_NOTARY_KEY_ID: ${{ secrets.QIPLI_NOTARY_KEY_ID }}
+          QIPLI_NOTARY_ISSUER_ID: ${{ secrets.QIPLI_NOTARY_ISSUER_ID }}
+        run: scripts/package-hosted-release.sh
+
+      - name: Confirm credential cleanup
+        if: always()
+        run: |
+          if find "$RUNNER_TEMP" -maxdepth 1 -type d -name 'qipli-hosted-release.*' -print -quit | grep -q .; then
+            echo "error: hosted signing material was not cleaned up" >&2
+            exit 1
+          fi
+
+      - name: Verify draft candidate and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QIPLI_DEVELOPMENT_TEAM: ${{ secrets.QIPLI_DEVELOPMENT_TEAM }}
+        run: scripts/publish-github-release.sh "${{ steps.release.outputs.tag }}"

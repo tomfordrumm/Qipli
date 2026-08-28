@@ -12,12 +12,10 @@ repository_root=$(cd "$script_dir/.." && pwd)
 
 : "${QIPLI_DEVELOPMENT_TEAM:?Set QIPLI_DEVELOPMENT_TEAM to the Apple Developer Team ID}"
 : "${QIPLI_DEVELOPER_ID_APPLICATION:?Set QIPLI_DEVELOPER_ID_APPLICATION to the full Developer ID Application certificate name}"
-: "${QIPLI_NOTARY_PROFILE:?Set QIPLI_NOTARY_PROFILE to a notarytool Keychain profile name}"
-
 identity="$QIPLI_DEVELOPER_ID_APPLICATION"
 team_id="$QIPLI_DEVELOPMENT_TEAM"
-notary_profile="$QIPLI_NOTARY_PROFILE"
 notary_timeout="${QIPLI_NOTARY_TIMEOUT:-30m}"
+signing_keychain="${QIPLI_SIGNING_KEYCHAIN:-}"
 
 [[ "$identity" == "Developer ID Application:"* ]] \
     || fail "release identity must start with 'Developer ID Application:'"
@@ -25,6 +23,28 @@ notary_timeout="${QIPLI_NOTARY_TIMEOUT:-30m}"
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/qipli-release.XXXXXX")
 trap 'rm -rf "$work_dir"' EXIT
 archive_path="$work_dir/Qipli.xcarchive"
+
+notary_arguments=()
+if [[ -n "${QIPLI_NOTARY_PROFILE:-}" ]]; then
+    notary_arguments=(--keychain-profile "$QIPLI_NOTARY_PROFILE")
+elif [[ -n "${QIPLI_NOTARY_KEY_PATH:-}" ]] \
+    && [[ -n "${QIPLI_NOTARY_KEY_ID:-}" ]] \
+    && [[ -n "${QIPLI_NOTARY_ISSUER_ID:-}" ]]; then
+    [[ -f "$QIPLI_NOTARY_KEY_PATH" ]] || fail "App Store Connect API key file does not exist"
+    notary_arguments=(
+        --key "$QIPLI_NOTARY_KEY_PATH"
+        --key-id "$QIPLI_NOTARY_KEY_ID"
+        --issuer "$QIPLI_NOTARY_ISSUER_ID"
+    )
+else
+    fail "set a notarytool Keychain profile or complete App Store Connect API credentials"
+fi
+
+signing_flags="--timestamp"
+if [[ -n "$signing_keychain" ]]; then
+    [[ -f "$signing_keychain" ]] || fail "signing Keychain does not exist"
+    signing_flags="$signing_flags --keychain $signing_keychain"
+fi
 
 cd "$repository_root"
 xcodebuild \
@@ -37,7 +57,7 @@ xcodebuild \
     CODE_SIGN_IDENTITY="$identity" \
     DEVELOPMENT_TEAM="$team_id" \
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
-    OTHER_CODE_SIGN_FLAGS=--timestamp
+    OTHER_CODE_SIGN_FLAGS="$signing_flags"
 
 app_path="$archive_path/Products/Applications/Qipli.app"
 [[ -d "$app_path" ]] || fail "archive did not contain Qipli.app"
@@ -61,15 +81,12 @@ ditto -c -k --keepParent --norsrc --noextattr --noqtn --noacl "$app_path" "$subm
 
 notary_result="$work_dir/notary-result.plist"
 xcrun notarytool submit "$submission_path" \
-    --keychain-profile "$notary_profile" \
+    "${notary_arguments[@]}" \
     --wait \
     --timeout "$notary_timeout" \
     --output-format plist > "$notary_result"
 
-notary_status=$(plutil -extract status raw -o - "$notary_result" 2>/dev/null || true)
-submission_id=$(plutil -extract id raw -o - "$notary_result" 2>/dev/null || true)
-[[ "$notary_status" == "Accepted" ]] \
-    || fail "notarization was not accepted (status: ${notary_status:-unknown}, submission: ${submission_id:-unknown})"
+"$script_dir/validate-notary-result.sh" "$notary_result"
 
 xcrun stapler staple "$app_path"
 "$script_dir/verify-signed-app.sh" --mode release --team-id "$team_id" "$app_path"

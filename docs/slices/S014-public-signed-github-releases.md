@@ -25,10 +25,10 @@ covers:
 
 ## Блокеры
 
-- Пользователь должен выбрать open-source лицензию.
 - Для hosted runner нужен exportable Developer ID Application `.p12` с private key и пароль.
 - В protected GitHub Environment нужен App Store Connect API `.p8`, Key ID и Issuer ID с правом notarization.
-- S013 должен завершить version contract и unsigned CI.
+
+Лицензия MIT, copyright `Sviatoslav Zhilichev`, сохранение безопасной Git-истории, approver `tomfordrumm` и public visibility после финального audit подтверждены 2026-08-28. S013 завершён.
 
 ## В scope
 
@@ -60,8 +60,8 @@ covers:
 
 ## Acceptance criteria
 
-- [ ] Пользователь выбрал лицензию; repository содержит README, LICENSE и SECURITY с корректными install, privacy и vulnerability-reporting instructions.
-- [ ] Current tree и доступная Git history не содержат real secrets, private signing material или пользовательский clipboard payload; найденные credentials удалены по согласованному plan и ротированы до public visibility.
+- [x] Пользователь выбрал MIT; repository содержит README, LICENSE и SECURITY с корректными install, privacy и vulnerability-reporting instructions.
+- [x] Current tree и доступная Git history не содержат real secrets, private signing material или пользовательский clipboard payload; пять старых `dist/*` paths проверены и по решению пользователя остаются без history rewrite.
 - [ ] Repository публичный, `main` защищён обязательным S013 CI, а release Environment требует разрешённый gate перед secrets и publication.
 - [ ] Stable tag `vX.Y.Z` совпадает с built short version, использует strictly increasing numeric build и указывает на разрешённый commit.
 - [ ] Hosted runner импортирует Developer ID identity в ephemeral Keychain, собирает universal `arm64+x86_64`, выполняет strict pre-notarization verification и не ослабляет entitlements checks.
@@ -73,7 +73,7 @@ covers:
 
 ## Verification
 
-- [ ] Focused workflow tests/static checks для tag/version admission, missing secrets, failed notarization status и cleanup trap.
+- [x] Focused workflow tests/static checks для tag/version admission, missing secrets, failed notarization status и cleanup trap.
 - [ ] Полный SwiftPM/Xcode test and build gate перед release job.
 - [ ] Реальный protected tag run на GitHub-hosted macOS runner.
 - [ ] До публикации ZIP, повторно скачанный из draft через API, проходит SHA-256, archive inventory, strict verifier, `stapler validate` и Gatekeeper; после публикации та же проверка повторяется через публичный URL без GitHub authentication.
@@ -84,12 +84,22 @@ covers:
 
 ### Реализовано
 
-Не заполнено.
+- Добавлены MIT `LICENSE`, публичный README, SECURITY policy и release notes template с install, Accessibility, Settings, shortcuts, Launch at Login и privacy notes.
+- `.github/workflows/release.yml` принимает только stable version tag или reviewed recovery input, использует protected Environment `release`, pinned checkout и минимальный `contents: write` только для same-repository Release.
+- `scripts/package-hosted-release.sh` валидирует protected values, декодирует `.p12`/`.p8` в runner temp, импортирует certificate во временный Keychain и удаляет key files/Keychain через cleanup trap.
+- `scripts/package-release.sh` сохраняет локальный Keychain-profile path и добавляет hosted App Store Connect API authentication без изменения strict signing/notarization verifier.
+- `scripts/publish-github-release.sh` создаёт или обновляет только draft, повторно скачивает candidate через authenticated API, проверяет checksum/signature/staple/Gatekeeper, публикует stable release и повторяет проверку через публичный URL. Уже опубликованный tag immutable и fail closed отклоняет rerun.
+- Добавлены admission, environment, notary result и static release-contract checks.
 
 ### Проверено
 
-Не заполнено.
+- `scripts/tests/release-contract-tests.sh`: 9 positive/negative cases для workflow contract, missing/malformed secrets, accepted/rejected notarization и tag admission прошли.
+- Shell syntax, release/CI static contracts, workflow YAML parse и `git diff --check` прошли.
+- Полный SwiftPM suite: 150 tests, 0 failures. Unsigned Xcode Debug и Release builds прошли; built metadata соответствует `1.0.0 (1)`, Release executable universal `x86_64 arm64` с deployment target macOS 14.
+- Public-readiness audit проверил 87 current paths и 43 revisions без вывода payload values; blocking paths и credential-shaped values не найдены. Пять старых ignored `dist/*` paths сохранены по D-028.
 
 ### Отклонения и остаточные риски
 
-Не заполнено.
+- GitHub repository пока private. Branch protection, required reviewer, release Environment, public-view smoke и security settings настраиваются после commit/push и непосредственно перед/после смены visibility.
+- Hosted `.p12`, `.p8`, Key ID и Issuer ID пока не предоставлены. Поэтому реальный protected tag run, hosted universal archive, Apple submission и публикация release asset не проверены.
+- Clean-machine launch на macOS 14 остаётся отдельным release gate S008.
