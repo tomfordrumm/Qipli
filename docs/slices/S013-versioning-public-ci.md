@@ -70,7 +70,7 @@ covers:
 - Source `Info.plist` использует build-setting substitutions; release version больше не продублирована literal values.
 - `scripts/validate-version.sh` проверяет stable `X.Y.Z`, положительный numeric build и точное соответствие `vX.Y.Z`.
 - `scripts/check-project-version.sh` сверяет xcconfig, Debug/Release settings, source plist и опциональный built plist.
-- `.github/workflows/ci.yml` запускает read-only unsigned CI для pull request и push в `main` на `macos-15`, отменяет только устаревший run того же ref и не создаёт artifacts.
+- `.github/workflows/ci.yml` запускает read-only unsigned CI для pull request и push в `main` на `macos-26`, отменяет только устаревший run того же ref и не создаёт artifacts. macOS 26 runner нужен для compile-time доступа к `NSGlassEffectView`; deployment target приложения остаётся macOS 14.
 - `scripts/check-ci-contract.sh` статически запрещает `pull_request_target`, release/signing команды, secret references, write permissions, unpinned Actions и artifact upload.
 - `scripts/audit-public-readiness.sh` проверяет текущие tracked/untracked paths и доступную Git history на private-key/archive paths, credential-shaped values и запрещённые clipboard fixtures, не печатая найденные значения.
 
@@ -87,4 +87,4 @@ covers:
 
 - Реальный GitHub pull request, push-to-main и fork-style run ещё не выполнялись. До этих трёх hosted checks срез остаётся `needs_verification`.
 - Audit сообщил о пяти старых `dist/*` paths в Git history. Они не содержат обнаруженного private signing material, сейчас `dist/` ignored и `git ls-files dist` пуст. Решение о возможной очистке history относится к public-readiness gate S014.
-- Workflow фиксирует официальный `actions/checkout` v7.0.1 по commit SHA и использует поддерживаемый GitHub-hosted label `macos-15`, сверенные 2026-08-28.
+- Workflow фиксирует официальный `actions/checkout` v7.0.1 по commit SHA и использует поддерживаемый GitHub-hosted label `macos-26`, сверенные 2026-08-28.
