@@ -283,3 +283,13 @@
 - Решение: публиковать Qipli под MIT с copyright `Sviatoslav Zhilichev`; сохранить существующую Git-историю без rewrite; назначить `tomfordrumm` required reviewer protected Environment `release`; после финального успешного audit разрешено перевести repository в public.
 - Причина: MIT соответствует бесплатному open-source utility без copyleft-требования. Безопасная история сохраняет существующие commits и fork, а ручное подтверждение владельца остаётся перед доступом к release secrets и stable publication.
 - Последствия: repository получает `LICENSE`, `README.md` и `SECURITY.md`; пять исторических release-output paths остаются видимы как старые бинарные артефакты и checksums. Любой новый credential или пользовательский payload всё равно блокирует public visibility и требует отдельного remediation plan.
+
+## D-029: Broken stable release не переписывается, а получает versioned runtime hotfix
+
+- Статус: `accepted`
+- Дата: 2026-08-28
+- Источник: пользователь после воспроизведения launch failure установленного `v1.0.1`
+- Контекст: публичный signed/notarized `v1.0.1` содержал Sparkle.framework, но executable не имел `LC_RPATH @executable_path/../Frameworks` и завершался в `dyld` до `main`. Signing, notarization, stapling и Gatekeeper не проверяют, способен ли executable разрешить embedded dynamic framework. Release и production appcast уже были публичны, поэтому повторное перемещение тега нарушило бы immutable release contract.
+- Решение: сохранить `v1.0.1` как исторический broken release; выпустить `v1.0.2 (3)` как ручной hotfix с explicit embedded-framework runpath. Unsigned CI, protected release gate и signed app verifier обязаны проверять Sparkle dependency и нужный `LC_RPATH` для каждой architecture. Первый реальный updater proof переносится на `v1.0.2 → v1.0.3`.
+- Причина: новая версия сохраняет воспроизводимую публичную историю и numeric ordering, а runtime-linking gate закрывает точную границу, которую пропустили build/signing checks.
+- Последствия: `v1.0.1` не может обновиться самостоятельно, потому что падает до запуска Sparkle; пользователь вручную устанавливает `v1.0.2`. Production appcast меняется только после успешного immutable `v1.0.2` release. S015 остаётся `in_progress` до manual launch `v1.0.2` и signed/notarized update `v1.0.2 → v1.0.3` с полной preservation/failure matrix.

@@ -22,6 +22,8 @@ grep -Eq '^  cancel-in-progress: true$' "$workflow" || fail "CI must cancel stal
 grep -Eq '^    runs-on: macos-26$' "$workflow" || fail "CI must use the reviewed macos-26 runner"
 grep -Fq 'scripts/tests/release-contract-tests.sh' "$workflow" \
     || fail "CI must validate the release packaging contract without secrets"
+grep -Fq 'scripts/verify-runtime-linking.sh' "$workflow" \
+    || fail "CI must verify embedded framework runtime linking"
 
 if grep -Eq 'pull_request_target|secrets\.|permissions: write|contents: write|package-release\.sh|notarytool|codesign|security import|gh release|upload-artifact' "$workflow"; then
     fail "CI contains a release, secret, write-permission or artifact-upload path"

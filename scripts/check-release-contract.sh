@@ -18,6 +18,7 @@ sparkle_key_validator="$repository_root/scripts/validate-sparkle-release-key.sh"
 sparkle_resigner="$repository_root/scripts/resign-sparkle-for-release.sh"
 release_packager="$repository_root/scripts/package-release.sh"
 signed_app_verifier="$repository_root/scripts/verify-signed-app.sh"
+runtime_link_verifier="$repository_root/scripts/verify-runtime-linking.sh"
 
 [[ -f "$workflow" ]] || fail "missing .github/workflows/release.yml"
 [[ -f "$hosted_packager" ]] || fail "missing hosted release packager"
@@ -26,6 +27,7 @@ signed_app_verifier="$repository_root/scripts/verify-signed-app.sh"
 [[ -f "$pages_stager" ]] || fail "missing Sparkle Pages stager"
 [[ -f "$sparkle_key_validator" ]] || fail "missing Sparkle key validator"
 [[ -f "$sparkle_resigner" ]] || fail "missing Sparkle release resigner"
+[[ -x "$runtime_link_verifier" ]] || fail "missing executable runtime linking verifier"
 
 grep -Eq '^  push:$' "$workflow" || fail "release workflow must have a push trigger"
 grep -Fq "      - 'v*.*.*'" "$workflow" || fail "release workflow must be limited to version tags"
@@ -39,6 +41,7 @@ grep -Fq 'scripts/publish-github-release.sh' "$workflow" || fail "draft verifica
 grep -Fq 'scripts/generate-sparkle-appcast.sh' "$workflow" || fail "signed appcast preparation is missing"
 grep -Fq 'scripts/stage-sparkle-pages.sh' "$workflow" || fail "verified Pages staging is missing"
 grep -Fq 'scripts/validate-sparkle-release-key.sh' "$workflow" || fail "Sparkle key preflight is missing"
+grep -Fq 'scripts/verify-runtime-linking.sh' "$workflow" || fail "unsigned release gate must verify runtime linking"
 grep -Fq 'actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9' "$workflow" \
     || fail "pinned Pages upload action is missing"
 grep -Fq 'actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128' "$workflow" \
@@ -110,6 +113,8 @@ for nested_component in Installer.xpc Downloader.xpc Autoupdate Updater.app Spar
     grep -Fq "$nested_component" "$signed_app_verifier" \
         || fail "release verifier must inspect nested Sparkle component: $nested_component"
 done
+grep -Fq 'verify-runtime-linking.sh' "$signed_app_verifier" \
+    || fail "signed app verifier must reject missing embedded-framework runpaths"
 
 release_line=$(grep -n 'scripts/publish-github-release.sh' "$workflow" | head -n 1 | cut -d: -f1)
 appcast_line=$(grep -n 'scripts/stage-sparkle-pages.sh' "$workflow" | head -n 1 | cut -d: -f1)
