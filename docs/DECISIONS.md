@@ -192,7 +192,7 @@
 - Контекст: menu bar utility полезна при постоянной работе, но запуск без согласия пользователя и локальный boolean, расходящийся с System Settings, создают недоверие и ложное состояние.
 - Решение: использовать `SMAppService.mainApp` без helper process. Settings и onboarding читают фактический `status`; register/unregister выполняются только после явного действия. Onboarding показывает автозапуск выключенным по умолчанию, а `requiresApproval` ведёт в Login Items Settings.
 - Причина: системный API поддерживает main application как login item на macOS 13+, предоставляет status/register/unregister и соответствует deployment target macOS 14.
-- Последствия: login-item state не дублируется в `UserDefaults`; errors и external disable видимы. S010 тестирует adapter без изменения реального system state, manual logout/login повторяется в S008 на подписанном artifact.
+- Последствия: login-item state не дублируется в `UserDefaults`; errors и external disable видимы. `notFound` не блокирует явную попытку регистрации: macOS 26.6 canary 2026-08-27 подтвердил переход `notFound → enabled` после `register()`. S010 тестирует adapter без изменения реального system state, manual logout/login повторяется в S008 на подписанном artifact.
 
 ## D-020 — Настраиваются три Qipli shortcuts, а `⌘V` и `Esc` остаются фиксированными
 
@@ -263,3 +263,13 @@
 - Решение: первый публичный релиз включает Sparkle 2 через Swift Package Manager, manual `Check for Updates…`, выключенные по умолчанию automatic checks и user-confirmed install. Public key хранится в app, private EdDSA key только в release Environment. GitHub Pages appcast публикуется после готового GitHub Release asset.
 - Причина: Apple code signature и Sparkle EdDSA закрывают разные границы доверия. Явный opt-in сохраняет локальную privacy-модель Qipli и не включает фоновую сеть молча.
 - Последствия: update request является единственным runtime network path и не получает clipboard/history/search payload. Первый stable channel использует полный ZIP; beta channel, delta updates, phased rollout и silent install остаются вне scope. S015 обязан доказать реальный update между двумя production-signed версиями и сохранение данных/preferences с Accessibility recheck.
+
+## D-027: History keyboard и dismissal принадлежат AppKit window lifecycle
+
+- Статус: `accepted`
+- Дата: 2026-08-27
+- Источник: пользователь после комплексного ревью intermittent History behavior
+- Контекст: SwiftUI `TextField.onKeyPress` работает только пока Search остаётся first responder, а три немедленных activation check не гарантируют focus для accessory app. Одновременно floating History с `hidesOnDeactivate = false` остаётся видимой после перехода пользователя в другое окно.
+- Решение: exact unmodified Up/Down/Enter/Escape маршрутизируются локальным AppKit monitor только для key History panel; `windowDidBecomeKey` повторно запрашивает Search focus. `windowDidResignKey` и History-only local/global mouse monitor выполняют passive `orderOut` без активации captured target, тогда как explicit Escape сохраняет прежний focus-restoring cancel. History допускает только одну paste transaction до completion и использует workspace activation notification с bounded timer fallback.
+- Причина: window lifecycle является устойчивой границей для межприложного focus, а один transaction token исключает повторные clipboard writes и synthetic paste commands во время delayed activation.
+- Последствия: Paste Stack остаётся nonactivating и не наследует click-away behavior. Modified keys и text editing проходят native responder chain. Реальный macOS focus/paste/click-away path остаётся manual gate S016.

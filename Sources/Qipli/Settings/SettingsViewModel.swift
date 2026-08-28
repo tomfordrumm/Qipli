@@ -50,9 +50,9 @@ final class SettingsViewModel: ObservableObject {
 
     var launchAtLoginCanToggle: Bool {
         switch launchAtLoginStatus {
-        case .notRegistered, .enabled:
+        case .notRegistered, .enabled, .notFound:
             true
-        case .requiresApproval, .notFound:
+        case .requiresApproval:
             false
         }
     }
@@ -60,13 +60,13 @@ final class SettingsViewModel: ObservableObject {
     var launchAtLoginDescription: String {
         switch launchAtLoginStatus {
         case .notRegistered:
-            "Qipli will not open automatically when you sign in."
+            "Qipli won’t open automatically."
         case .enabled:
-            "Qipli will open automatically when you sign in."
+            "Qipli will open when you sign in."
         case .requiresApproval:
             "macOS needs your approval in Login Items before Qipli can open at sign-in."
         case .notFound:
-            "macOS could not find Qipli's login item registration."
+            "Qipli won’t open automatically."
         }
     }
 

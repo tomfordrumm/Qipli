@@ -3,6 +3,35 @@ import Carbon.HIToolbox
 import XCTest
 @testable import Qipli
 
+final class SettingsAccessibilityPresentationTests: XCTestCase {
+    func testGrantedAccessibilityUsesSuccessTint() {
+        let presentation = SettingsAccessibilityPresentation.resolve(
+            permissionState: .granted,
+            inputStatus: .stopped
+        )
+
+        XCTAssertEqual(presentation.symbolName, "checkmark.circle")
+        XCTAssertEqual(presentation.symbolTint, .success)
+    }
+
+    func testNonGrantedAccessibilityKeepsAccentTint() {
+        XCTAssertEqual(
+            SettingsAccessibilityPresentation.resolve(
+                permissionState: .notRequested,
+                inputStatus: .stopped
+            ).symbolTint,
+            .accent
+        )
+        XCTAssertEqual(
+            SettingsAccessibilityPresentation.resolve(
+                permissionState: .denied,
+                inputStatus: .stopped
+            ).symbolTint,
+            .accent
+        )
+    }
+}
+
 final class ShortcutPreferencesTests: XCTestCase {
     func testDefaultsMatchDocumentedQipliShortcuts() {
         let context = makePreferences()
@@ -266,8 +295,32 @@ final class SettingsViewModelTests: XCTestCase {
         context.service.status = .notFound
         context.viewModel.refresh()
         XCTAssertEqual(context.viewModel.launchAtLoginStatus, .notFound)
-        XCTAssertFalse(context.viewModel.launchAtLoginCanToggle)
+        XCTAssertTrue(context.viewModel.launchAtLoginCanToggle)
         XCTAssertFalse(context.viewModel.launchAtLoginIsEnabled)
+    }
+
+    func testNotFoundCanRetryRegistration() {
+        let context = makeViewModel(status: .notFound)
+        defer { context.cleanup() }
+
+        context.viewModel.setLaunchAtLoginEnabled(true)
+
+        XCTAssertEqual(context.service.registerCount, 1)
+        XCTAssertEqual(context.viewModel.launchAtLoginStatus, .enabled)
+        XCTAssertNil(context.viewModel.launchAtLoginError)
+    }
+
+    func testNotFoundRetryFailureStaysRetryableAndVisible() {
+        let context = makeViewModel(status: .notFound)
+        defer { context.cleanup() }
+        context.service.registerError = TestLaunchAtLoginError.denied
+
+        context.viewModel.setLaunchAtLoginEnabled(true)
+
+        XCTAssertEqual(context.service.registerCount, 1)
+        XCTAssertEqual(context.viewModel.launchAtLoginStatus, .notFound)
+        XCTAssertTrue(context.viewModel.launchAtLoginCanToggle)
+        XCTAssertEqual(context.viewModel.launchAtLoginError, "Registration was denied for this test.")
     }
 
     private func makeViewModel(status: LaunchAtLoginStatus) -> (

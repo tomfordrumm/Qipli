@@ -13,6 +13,7 @@ final class HistoryViewModel: ObservableObject {
     @Published private(set) var query = ""
     @Published private(set) var selectedEntryID: UUID?
     @Published private(set) var pasteFailure: HistoryPasteFailure?
+    @Published private(set) var isPasteInProgress = false
     @Published private(set) var searchFocusRequestID = 0
     @Published private(set) var presentationViewportResetRequestID = 0
 
@@ -36,6 +37,7 @@ final class HistoryViewModel: ObservableObject {
         query = ""
         selectedEntryID = nil
         pasteFailure = nil
+        isPasteInProgress = false
         reload(selectFirstResult: true)
     }
 
@@ -91,6 +93,15 @@ final class HistoryViewModel: ObservableObject {
         pasteFailure = nil
     }
 
+    func beginPaste() {
+        pasteFailure = nil
+        isPasteInProgress = true
+    }
+
+    func endPaste() {
+        isPasteInProgress = false
+    }
+
     /// Paste dispatch already succeeded when this is called. A recency persistence
     /// failure is intentionally non-fatal: it must not report a false paste failure
     /// or cause a second dispatch.
@@ -105,7 +116,8 @@ final class HistoryViewModel: ObservableObject {
     func recordExternalText(_ text: String) -> HistoryEntry? {
         do {
             guard let entry = try service.capture(text: text) else { return nil }
-            reload()
+            allEntries.insert(entry, at: 0)
+            applyFilter(selectFirstResult: false)
             return entry
         } catch {
             state = .error
@@ -142,6 +154,7 @@ final class HistoryViewModel: ObservableObject {
             query = ""
             selectedEntryID = nil
             pasteFailure = nil
+            isPasteInProgress = false
             state = .empty
             return true
         } catch {

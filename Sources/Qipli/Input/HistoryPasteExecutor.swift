@@ -115,6 +115,39 @@ struct HistoryTargetActivationWaitPolicy: Equatable {
     }
 }
 
+protocol HistoryTargetActivationObserving: AnyObject {
+    func invalidate()
+}
+
+final class SystemHistoryTargetActivationObservation: HistoryTargetActivationObserving {
+    private let notificationCenter: NotificationCenter
+    private var token: NSObjectProtocol?
+
+    init(
+        notificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
+        onActivation: @escaping () -> Void
+    ) {
+        self.notificationCenter = notificationCenter
+        token = notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            onActivation()
+        }
+    }
+
+    deinit {
+        invalidate()
+    }
+
+    func invalidate() {
+        guard let token else { return }
+        notificationCenter.removeObserver(token)
+        self.token = nil
+    }
+}
+
 enum HistoryFocusRestorer {
     /// Uses the same target activation contract as paste cancellation, but has no pasteboard or event side effect.
     static func returnToCapturedTarget(_ target: HistoryPasteTarget?) -> Bool {
@@ -131,8 +164,11 @@ final class HistoryPasteExecutor {
     private let registerSelfWrite: (Int) -> Void
     private let commandDispatcher: TaggedPasteCommandDispatching
     private let scheduleAfterActivation: (TimeInterval, @escaping () -> Void) -> Void
+    private let observeTargetActivation: (@escaping () -> Void) -> HistoryTargetActivationObserving
     private let now: () -> Date
     private let activationWaitPolicy: HistoryTargetActivationWaitPolicy
+    private var activeOperationID: UUID?
+    private var activationObservation: HistoryTargetActivationObserving?
 
     init(
         permissionService: AccessibilityPermissionChecking,
@@ -146,6 +182,9 @@ final class HistoryPasteExecutor {
             }
             RunLoop.main.add(timer, forMode: .common)
         },
+        observeTargetActivation: @escaping (@escaping () -> Void) -> HistoryTargetActivationObserving = {
+            SystemHistoryTargetActivationObservation(onActivation: $0)
+        },
         now: @escaping () -> Date = Date.init
     ) {
         self.permissionService = permissionService
@@ -154,22 +193,30 @@ final class HistoryPasteExecutor {
         self.commandDispatcher = commandDispatcher
         self.activationWaitPolicy = activationWaitPolicy
         self.scheduleAfterActivation = scheduleAfterActivation
+        self.observeTargetActivation = observeTargetActivation
         self.now = now
     }
 
+    var hasActivePaste: Bool { activeOperationID != nil }
+
+    @discardableResult
     func paste(
         entry: HistoryEntry,
         target: HistoryPasteTarget?,
         closePanel: @escaping () -> Void,
         completion: @escaping (Result<Void, HistoryPasteFailure>) -> Void
-    ) {
+    ) -> Bool {
+        guard activeOperationID == nil else { return false }
+        let operationID = UUID()
+        activeOperationID = operationID
+
         guard permissionService.refresh() == .granted else {
-            completion(.failure(.accessibilityRequired))
-            return
+            finish(operationID: operationID, result: .failure(.accessibilityRequired), completion: completion)
+            return true
         }
         guard let target, !target.isTerminated else {
-            completion(.failure(.targetUnavailable))
-            return
+            finish(operationID: operationID, result: .failure(.targetUnavailable), completion: completion)
+            return true
         }
 
         // Copy the immutable value before any UI or activation side effect can change the selected row.
@@ -178,46 +225,69 @@ final class HistoryPasteExecutor {
             let changeCount = try pasteboardWriter.write(text: textSnapshot)
             registerSelfWrite(changeCount)
         } catch {
-            completion(.failure(.pasteboardWriteFailed))
-            return
+            finish(operationID: operationID, result: .failure(.pasteboardWriteFailed), completion: completion)
+            return true
         }
 
+        let deadline = now().addingTimeInterval(activationWaitPolicy.timeout)
+        activationObservation = observeTargetActivation { [weak self, weak target] in
+            guard let self, let target else { return }
+            self.dispatchWhenTargetIsActive(
+                operationID: operationID,
+                target: target,
+                deadline: deadline,
+                closePanel: closePanel,
+                completion: completion
+            )
+        }
         guard !target.isTerminated, target.activate() else {
-            completion(.failure(.targetUnavailable))
-            return
+            finish(operationID: operationID, result: .failure(.targetUnavailable), completion: completion)
+            return true
         }
 
         // Yield Qipli's active state while History remains visible. macOS 14's
         // cooperative handoff requires the yielding app to still be active.
         dispatchWhenTargetIsActive(
+            operationID: operationID,
             target: target,
-            deadline: now().addingTimeInterval(activationWaitPolicy.timeout),
+            deadline: deadline,
             closePanel: closePanel,
             completion: completion
         )
+        return true
+    }
+
+    func cancelActivePaste() {
+        activeOperationID = nil
+        activationObservation?.invalidate()
+        activationObservation = nil
     }
 
     private func dispatchWhenTargetIsActive(
+        operationID: UUID,
         target: HistoryPasteTarget,
         deadline: Date,
         closePanel: @escaping () -> Void,
         completion: @escaping (Result<Void, HistoryPasteFailure>) -> Void
     ) {
+        guard activeOperationID == operationID else { return }
         guard !target.isTerminated else {
-            completion(.failure(.targetUnavailable))
+            finish(operationID: operationID, result: .failure(.targetUnavailable), completion: completion)
             return
         }
         guard target.isActive else {
             guard now() < deadline else {
-                completion(.failure(.targetUnavailable))
+                finish(operationID: operationID, result: .failure(.targetUnavailable), completion: completion)
                 return
             }
             scheduleAfterActivation(activationWaitPolicy.retryInterval) { [weak self, weak target] in
-                guard let self, let target else {
-                    completion(.failure(.targetUnavailable))
+                guard let self else { return }
+                guard let target else {
+                    self.finish(operationID: operationID, result: .failure(.targetUnavailable), completion: completion)
                     return
                 }
                 self.dispatchWhenTargetIsActive(
+                    operationID: operationID,
                     target: target,
                     deadline: deadline,
                     closePanel: closePanel,
@@ -226,11 +296,25 @@ final class HistoryPasteExecutor {
             }
             return
         }
+        activationObservation?.invalidate()
+        activationObservation = nil
         closePanel()
         guard commandDispatcher.postTaggedCommandV() else {
-            completion(.failure(.commandDispatchFailed))
+            finish(operationID: operationID, result: .failure(.commandDispatchFailed), completion: completion)
             return
         }
-        completion(.success(()))
+        finish(operationID: operationID, result: .success(()), completion: completion)
+    }
+
+    private func finish(
+        operationID: UUID,
+        result: Result<Void, HistoryPasteFailure>,
+        completion: (Result<Void, HistoryPasteFailure>) -> Void
+    ) {
+        guard activeOperationID == operationID else { return }
+        activeOperationID = nil
+        activationObservation?.invalidate()
+        activationObservation = nil
+        completion(result)
     }
 }

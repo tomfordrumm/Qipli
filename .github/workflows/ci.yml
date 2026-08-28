@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate version rules
+        run: scripts/tests/validate-version-tests.sh
+
+      - name: Validate project version
+        run: scripts/check-project-version.sh
+
+      - name: Validate CI permissions and actions
+        run: scripts/check-ci-contract.sh
+
+      - name: Audit public readiness
+        run: scripts/audit-public-readiness.sh
+
+      - name: Run SwiftPM tests
+        run: swift test
+
+      - name: Build unsigned Debug app
+        run: |
+          xcodebuild \
+            -project Qipli.xcodeproj \
+            -scheme Qipli \
+            -configuration Debug \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/QipliDebug" \
+            build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Build unsigned Release app
+        run: |
+          xcodebuild \
+            -project Qipli.xcodeproj \
+            -scheme Qipli \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/QipliRelease" \
+            build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Verify built release metadata
+        run: |
+          scripts/check-project-version.sh \
+            --built-plist "$RUNNER_TEMP/QipliRelease/Build/Products/Release/Qipli.app/Contents/Info.plist"

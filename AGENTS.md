@@ -8,6 +8,7 @@
 - `docs/TECHNICAL.md` — источник истины для архитектуры, системных контрактов macOS, данных, разрешений, безопасности, тестов и распространения.
 - `docs/PLAN.md` — milestones, порядок срезов, зависимости и покрытие требований.
 - `docs/STATE.md` — единственный источник истины для текущих статусов, блокеров, последней проверки и следующего действия.
+- `docs/BACKLOG.md` — отложенные наблюдения и идеи, которые пока не входят в план и не назначены на срез.
 - `docs/DECISIONS.md` — журнал подтверждённых решений, предложений и предположений.
 - `docs/slices/S001-foundation-permissions.md` — walking skeleton и проверка Accessibility/event tap.
 - `docs/slices/S002-history-capture-retention.md` — захват, хранение, retention и удаление истории.
@@ -24,6 +25,7 @@
 - `docs/slices/S013-versioning-public-ci.md` — единый контракт версий и безопасный unsigned CI для публичной разработки.
 - `docs/slices/S014-public-signed-github-releases.md` — публичный репозиторий и подписанные notarized GitHub-релизы по тегу.
 - `docs/slices/S015-sparkle-secure-updates.md` — ручная и opt-in автоматическая проверка обновлений через Sparkle.
+- `docs/slices/S016-history-interaction-reliability.md` — надёжная навигация, вставка и History-only click-away.
 
 ### Подход к поставке
 

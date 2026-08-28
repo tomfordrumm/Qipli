@@ -56,13 +56,11 @@ final class ApplicationShell: NSObject {
             // persistence work. A later Start/Cancel cannot claim this copy;
             // the session watermark also rejects a write that predates Start.
             let captureContext = stackSessionController?.captureContext
-            Task { @MainActor in
-                stackCaptureCoordinator?.recordExternalText(
-                    change.text,
-                    observedChangeCount: change.changeCount,
-                    stackCaptureContext: captureContext
-                )
-            }
+            stackCaptureCoordinator?.recordExternalText(
+                change.text,
+                observedChangeCount: change.changeCount,
+                stackCaptureContext: captureContext
+            )
         }
         pasteboardMonitor = monitor
         inputCoordinator = InputCoordinator(
@@ -313,6 +311,10 @@ final class ApplicationShell: NSObject {
     }
 
     @objc private func showHistory() {
+        // Close the polling freshness window before History reloads. The monitor
+        // and capture coordinator are main-actor synchronous, so this exact
+        // change is durable and visible in the first presentation.
+        pasteboardMonitor.poll()
         panels.showHistory()
     }
 

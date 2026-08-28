@@ -101,6 +101,20 @@ final class HistoryViewModelSearchTests: XCTestCase {
         XCTAssertTrue(store.entries.isEmpty)
     }
 
+    func testExternalCaptureUpdatesVisibleHistoryWithoutRefetchingStorage() {
+        let existing = makeEntry("existing", offset: 1)
+        let store = InMemoryHistoryStore(entries: [existing])
+        let viewModel = HistoryViewModel(service: HistoryService(store: store))
+        viewModel.reload(selectFirstResult: true)
+        let fetchCountBeforeCapture = store.fetchCount
+
+        let captured = viewModel.recordExternalText("new capture")
+
+        XCTAssertEqual(store.fetchCount, fetchCountBeforeCapture)
+        XCTAssertEqual(viewModel.visibleEntries.first?.id, captured?.id)
+        XCTAssertEqual(viewModel.visibleEntries.map(\.text), ["new capture", "existing"])
+    }
+
     private func makeEntry(_ text: String, offset: TimeInterval) -> HistoryEntry {
         HistoryEntry(id: UUID(), text: text, activityAt: Date.now.addingTimeInterval(offset))
     }
@@ -237,6 +251,81 @@ final class HistoryPasteExecutorTests: XCTestCase {
         XCTAssertEqual(trace.events, ["activate"])
     }
 
+    func testRepeatedPasteIsRejectedWhileTargetActivationIsPending() {
+        let trace = Trace()
+        let writer = FakeHistoryPasteboardWriter(changeCount: 12, trace: trace)
+        let target = FakeHistoryPasteTarget(trace: trace, activeResults: [false])
+        let dispatcher = FakePasteCommandDispatcher(trace: trace, result: true)
+        var scheduled: [() -> Void] = []
+        let executor = HistoryPasteExecutor(
+            permissionService: FakeHistoryPermissionService(state: .granted),
+            pasteboardWriter: writer,
+            registerSelfWrite: { _ in },
+            commandDispatcher: dispatcher,
+            scheduleAfterActivation: { _, work in scheduled.append(work) },
+            observeTargetActivation: { FakeActivationObservation(action: $0) }
+        )
+
+        let firstStarted = executor.paste(
+            entry: sampleEntry,
+            target: target,
+            closePanel: { trace.events.append("close") },
+            completion: { _ in }
+        )
+        let repeatedStarted = executor.paste(
+            entry: sampleEntry,
+            target: target,
+            closePanel: { trace.events.append("close") },
+            completion: { _ in }
+        )
+
+        XCTAssertTrue(firstStarted)
+        XCTAssertFalse(repeatedStarted)
+        XCTAssertTrue(executor.hasActivePaste)
+        XCTAssertEqual(writer.writtenTexts.count, 1)
+        XCTAssertEqual(scheduled.count, 1)
+        XCTAssertEqual(trace.events, ["write", "activate"])
+
+        executor.cancelActivePaste()
+        XCTAssertFalse(executor.hasActivePaste)
+    }
+
+    func testActivationNotificationDispatchesBeforeScheduledFallback() {
+        let trace = Trace()
+        let writer = FakeHistoryPasteboardWriter(changeCount: 13, trace: trace)
+        let target = FakeHistoryPasteTarget(trace: trace, activeResults: [false, true])
+        let dispatcher = FakePasteCommandDispatcher(trace: trace, result: true)
+        let observation = FakeActivationObservation()
+        var scheduled: [() -> Void] = []
+        var result: Result<Void, HistoryPasteFailure>?
+        let executor = HistoryPasteExecutor(
+            permissionService: FakeHistoryPermissionService(state: .granted),
+            pasteboardWriter: writer,
+            registerSelfWrite: { _ in },
+            commandDispatcher: dispatcher,
+            scheduleAfterActivation: { _, work in scheduled.append(work) },
+            observeTargetActivation: {
+                observation.action = $0
+                return observation
+            }
+        )
+
+        executor.paste(
+            entry: sampleEntry,
+            target: target,
+            closePanel: { trace.events.append("close") },
+            completion: { result = $0 }
+        )
+        XCTAssertNil(result)
+        XCTAssertEqual(scheduled.count, 1)
+
+        observation.fire()
+
+        XCTAssertNoThrow(try result?.get())
+        XCTAssertEqual(trace.events, ["write", "activate", "close", "dispatch"])
+        XCTAssertFalse(executor.hasActivePaste)
+    }
+
     private var sampleEntry: HistoryEntry {
         HistoryEntry(id: UUID(), text: "safe fixture", activityAt: .now)
     }
@@ -262,6 +351,7 @@ final class HistoryPasteExecutorTests: XCTestCase {
                 clock.advance(by: interval)
                 work()
             },
+            observeTargetActivation: { FakeActivationObservation(action: $0) },
             now: { clock.now }
         )
     }
@@ -345,6 +435,31 @@ final class HistoryPanelIntentTests: XCTestCase {
         XCTAssertEqual(trace.selectionOffsets, [1])
         XCTAssertEqual(trace.pastedEntries, [entry])
         XCTAssertEqual(trace.closeCount, 1)
+    }
+
+    func testWindowKeyboardDownThenEnterPastesTheMovedSelectionSnapshot() {
+        let first = makeEntry("first fixture", offset: 2)
+        let second = makeEntry("second fixture", offset: 1)
+        let viewModel = HistoryViewModel(
+            service: HistoryService(store: InMemoryHistoryStore(entries: [first, second]))
+        )
+        viewModel.prepareForPresentation()
+        var pastedEntries: [HistoryEntry] = []
+        var closeCount = 0
+        let executor = HistoryPanelKeyActionExecutor(
+            moveSelection: viewModel.moveSelection,
+            selectedEntry: { viewModel.selectedEntry },
+            pasteEntry: { pastedEntries.append($0) },
+            close: { closeCount += 1 }
+        )
+
+        XCTAssertTrue(executor.execute(.moveSelection(by: 1)))
+        XCTAssertEqual(viewModel.selectedEntryID, second.id)
+        XCTAssertTrue(executor.execute(.pasteSelection))
+
+        viewModel.select(id: first.id)
+        XCTAssertEqual(pastedEntries.map(\.id), [second.id])
+        XCTAssertEqual(closeCount, 0)
     }
 
     func testDoubleClickSelectsExactIDThenPastesOnceWhenAllowed() {
@@ -504,6 +619,68 @@ final class HistoryPanelIntentTests: XCTestCase {
         XCTAssertTrue(modified.hasDisallowedModifiers)
     }
 
+    func testWindowKeyboardAdmissionRoutesExactKeysAndKeepsNativeModifiedInput() {
+        XCTAssertEqual(HistoryPanelKeyAdmission.action(
+            for: HistoryPanelKeyEvent(key: .up, hasDisallowedModifiers: false, isRepeat: true),
+            isEventInKeyHistoryWindow: true
+        ), .moveSelection(by: -1))
+        XCTAssertEqual(HistoryPanelKeyAdmission.action(
+            for: HistoryPanelKeyEvent(key: .down, hasDisallowedModifiers: false, isRepeat: true),
+            isEventInKeyHistoryWindow: true
+        ), .moveSelection(by: 1))
+        XCTAssertEqual(HistoryPanelKeyAdmission.action(
+            for: HistoryPanelKeyEvent(key: .enter, hasDisallowedModifiers: false, isRepeat: false),
+            isEventInKeyHistoryWindow: true
+        ), .pasteSelection)
+        XCTAssertEqual(HistoryPanelKeyAdmission.action(
+            for: HistoryPanelKeyEvent(key: .escape, hasDisallowedModifiers: false, isRepeat: false),
+            isEventInKeyHistoryWindow: true
+        ), .close)
+        XCTAssertNil(HistoryPanelKeyAdmission.action(
+            for: HistoryPanelKeyEvent(key: .enter, hasDisallowedModifiers: false, isRepeat: true),
+            isEventInKeyHistoryWindow: true
+        ))
+        XCTAssertNil(HistoryPanelKeyAdmission.action(
+            for: HistoryPanelKeyEvent(key: .up, hasDisallowedModifiers: true, isRepeat: false),
+            isEventInKeyHistoryWindow: true
+        ))
+        XCTAssertNil(HistoryPanelKeyAdmission.action(
+            for: HistoryPanelKeyEvent(key: .down, hasDisallowedModifiers: false, isRepeat: false),
+            isEventInKeyHistoryWindow: false
+        ))
+    }
+
+    func testPassiveDismissHidesOnlyWhileExplicitDismissCancelsAndRestoresFocus() {
+        var events: [String] = []
+        let executor = HistoryPanelDismissalExecutor(
+            cancelPaste: { events.append("cancel") },
+            hide: { events.append("hide") },
+            restoreFocus: { events.append("restore") }
+        )
+
+        executor.execute(.passive)
+        XCTAssertEqual(events, ["hide"])
+
+        events.removeAll()
+        executor.execute(.explicit)
+        XCTAssertEqual(events, ["cancel", "hide", "restore"])
+    }
+
+    func testOutsideClickAdmissionAppliesOnlyToVisibleHistoryAndOutsideCoordinates() {
+        XCTAssertTrue(HistoryPanelOutsideClickAdmission.shouldDismiss(
+            isPanelVisible: true,
+            isInsideHistoryPanel: false
+        ))
+        XCTAssertFalse(HistoryPanelOutsideClickAdmission.shouldDismiss(
+            isPanelVisible: true,
+            isInsideHistoryPanel: true
+        ))
+        XCTAssertFalse(HistoryPanelOutsideClickAdmission.shouldDismiss(
+            isPanelVisible: false,
+            isInsideHistoryPanel: false
+        ))
+    }
+
     private func makeKeyEvent(
         keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags = [],
@@ -562,6 +739,7 @@ private final class InMemoryHistoryStore: HistoryStoring {
     var entries: [HistoryEntry]
     var markUsedError: Error?
     var clearAllError: Error?
+    private(set) var fetchCount = 0
 
     init(entries: [HistoryEntry] = [], markUsedError: Error? = nil) {
         self.entries = entries
@@ -569,7 +747,8 @@ private final class InMemoryHistoryStore: HistoryStoring {
     }
 
     func fetchCurrent(since cutoff: Date) throws -> [HistoryEntry] {
-        entries
+        fetchCount += 1
+        return entries
             .filter { $0.activityAt > cutoff }
             .sorted {
                 if $0.activityAt != $1.activityAt {
@@ -623,6 +802,24 @@ private final class FakeActivationClock {
 
     func advance(by interval: TimeInterval) {
         now.addTimeInterval(interval)
+    }
+}
+
+private final class FakeActivationObservation: HistoryTargetActivationObserving {
+    var action: (() -> Void)?
+    private(set) var isInvalidated = false
+
+    init(action: (() -> Void)? = nil) {
+        self.action = action
+    }
+
+    func fire() {
+        action?()
+    }
+
+    func invalidate() {
+        isInvalidated = true
+        action = nil
     }
 }
 

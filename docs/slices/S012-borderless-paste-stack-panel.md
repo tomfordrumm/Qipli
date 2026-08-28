@@ -24,6 +24,7 @@ Paste Stack выглядит как компактная самостоятел�
 - отдельная drag-зона header через системный `NSWindow.performDrag(with:)`;
 - один существующий adaptive material surface со скруглением и системной тенью;
 - edge-to-edge plain List с полноширинными separators и внутренними row paddings;
+- сохранение последнего положения панели между открытиями и relaunch с center fallback при недоступных координатах;
 - сохранение empty/error/next/processing/used/reactivation состояний.
 
 ## Вне scope
@@ -41,11 +42,13 @@ Paste Stack выглядит как компактная самостоятел�
 - [ ] Direction toggle сохраняет current direction semantics и traversal lock.
 - [ ] List и separators занимают полную ширину окна; row content сохраняет читаемые внутренние отступы.
 - [ ] Panel остаётся nonactivating, floating, доступной во всех Spaces/full-screen и не забирает focus у source/target app.
+- [ ] После drag и повторного открытия или relaunch Paste Stack восстанавливает последнее доступное положение; после отключения owning display открывается по центру доступного экрана.
 - [ ] Light/Dark, Reduce Transparency, Increase Contrast, empty/error и длинный multiline content остаются читаемыми.
 
 ## Verification
 
 - [x] Deterministic AppKit tests для custom/native chrome split, nonactivation, geometry и rounded material clipping.
+- [x] Deterministic tests для сохранения координат, восстановления полностью видимого frame и center fallback при отключённом display или частично недоступном frame.
 - [x] Полный SwiftPM XCTest suite.
 - [x] `git diff --check` и scoped privacy/network scan.
 - [ ] Manual macOS smoke: Close, header drag, direction, row reorder, sequential paste, Esc, auto-finish и source/target focus.
@@ -58,5 +61,7 @@ Paste Stack выглядит как компактная самостоятел�
 - Custom header содержит доступный Cancel, центрированный title, direction toggle и отдельную AppKit drag-region через `performDrag(with:)`.
 - List использует plain edge-to-edge layout, нулевые scroll-content margins и внутренние row paddings `14 pt`.
 - Custom Close вызывает существующий `cancelPasteStack()`, поэтому session cleanup и menu state не дублируются.
+- Последняя позиция сохраняется как две конечные координаты в `UserDefaults` через injected store. `PanelController` принимает её только внутри текущих `NSScreen.visibleFrame`; недоступная позиция заменяется существующим центрированием на экране под курсором.
 - SwiftPM: 110 tests, 0 failures. Focused PanelMaterialProviderTests: 8 tests, 0 failures.
+- Follow-up 2026-08-27: focused placement/store tests `7/7`, полный SwiftPM suite `142/142` и Xcode Debug XCTest `142/142` прошли.
 - Осталась ручная visual/interaction matrix из Verification.

@@ -21,11 +21,11 @@ enum AccessibilityPermissionState: Equatable {
     var explanation: String {
         switch self {
         case .notRequested:
-            "Allow Accessibility access to use Qipli’s global shortcuts and send paste commands to the app you were using."
+            "Enable Accessibility in System Settings to use global shortcuts and paste from Qipli."
         case .denied:
             "Accessibility access is currently off. Qipli cannot use global shortcuts or send a paste command until you enable it."
         case .granted:
-            "Accessibility access is enabled. Qipli can listen for its global shortcuts."
+            "Qipli can now use global shortcuts and paste into other apps."
         }
     }
 }

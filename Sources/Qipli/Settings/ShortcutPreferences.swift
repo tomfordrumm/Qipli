@@ -11,11 +11,11 @@ enum ShortcutCommand: String, CaseIterable, Codable, Equatable {
     var title: String {
         switch self {
         case .history:
-            "History"
+            "Open history"
         case .pasteStack:
-            "Start or collect Paste Stack"
+            "Open Paste Stack"
         case .reactivatePrevious:
-            "Reactivate previous item"
+            "Restore previous item"
         }
     }
 }

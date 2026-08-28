@@ -1,6 +1,7 @@
 import XCTest
 @testable import Qipli
 
+@MainActor
 final class PasteboardMonitorTests: XCTestCase {
     func testInitializationDoesNotReadPasteboardBeforeStartupGateOpens() {
         let pasteboard = FakePasteboard(changeCount: 1)
@@ -75,6 +76,22 @@ final class PasteboardMonitorTests: XCTestCase {
         monitor.poll()
 
         XCTAssertEqual(captured, ["newer external value"])
+    }
+
+    func testExplicitPollCompletesCaptureBeforePresentationContinues() {
+        let pasteboard = FakePasteboard(changeCount: 20)
+        var events: [String] = []
+        let monitor = PasteboardMonitor(pasteboard: pasteboard) { change in
+            events.append("capture:\(change.text)")
+        }
+        monitor.start(interval: 3_600)
+        defer { monitor.stop() }
+        pasteboard.setText("fresh value")
+
+        monitor.poll()
+        events.append("present")
+
+        XCTAssertEqual(events, ["capture:fresh value", "present"])
     }
 }
 

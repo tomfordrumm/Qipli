@@ -47,24 +47,6 @@ struct HistoryPanelView: View {
             .focused($searchIsFocused)
             .accessibilityIdentifier("history-search")
             .accessibilityHint("Type to filter history. Use Up and Down Arrow to choose an entry.")
-            .onKeyPress(.upArrow) {
-                schedule(.moveSelection(by: -1))
-                return .handled
-            }
-            .onKeyPress(.downArrow) {
-                schedule(.moveSelection(by: 1))
-                return .handled
-            }
-            .onKeyPress(.return) {
-                if let entry = viewModel.selectedEntry {
-                    schedule(.paste(entry))
-                }
-                return .handled
-            }
-            .onKeyPress(.escape) {
-                schedule(.close)
-                return .handled
-            }
             .background {
                 HistorySearchDeleteKeyMonitor(
                     isSearchFocused: { searchIsFocused },
@@ -196,6 +178,18 @@ struct HistoryPanelView: View {
     @ViewBuilder
     private var footer: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if viewModel.isPasteInProgress {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Pasting…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Pasting selected history entry")
+            }
+
             if let failure = viewModel.pasteFailure {
                 Text(failure.message)
                     .font(.caption)
@@ -216,7 +210,7 @@ struct HistoryPanelView: View {
     }
 
     private var canPaste: Bool {
-        permissionService.state == .granted
+        permissionService.state == .granted && !viewModel.isPasteInProgress
     }
 
     private func schedule(_ intent: HistoryPanelIntent) {

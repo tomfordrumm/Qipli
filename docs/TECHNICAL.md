@@ -145,9 +145,10 @@ S010 заменяет hard-coded History/Stack/Reactivate Previous match зна�
 
 - Settings window — singleton active AppKit window со SwiftUI content; она не наследует nonactivating/floating behavior Stack и не создаёт постоянный Dock icon;
 - typed preferences service загружает три shortcuts и onboarding completion из `UserDefaults`, валидирует весь shortcut snapshot и fail closed восстанавливает defaults при несовместимых данных;
+- Paste Stack хранит в `UserDefaults` только последнюю пару конечных координат панели. При открытии сохранённый frame восстанавливается лишь если полностью входит в `visibleFrame` одного из текущих экранов; иначе панель центрируется на доступном экране под курсором и сохраняет новую позицию;
 - invalid edit не записывается и не меняет runtime snapshot; Reset to Defaults затрагивает только shortcuts;
 - существующий `AccessibilityPermissionService` остаётся единственным permission source of truth для History fallback, Settings и onboarding; отдельные status-menu item и Permission panel отсутствуют;
-- `LaunchAtLoginServicing` изолирует `SMAppService.mainApp.status`, `register()`, `unregister()` и открытие Login Items Settings. `requiresApproval` не считается enabled; errors видимы и retryable;
+- `LaunchAtLoginServicing` изолирует `SMAppService.mainApp.status`, `register()`, `unregister()` и открытие Login Items Settings. `requiresApproval` не считается enabled; `notFound` остаётся явным retryable состоянием и разрешает user-triggered `register()`; errors видимы и retryable;
 - production login-item adapter не требует helper bundle, LaunchAgent, daemon, новой entitlement или network access;
 - при активации Qipli и открытии Settings фактические Accessibility/login-item states refresh-ятся, чтобы внешние изменения в System Settings не маскировались локальным toggle state.
 
@@ -201,7 +202,10 @@ S010 заменяет hard-coded History/Stack/Reactivate Previous match зна�
 5. History остаётся visible, пока Qipli ждёт bounded deadline с main-run-loop retries для обновления `NSRunningApplication.isActive`; только при active target panel закрывается непосредственно перед synthetic `⌘V`.
 6. После accepted-but-exhausted activation History остаётся in place с ошибкой; после dispatch failure закрытая panel повторно открывается. В обоих случаях pasteboard не переписывается и команда не дублируется.
 7. Только после успешной отправки tagged `⌘V` `PanelController` неблокирующе обновляет activity exact selected ID. Ошибка этого durable update не меняет уже успешный результат paste и не вызывает повторную отправку.
-8. UI сообщает только об отправке команды; реальное принятие текста сторонним приложением наблюдать надёжно нельзя.
+8. S016 переносит Up/Down/Enter/Escape с Search-specific SwiftUI handlers на local AppKit monitor, admission которого ограничен текущей key History panel и exact unmodified keyDown. `windowDidBecomeKey` подаёт search-focus request независимо от initial activation retry budget.
+9. Одна UUID transaction блокирует повторные Enter/double-click до completion. Target activation notification проверяет exact captured application и завершает handoff сразу; bounded timer остаётся fallback и единственным timeout path.
+10. `windowDidResignKey` и History-only local/global mouse monitor скрывают History без focus restoration. Explicit Escape использует отдельный cancel path и возвращает captured target. Paste Stack не получает эти dismissal hooks, поэтому click/Command-Tab не крадут новый user focus обратно и не закрывают Stack.
+11. UI сообщает только об отправке команды; реальное принятие текста сторонним приложением наблюдать надёжно нельзя.
 
 ### Вставка из Paste Stack
 

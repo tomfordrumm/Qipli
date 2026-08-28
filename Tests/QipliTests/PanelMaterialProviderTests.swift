@@ -100,6 +100,7 @@ final class PanelMaterialProviderTests: XCTestCase {
         XCTAssertTrue(historyConfiguration.styleMask.contains(.closable))
         XCTAssertTrue(historyConfiguration.styleMask.contains(.utilityWindow))
         XCTAssertTrue(historyConfiguration.styleMask.contains(.fullSizeContentView))
+        XCTAssertTrue(historyConfiguration.dismissesOnOutsideClick)
 
         let stackConfiguration = PanelWindowConfiguration.make(for: .pasteStack)
         XCTAssertEqual(stackConfiguration.chrome, .custom(cornerRadius: 18))
@@ -107,6 +108,7 @@ final class PanelMaterialProviderTests: XCTestCase {
         XCTAssertFalse(stackConfiguration.styleMask.contains(.closable))
         XCTAssertFalse(stackConfiguration.styleMask.contains(.utilityWindow))
         XCTAssertFalse(stackConfiguration.styleMask.contains(.fullSizeContentView))
+        XCTAssertFalse(stackConfiguration.dismissesOnOutsideClick)
         XCTAssertFalse(PanelWindowConfiguration.make(for: .history).styleMask.contains(.nonactivatingPanel))
         XCTAssertTrue(stackConfiguration.styleMask.contains(.nonactivatingPanel))
         XCTAssertEqual(PanelWindowConfiguration.make(for: .history).contentRect.size, NSSize(width: 460, height: 340))

@@ -365,9 +365,24 @@ struct SettingsAccessibilityPresentation {
         case openSettings
     }
 
+    enum SymbolTint: Equatable {
+        case accent
+        case success
+
+        var color: Color {
+            switch self {
+            case .accent:
+                .accentColor
+            case .success:
+                .green
+            }
+        }
+    }
+
     let status: String
     let explanation: String
     let symbolName: String
+    let symbolTint: SymbolTint
     let buttonTitle: String
     let action: Action
 
@@ -380,6 +395,7 @@ struct SettingsAccessibilityPresentation {
                 status: "Global input unavailable",
                 explanation: message,
                 symbolName: "exclamationmark.triangle",
+                symbolTint: .accent,
                 buttonTitle: "Open System Settings",
                 action: .openSettings
             )
@@ -391,6 +407,7 @@ struct SettingsAccessibilityPresentation {
                 status: "Access needed",
                 explanation: permissionState.explanation,
                 symbolName: "lock",
+                symbolTint: .accent,
                 buttonTitle: "Allow Access",
                 action: .requestAccess
             )
@@ -399,6 +416,7 @@ struct SettingsAccessibilityPresentation {
                 status: "Access denied",
                 explanation: permissionState.explanation,
                 symbolName: "lock.slash",
+                symbolTint: .accent,
                 buttonTitle: "Open System Settings",
                 action: .openSettings
             )
@@ -407,6 +425,7 @@ struct SettingsAccessibilityPresentation {
                 status: "Access enabled",
                 explanation: permissionState.explanation,
                 symbolName: "checkmark.circle",
+                symbolTint: .success,
                 buttonTitle: "Open System Settings",
                 action: .openSettings
             )

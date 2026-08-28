@@ -26,6 +26,7 @@ final class SystemPasteboardReader: PasteboardReading {
 }
 
 /// Polls the system pasteboard. A suppression is tied to one exact change number, never its text.
+@MainActor
 final class PasteboardMonitor {
     private let pasteboard: PasteboardReading
     private let onExternalText: (PasteboardTextChange) -> Void
@@ -44,7 +45,9 @@ final class PasteboardMonitor {
         stop()
         lastChangeCount = pasteboard.changeCount
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            self?.poll()
+            Task { @MainActor [weak self] in
+                self?.poll()
+            }
         }
     }
 

@@ -83,7 +83,7 @@ covers:
 
 - [x] Status menu открывает единственное native Settings window с доступными General и Shortcuts, а повторное действие не создаёт duplicate.
 - [x] Accessibility state/action в Settings использует существующий permission service и обновляется после System Settings. Отдельные Permission item и panel удалены; permission-required Stack path открывает Settings на General.
-- [x] Launch at Login через `SMAppService.mainApp` корректно показывает off/enabled/requires-approval/error, поддерживает register/unregister и отражает внешнее отключение без ложного успеха.
+- [x] Launch at Login через `SMAppService.mainApp` корректно показывает off/enabled/requires-approval/error, поддерживает register/unregister, оставляет `notFound` retryable и отражает внешнее отключение без ложного успеха.
 - [x] History, Start/Collect Paste Stack и Reactivate Previous переназначаются, применяются без relaunch и сохраняются после штатного restart; defaults точно равны `⌘⇧V`, `⌘⇧C`, `⌘⇧Z`.
 - [x] Invalid, modifier-only, internally duplicated и protected combinations не заменяют последний рабочий snapshot; UI не обещает обнаружить все сторонние conflicts.
 - [x] Обычный `⌘V` и `Esc` сохраняют существующие active/inactive Stack contracts при default и custom shortcuts; tagged synthetic events и keyUp проходят как раньше.
@@ -115,7 +115,7 @@ covers:
 
 - Status menu получил `Settings…`; `SettingsWindowController` создаёт одно активируемое native window, переиспользует его при повторном открытии и обновляет system state при каждом show и возврате приложения в active state.
 - General использует существующий `AccessibilityPermissionService`, различает permission и global-input unavailable, вызывает те же request/System Settings actions и не создаёт второй источник permission state.
-- `SystemLaunchAtLoginService` изолирует `SMAppService.mainApp`. View model читает фактические `notRegistered`, `enabled`, `requiresApproval` и `notFound`, выполняет register/unregister только по явному toggle, показывает retryable error и ведёт `requiresApproval` в Login Items Settings.
+- `SystemLaunchAtLoginService` изолирует `SMAppService.mainApp`. View model читает фактические `notRegistered`, `enabled`, `requiresApproval` и `notFound`, выполняет register/unregister только по явному toggle, показывает retryable error и ведёт `requiresApproval` в Login Items Settings. Исправление 2026-08-27 оставило toggle доступным при `notFound`: signed canary подтвердил реальный переход `notFound → enabled → notRegistered` через register/unregister.
 - `ShortcutPreferences` хранит versioned atomic snapshot трёх bindings в `UserDefaults`. Полный snapshot валидируется до публикации: нужен Command/Control/Option, запрещены внутренние physical-key collisions и защищённые standard editing combinations. Повреждённые данные целиком заменяются defaults с видимым recovery state.
 - Recorder применяет History, Start/Collect Paste Stack и Reactivate Previous сразу. Event tap получает текущий immutable snapshot через thread-safe provider; ordinary `⌘V`, active-Stack `Esc`, synthetic marker и keyDown admission остаются отдельными неизменяемыми контрактами.
 - Shortcuts UI сообщает recording, validation, recovery и errors текстом и SF Symbols, имеет accessibility label/value/help и Reset to Defaults, который меняет только shortcut preferences.
@@ -143,6 +143,7 @@ covers:
 
 - Focused SwiftPM S010 suite: 12 tests, 0 failures.
 - Полный SwiftPM suite после удаления Permission panel: 120 tests, 0 failures. Xcode Debug XCTest прошёл; Xcode project wiring, AppKit window lifecycle и оба target architectures проверены.
+- После исправления retry из `notFound`: 6 focused `SettingsViewModelTests` и полный SwiftPM suite из 135 тестов прошли без ошибок; Developer ID-signed canary с отдельным bundle ID в `/Applications` подтвердил реальный register/unregister path на macOS 26.6.
 - Universal Release с deployment target macOS 14 и `CODE_SIGNING_ALLOWED=NO` собран; `lipo -archs` подтвердил `x86_64 arm64`.
 - `plutil -lint Qipli.xcodeproj/project.pbxproj` и `git diff --check` прошли.
 - 2026-08-26 пользователь проверил большую часть переданной ручной матрицы, подтвердил корректную работу проверенных сценариев и явно принял S010 как `done`.

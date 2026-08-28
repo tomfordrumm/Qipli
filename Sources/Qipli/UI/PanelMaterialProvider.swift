@@ -118,6 +118,7 @@ struct PanelWindowConfiguration {
     let contentRect: NSRect
     let styleMask: NSWindow.StyleMask
     let chrome: PanelWindowChrome
+    let dismissesOnOutsideClick: Bool
 
     static func make(for kind: PanelKind) -> Self {
         switch kind {
@@ -126,14 +127,16 @@ struct PanelWindowConfiguration {
                 title: "History",
                 contentRect: NSRect(x: 0, y: 0, width: 460, height: 340),
                 styleMask: [.titled, .closable, .utilityWindow, .fullSizeContentView],
-                chrome: .native
+                chrome: .native,
+                dismissesOnOutsideClick: true
             )
         case .pasteStack:
             Self(
                 title: "Paste Stack",
                 contentRect: NSRect(x: 0, y: 0, width: 400, height: 360),
                 styleMask: [.borderless, .nonactivatingPanel],
-                chrome: .custom(cornerRadius: 18)
+                chrome: .custom(cornerRadius: 18),
+                dismissesOnOutsideClick: false
             )
         }
     }

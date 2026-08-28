@@ -413,24 +413,24 @@ private struct OnboardingWelcomeView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             OnboardingScreenHeader(
-                title: "Your clipboard history, on this Mac",
-                message: "Qipli keeps a 30-day clipboard history and builds Paste Stacks for repeated work."
+                title: "Save everything you copy",
+                message: "Qipli keeps it all available for 30 days."
             )
 
             OnboardingSurface {
                 VStack(alignment: .leading, spacing: 13) {
                     OnboardingInfoRow(
-                        title: "History stays in your local macOS account.",
+                        title: "Your history stays on this Mac.",
                         symbolName: "internaldrive"
                     )
                     Divider()
                     OnboardingInfoRow(
-                        title: "Qipli has no account and sends no clipboard contents over the network.",
+                        title: "No account needed. Nothing you copy is sent online.",
                         symbolName: "network.slash"
                     )
                     Divider()
                     OnboardingInfoRow(
-                        title: "Passwords and tokens can appear in history. Delete anything you do not want to keep.",
+                        title: "Passwords and tokens may be saved too. Delete anything you don't want to keep.",
                         symbolName: "exclamationmark.shield"
                     )
                 }
@@ -451,15 +451,15 @@ private struct OnboardingAccessibilityView: View {
         )
         VStack(alignment: .leading, spacing: 24) {
             OnboardingScreenHeader(
-                title: "Paste from any app",
-                message: "Accessibility enables global shortcuts and sends a chosen item back to the app you were using. History works without it."
+                title: "Paste anywhere with a shortcut",
+                message: "This permission lets Qipli open with a shortcut and paste your selected item into the app you're using."
             )
 
             OnboardingSurface {
                 HStack(alignment: .top, spacing: 13) {
                     Image(systemName: presentation.symbolName)
                         .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(presentation.symbolTint.color)
                         .frame(width: 24)
 
                     VStack(alignment: .leading, spacing: 6) {
@@ -494,8 +494,8 @@ private struct OnboardingLaunchAtLoginView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             OnboardingScreenHeader(
-                title: "Open Qipli at Login",
-                message: "Launch at Login is optional. Qipli changes this setting only when you use the toggle."
+                title: "Start Qipli automatically",
+                message: "Open Qipli when you sign in, so it’s always ready to use."
             )
 
             OnboardingSurface {
@@ -548,8 +548,8 @@ private struct OnboardingShortcutsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             OnboardingScreenHeader(
-                title: "Qipli shortcuts",
-                message: "Use these from any app. The first three can be changed later in Settings."
+                title: "Your Qipli shortcuts",
+                message: "Use them anywhere on your Mac. You can change the first three later."
             )
 
             OnboardingSurface {
@@ -567,20 +567,20 @@ private struct OnboardingShortcutsView: View {
 
                     Divider()
                     OnboardingShortcutRow(
-                        title: "Paste next Stack item",
+                        title: "Paste next item",
                         shortcut: "⌘V",
                         accessibilityShortcut: "Command V"
                     )
                     Divider()
                     OnboardingShortcutRow(
-                        title: "Cancel active Paste Stack",
+                        title: "Cancel Paste Stack",
                         shortcut: "Esc",
                         accessibilityShortcut: "Escape"
                     )
                 }
             }
 
-            Text("Command-V and Escape are fixed Paste Stack actions.")
+            Text("⌘V and Esc work this way only while Paste Stack is active.")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -624,10 +624,10 @@ private extension OnboardingStep {
 
     var visualCaption: String {
         switch self {
-        case .welcome: "Stored on this Mac"
-        case .accessibility: "Access only when you allow it"
-        case .launchAtLogin: "Off until you enable it"
-        case .shortcuts: "Available from any app"
+        case .welcome: "Local-first"
+        case .accessibility: "Only with your permission"
+        case .launchAtLogin: "Only if you want it to"
+        case .shortcuts: "Works in any app"
         }
     }
 }
