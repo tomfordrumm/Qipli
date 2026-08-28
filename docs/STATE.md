@@ -10,12 +10,12 @@
 - Milestone M1 — рабочая локальная история — завершён.
 - Milestone M2 — Paste Stack — завершён.
 - Milestone M3 — visual polish и product setup — активен: S009 и S010 завершены, S011 и S012 реализованы и ожидают ручной проверки.
-- Milestone M4 — public delivery и secure updates — активен: S013 `needs_verification` до real PR/main/fork CI runs, S014 `blocked` до выбора лицензии и hosted credentials, S015 `planned` после S014.
+- Milestone M4 — public delivery и secure updates — активен: S013 `needs_verification` только до fork-style CI run; push-to-main и обычный PR уже подтверждены. S014 `blocked` до выбора лицензии и hosted credentials, S015 `planned` после S014.
 - Corrective slice S016 `needs_verification`: History-only keyboard routing, single paste transaction, fresh capture и passive click-away реализованы; SwiftPM и unsigned Xcode build пройдены, остаётся manual macOS interaction matrix.
 - S008 остаётся финальным blocked release gate до завершения S011/S012, S014–S016 и полной clean-machine/manual release matrix. Локальные Developer ID и notarization credentials подтверждены 2026-08-26.
 - Fail-closed release workflow создал первый Developer ID-signed и notarized test artifact, но это не публичный релиз и не снимает оставшиеся product/verification blockers.
 - Завершённые срезы: [`S001 — Скелет приложения и системное разрешение`](slices/S001-foundation-permissions.md), [`S002 — Захват, хранение и удаление истории`](slices/S002-history-capture-retention.md), [`S003 — Поиск и повторная вставка из истории`](slices/S003-history-search-paste.md), [`S004 — Сбор и визуальная панель Paste Stack`](slices/S004-stack-collection.md), [`S005 — Порядок и направление обхода`](slices/S005-stack-order-direction.md), [`S006 — Последовательная вставка и прогресс`](slices/S006-stack-sequential-paste.md), [`S007 — Повторная активация и отмена`](slices/S007-stack-recovery-cancel.md), [`S009 — Адаптивные стеклянные панели`](slices/S009-adaptive-glass-panels.md) и [`S010 — Settings, пользовательские сочетания и запуск при входе`](slices/S010-settings-shortcuts-login.md).
-- S013 реализован и локально проверен; следующий gate — реальные GitHub PR, push-to-main и fork-style runs. Параллельный пользовательский gate: ручные clean-profile проверки S011 и visual/interaction matrix S012/S016.
+- S013 реализован; локальные проверки, реальный GitHub push-to-main и обычный PR run прошли. Остался fork-style PR. Параллельный пользовательский gate: ручные clean-profile проверки S011 и visual/interaction matrix S012/S016.
 
 ## Статусы срезов
 
@@ -33,17 +33,17 @@
 | S010 | Settings, пользовательские сочетания и запуск при входе | `done` | S001, S007, S009 |
 | S011 | Опциональный first-run onboarding | `needs_verification` | S010 |
 | S012 | Edge-to-edge Paste Stack с кастомным header | `needs_verification` | S007, S009 |
-| S013 | Версии и безопасный public CI | `needs_verification` | real GitHub PR/main/fork runs |
+| S013 | Версии и безопасный public CI | `needs_verification` | fork-style run; main и обычный PR пройдены |
 | S014 | Публичный репозиторий и подписанные GitHub-релизы | `blocked` | S013; license и hosted signing/notary credentials |
 | S015 | Безопасные обновления через Sparkle | `planned` | S014 |
 | S016 | Надёжная навигация и закрытие History | `needs_verification` | S003 |
 
 ## Блокеры и recheck points
 
-Product-code blockers для S011, S012 и S016 отсутствуют; срезы реализованы и ожидают ручной проверки. S013 реализован и локально проверен, но hosted CI ещё не запущен.
+Product-code blockers для S011, S012 и S016 отсутствуют; срезы реализованы и ожидают ручной проверки. S013 реализован, локально проверен и прошёл hosted push-to-main и обычный PR CI.
 
-- S013 ожидает real GitHub pull request, push-to-main и fork-style runs без release secrets и write permissions.
-- S014 заблокирован: S013 не прошёл hosted CI gate, пользователь ещё не выбрал open-source license, а exportable Developer ID `.p12` и App Store Connect API `.p8` не настроены в protected GitHub Environment.
+- S013 ожидает fork-style run без release secrets и write permissions. Push-to-main run `33158358277` обнаружил несовместимый macOS 15 SDK; после перехода на `macos-26` run `33158511887` прошёл полностью. Обычный PR run `33159567400` также прошёл.
+- S014 заблокирован: S013 ещё не прошёл fork hosted CI gate, пользователь не выбрал open-source license, а exportable Developer ID `.p12` и App Store Connect API `.p8` не настроены в protected GitHub Environment.
 - S015 ожидает S014, потому что real appcast/update proof требует публичного immutable release asset.
 - S008 заблокирован: S011/S012/S016 manual checks, S014/S015 и clean-machine/manual release matrix не завершены.
 - Developer ID Application, Team ID и `qipli-notary` Keychain profile проверены реальной accepted notarization submission.
@@ -77,7 +77,7 @@ Product-code blockers для S011, S012 и S016 отсутствуют; срез
 - 2026-08-27 исправлен Launch at Login dead-end: реальный `SMAppService.mainApp.status == .notFound` больше не блокирует toggle и разрешает явный retry регистрации с видимой ошибкой. 6 focused и полный SwiftPM suite из 135 тестов прошли; отдельный Developer ID-signed canary в `/Applications` на macOS 26.6 подтвердил `notFound → enabled → notRegistered` через register/unregister. Logout/login production artifact остаётся в S008.
 - 2026-08-27 два backlog follow-up реализованы без новых срезов: granted Accessibility в onboarding получил зелёный checkmark через существующий observable permission state, а Paste Stack сохраняет последнюю позицию и восстанавливает её только внутри текущих visible screen frames с center fallback. Focused suites `2/2` и `7/7`, полный SwiftPM suite и Xcode Debug XCTest `142/142` прошли. S011/S012 остаются `needs_verification` до ручной permission и multi-monitor/relaunch проверки.
 - 2026-08-27 S016 реализован: History-only AppKit routing стабилизирует Up/Down/Enter/Escape; Up/Down синхронно меняют selection, а Enter передаёт exact-entry snapshot в отложенную paste transaction. UUID transaction подавляет повторную вставку, workspace notification ускоряет target handoff, fresh show синхронно опрашивает pasteboard, а capture обновляет текущий список без полного fetch. Passive click-away/Command-Tab скрывают только History; Paste Stack lifecycle не изменён. SwiftPM: 150 tests, 0 failures; unsigned universal Xcode Debug build прошёл. Остаётся manual macOS interaction matrix.
-- 2026-08-28 S013 реализован: `Config/Version.xcconfig` задаёт `1.0.0` и numeric build `1`, source plist использует build settings, а pure validator сверяет stable tag/version/build. Read-only GitHub Actions CI для PR и `main` использует pinned official checkout, не получает release secrets и не публикует artifacts. Public-readiness audit проверил 75 current paths и 34 revisions без payload output; найдены только пять старых ignored `dist/*` paths. 8 shell cases, 150 SwiftPM tests, unsigned Debug/Release и built-plist check прошли; Release universal `arm64+x86_64`, macOS 14. S013 остаётся `needs_verification` до real PR/main/fork runs.
+- 2026-08-28 S013 реализован: `Config/Version.xcconfig` задаёт `1.0.0` и numeric build `1`, source plist использует build settings, а pure validator сверяет stable tag/version/build. Read-only GitHub Actions CI для PR и `main` использует pinned official checkout, не получает release secrets и не публикует artifacts. Public-readiness audit проверил 75 current paths и 34 revisions без payload output; найдены только пять старых ignored `dist/*` paths. 8 shell cases, 150 SwiftPM tests, unsigned Debug/Release и built-plist check прошли; Release universal `arm64+x86_64`, macOS 14. Push-to-main run `33158511887` и обычный PR run `33159567400` прошли. S013 остаётся `needs_verification` до fork-style run.
 
 ## Журнал переходов
 
@@ -135,3 +135,5 @@ Product-code blockers для S011, S012 и S016 отсутствуют; срез
 | 2026-08-27 | Выполнены backlog follow-up для onboarding и Paste Stack без новых срезов. | Granted Accessibility использует зелёный semantic tint; позиция Paste Stack хранится локально, проверяется против текущих visible frames и сбрасывается к center fallback при недоступном display. SwiftPM и Xcode Debug XCTest: 142 tests, 0 failures; ручная проверка остаётся в S011/S012. |
 | 2026-08-27 | S016 реализован и переведён в `needs_verification`. | History keyboard, `Down → Enter` exact-entry snapshot, single paste transaction, activation notification, fresh capture и History-only click-away покрыты тестами; Paste Stack не получает dismissal hooks. SwiftPM: 150 tests, 0 failures; unsigned universal Xcode Debug build прошёл. Остаётся manual macOS interaction matrix. |
 | 2026-08-28 | S013 реализован и переведён в `needs_verification`. | Единый version xcconfig, pure tag/version/build validator, read-only pinned unsigned CI и nonpayload public-readiness audit прошли локальные проверки. SwiftPM: 150 tests; unsigned Debug/Release universal build: `arm64+x86_64`, macOS 14, version `1.0.0 (1)`. Остаются real GitHub PR, main и fork-style runs. |
+| 2026-08-28 | Подтверждён push-to-main CI gate S013. | Первый run выявил отсутствие macOS 26 SDK на `macos-15`; runner сменён на `macos-26` без изменения deployment target macOS 14. Run `33158511887` на commit `05259898d646ae18f85c08d7a230266b21326ec1` прошёл все read-only unsigned проверки. Остаются обычный PR и fork-style PR. |
+| 2026-08-28 | Подтверждён обычный pull request CI gate S013. | PR `#1` запустил `pull_request` run `33159567400` на commit `16ef5a7da4e9a7f94e312764229a17aee3d89cc4`; read-only unsigned job прошёл за 1 минуту 31 секунду. Остался fork-style PR. |
