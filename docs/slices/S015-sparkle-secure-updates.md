@@ -57,13 +57,13 @@ covers:
 ## Acceptance criteria
 
 - [x] Production Xcode target и Swift Package tests используют exact Sparkle `2.9.6` без ослабления deployment target macOS 14.
-- [ ] Built app содержит корректные `SUFeedURL` и `SUPublicEDKey`; private EdDSA key отсутствует в app, repository, GitHub Release assets и logs.
+- [x] Built app содержит корректные `SUFeedURL` и `SUPublicEDKey`; private EdDSA key отсутствует в app, repository, GitHub Release assets и logs.
 - [ ] Status menu и Settings предлагают manual `Check for Updates…`; action доступно с клавиатуры и VoiceOver и не включает background checks.
 - [ ] Automatic-check toggle по умолчанию выключен, сохраняет explicit opt-in и может быть отключён без изменения History/Paste Stack behavior.
-- [ ] Appcast использует HTTPS, immutable versioned GitHub Release URL, increasing numeric build, short version, minimum macOS и EdDSA signature.
+- [x] Appcast использует HTTPS, immutable versioned GitHub Release URL, increasing numeric build, short version, minimum macOS и EdDSA signature.
 - [ ] Release workflow готовит stable appcast только после успешного S014 asset verification; failed/draft release не становится update candidate. `v1.0.1` устанавливается вручную и создаёт первый production feed, `v1.0.2` подтверждает update через этот feed.
 - [ ] Manual check различает checking, up-to-date, available, progress, relaunch и retryable error; invalid signature не предлагает или не устанавливает update.
-- [ ] Update request и updater logs не содержат clipboard text, history, search query, previews или локальный Qipli identifier.
+- [x] Update request и updater logs не содержат clipboard text, history, search query, previews или локальный Qipli identifier.
 - [ ] Реальный update с предыдущего production-signed build на следующий сохраняет Core Data history, shortcut preferences, onboarding completion и фактический Launch at Login state.
 - [ ] После relaunch Qipli перепроверяет Accessibility и event tap; сохранённое системное разрешение продолжает работать либо UI честно ведёт пользователя через восстановление без ложного granted state.
 - [ ] Interrupted/tampered/offline update оставляет старую app version запускаемой и не повреждает user store.
@@ -71,11 +71,11 @@ covers:
 ## Verification
 
 - [ ] Unit tests updater preferences, manual/automatic admission, version ordering и failure mapping через injected adapter.
-- [ ] Static privacy check подтверждает отсутствие product payload access и private EdDSA material.
-- [ ] Generated appcast проходит XML/signature validation и указывает на существующий immutable GitHub Release asset; production feed не меняется до завершения release verification.
+- [x] Static privacy check подтверждает отсутствие product payload access и private EdDSA material.
+- [x] Generated appcast проходит XML/signature validation и указывает на существующий immutable GitHub Release asset; production feed не меняется до завершения release verification.
 - [ ] Tampered archive и wrong EdDSA key отклоняются production-signed old build.
 - [ ] Offline, invalid feed, interrupted download и install failure regression сохраняет текущую версию и локальные данные.
-- [ ] Full SwiftPM/Xcode suite, universal Release и S014 signing/notarization gate.
+- [x] Full SwiftPM/Xcode suite, universal Release и S014 signing/notarization gate.
 - [ ] Manual clean-machine matrix: install old build, capture History, change shortcuts/login item, opt in, discover new build, install, relaunch and verify data/Settings/Accessibility.
 - [ ] Manual accessibility matrix: status menu/Settings update controls, VoiceOver, keyboard, Light/Dark and Reduce Motion.
 
@@ -99,10 +99,13 @@ covers:
 - `scripts/check-update-privacy.sh`, release contract tests, plist/project lint и `git diff --check` прошли.
 - Nested signing regression fixture подтвердил шесть вызовов в exact inside-out порядке, preservation entitlements только для Downloader и отказ при отсутствующем helper; обновлённый release contract содержит 11/11 passing cases.
 - PR `#6` hosted CI run `33171371342` прошёл полный read-only version/public-readiness/SwiftPM/unsigned Debug+Release/built metadata gate без release secrets.
+- PR `#7` и push-to-main run `33173641626` проверили nested-signing regression contract на hosted runner. Protected tag run `33174121960` attempt 2 прошёл exact-tag admission, 153 tests, EdDSA key preflight, universal build, inside-out Developer ID signing, nested Team ID/runtime/timestamp verification, Apple notarization, stapling, Gatekeeper, credential cleanup и immutable public release verification.
+- Публичный `Qipli-1.0.1.zip` имеет SHA-256 `a5f5ff23857adee6b7821377316ee0f2fe514065c29fc4d1f7f59e7ffe2bc882`. Независимое unauthenticated скачивание подтвердило checksum, version `1.0.1 (2)`, все пять nested Sparkle signatures, stapler и Gatekeeper `source=Notarized Developer ID`.
+- Production `https://tomfordrumm.github.io/Qipli/appcast.xml` опубликован после release asset и независимо прошёл XML, immutable URL, build/version, minimum macOS, length и public availability checks. Для `github-pages` сохранён `main` и добавлена отдельная deployment policy только для stable tags `v*.*.*`.
 
 ### Отклонения и остаточные риски
 
 - Публичный `v1.0.0` выпущен без Sparkle и требует ручной установки следующей версии. Первый реальный updater proof возможен только между `v1.0.1` и `v1.0.2`.
-- GitHub Pages production feed пока намеренно не опубликован: он появится только после verified public `v1.0.1` asset. Protected tag run, signed/notarized artifact и manual UI/failure matrix ещё не пройдены.
-- Notarization submission `f0b52e36-f273-4dd5-9b63-5a306c53074f` ожидаемо отклонена до публикации artifact/feed из-за nested Sparkle signing gap; исправленный protected run ещё не выполнен.
+- Первый submission `f0b52e36-f273-4dd5-9b63-5a306c53074f` ожидаемо отклонён до публикации artifact/feed из-за nested Sparkle signing gap; исправленный protected run прошёл и заменил этот release candidate.
+- `v1.0.1` и production feed опубликованы. Остаются ручная установка первой Sparkle-enabled версии, UI/accessibility/failure matrix и реальный signed/notarized update `v1.0.1 → v1.0.2` с проверкой сохранности данных.
 - Standard checking/up-to-date/available/download/install/relaunch/error presentation и version admission принадлежат Sparkle; Qipli unit tests покрывают только собственный adapter/settings contract. Tampered/offline/interrupted path остаётся обязательной manual integration проверкой.
