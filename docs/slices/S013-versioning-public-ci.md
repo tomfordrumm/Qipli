@@ -1,7 +1,7 @@
 ---
 id: S013
 title: Версии и безопасный public CI
-status: needs_verification
+status: done
 depends_on: []
 covers:
   - BR-015
@@ -59,7 +59,7 @@ covers:
 - [x] `swift test` и unsigned Xcode Debug/Release build локально.
 - [x] Workflow syntax/static permission check и `git diff --check`.
 - [x] Реальный GitHub pull request run и push-to-main run завершаются успешно без release secrets.
-- [ ] Fork-style PR proof подтверждает отсутствие protected secrets и write permissions.
+- [x] Fork-style PR proof подтверждает отсутствие protected secrets и write permissions.
 - [x] Public-readiness audit сохранён как непayload summary; любой реальный credential блокирует S014 до rotation/remediation.
 
 ## Implementation report
@@ -84,9 +84,10 @@ covers:
 - Public-readiness audit проверил 75 current paths и 34 Git revisions. Credential-shaped values, private signing material и запрещённые clipboard fixtures не найдены.
 - Push-to-main run `33158511887` для commit `05259898d646ae18f85c08d7a230266b21326ec1` прошёл на GitHub-hosted `macos-26`: version checks, CI contract, public-readiness audit, 150 SwiftPM tests и unsigned Debug/Release builds завершились успешно без release secrets и artifacts.
 - Pull request run `33159567400` для PR `#1` и commit `16ef5a7da4e9a7f94e312764229a17aee3d89cc4` прошёл тот же read-only unsigned job за 1 минуту 31 секунду.
+- Fork-style run `33160652451` для PR `#2` из `404-Hub/Qipli` в `tomfordrumm/Qipli` прошёл тот же job за 1 минуту 59 секунд. Repository policy разрешала fork workflows только на время проверки; write tokens, repository secrets и variables для fork workflows оставались выключенными.
 
 ### Отклонения и остаточные риски
 
-- Push-to-main и обычный pull request проверены. До реального fork-style run срез остаётся `needs_verification`.
+- Push-to-main, обычный pull request и pull request из реального приватного fork проверены. После финального fork run временная repository policy должна быть возвращена в выключенное состояние до merge PR `#2`.
 - Audit сообщил о пяти старых `dist/*` paths в Git history. Они не содержат обнаруженного private signing material, сейчас `dist/` ignored и `git ls-files dist` пуст. Решение о возможной очистке history относится к public-readiness gate S014.
 - Workflow фиксирует официальный `actions/checkout` v7.0.1 по commit SHA и использует поддерживаемый GitHub-hosted label `macos-26`, сверенные 2026-08-28.

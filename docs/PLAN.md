@@ -39,8 +39,8 @@
 
 ## Milestone M4 — Публичная поставка и безопасные обновления
 
-13. [`S013 — Версии и безопасный public CI`](slices/S013-versioning-public-ci.md) — реализован; локальные, push-to-main и обычный PR runs прошли, ожидается fork-style run без release secrets.
-14. [`S014 — Публичный репозиторий и подписанные GitHub-релизы`](slices/S014-public-signed-github-releases.md) — зависит от S013; заблокирован до выбора open-source лицензии и настройки exportable Developer ID/App Store Connect credentials в защищённом GitHub Environment.
+13. [`S013 — Версии и безопасный public CI`](slices/S013-versioning-public-ci.md) — завершён; локальные, push-to-main, обычный PR и fork-style runs прошли без release secrets и write permissions.
+14. [`S014 — Публичный репозиторий и подписанные GitHub-релизы`](slices/S014-public-signed-github-releases.md) — prerequisite S013 завершён; срез заблокирован до выбора open-source лицензии и настройки exportable Developer ID/App Store Connect credentials в защищённом GitHub Environment.
 15. [`S015 — Безопасные обновления через Sparkle`](slices/S015-sparkle-secure-updates.md) — зависит от S014; добавляет ручную и opt-in автоматическую проверку и доказывает реальный upgrade между двумя подписанными версиями.
 
 Результат: публичный репозиторий проверяет вклад без signing secrets, версионный tag создаёт один проверенный release artifact, а установленный Qipli может безопасно перейти на следующую подписанную версию.
@@ -64,7 +64,7 @@ S013 -> S014 -> S015
 S003 + S007 + S010 + S011 + S012 + S014 + S015 + S016 -> S008
 ```
 
-Граф ацикличен. S013 имеет статус `needs_verification` до hosted CI runs. S014 заблокирован конкретными внешними prerequisites, S015 остаётся `planned` до S014. S011, S012 и S016 реализованы и требуют ручной проверки. S008 остаётся финальным gate. Изменения pasteboard/input, permission, ServiceManagement, network, dependency, signing или update contracts должны сначала согласовываться в `TECHNICAL.md` и `DECISIONS.md`.
+Граф ацикличен. S013 завершён после локальных и hosted main/PR/fork CI runs. S014 заблокирован конкретными внешними prerequisites, S015 остаётся `planned` до S014. S011, S012 и S016 реализованы и требуют ручной проверки. S008 остаётся финальным gate. Изменения pasteboard/input, permission, ServiceManagement, network, dependency, signing или update contracts должны сначала согласовываться в `TECHNICAL.md` и `DECISIONS.md`.
 
 ## Покрытие требований
 
