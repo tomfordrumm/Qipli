@@ -1,7 +1,7 @@
 ---
 id: S014
 title: Публичный репозиторий и подписанные GitHub-релизы
-status: blocked
+status: needs_verification
 depends_on:
   - S013
 covers:
@@ -25,8 +25,7 @@ covers:
 
 ## Блокеры
 
-- Для hosted runner нужен exportable Developer ID Application `.p12` с private key и пароль.
-- В protected GitHub Environment нужен App Store Connect API `.p8`, Key ID и Issuer ID с правом notarization.
+Hosted signing/notarization blocker снят: protected Environment содержит exportable Developer ID Application `.p12` и App Store Connect API credentials, а real tag run создал публичный notarized release. До `done` остаются clean-machine launch на macOS 14 и реальный immutable rerun уже опубликованного tag.
 
 Лицензия MIT, copyright `Sviatoslav Zhilichev`, сохранение безопасной Git-истории, approver `tomfordrumm` и public visibility после финального audit подтверждены 2026-08-28. S013 завершён.
 
@@ -63,22 +62,22 @@ covers:
 - [x] Пользователь выбрал MIT; repository содержит README, LICENSE и SECURITY с корректными install, privacy и vulnerability-reporting instructions.
 - [x] Current tree и доступная Git history не содержат real secrets, private signing material или пользовательский clipboard payload; пять старых `dist/*` paths проверены и по решению пользователя остаются без history rewrite.
 - [x] Repository публичный, `main` защищён обязательным S013 CI, а release Environment требует `tomfordrumm` approval перед secrets и publication и принимает только tags `v*.*.*`.
-- [ ] Stable tag `vX.Y.Z` совпадает с built short version, использует strictly increasing numeric build и указывает на разрешённый commit.
-- [ ] Hosted runner импортирует Developer ID identity в ephemeral Keychain, собирает universal `arm64+x86_64`, выполняет strict pre-notarization verification и не ослабляет entitlements checks.
-- [ ] `notarytool` использует App Store Connect API credential, submission получает `Accepted`, ticket stapled, а `spctl`/verifier принимают app и повторно распакованный ZIP.
-- [ ] Draft GitHub Release содержит versioned ZIP, SHA-256, requirements, changelog, onboarding/Accessibility/Settings/shortcuts/Launch at Login notes и privacy summary.
-- [ ] Workflow скачивает candidate asset через authenticated draft-asset API, проверяет checksum, archive contents, code signature, staple и Gatekeeper до stable publication.
-- [ ] Logs и artifacts не содержат `.p12`, `.p8`, passwords, private Sparkle key или decoded Keychain data; cleanup выполняется и при failure/cancel.
+- [x] Stable tag `vX.Y.Z` совпадает с built short version, использует strictly increasing numeric build и указывает на разрешённый commit.
+- [x] Hosted runner импортирует Developer ID identity в ephemeral Keychain, собирает universal `arm64+x86_64`, выполняет strict pre-notarization verification и не ослабляет entitlements checks.
+- [x] `notarytool` использует App Store Connect API credential, submission получает `Accepted`, ticket stapled, а `spctl`/verifier принимают app и повторно распакованный ZIP.
+- [x] Draft GitHub Release содержит versioned ZIP, SHA-256, requirements, changelog, onboarding/Accessibility/Settings/shortcuts/Launch at Login notes и privacy summary.
+- [x] Workflow скачивает candidate asset через authenticated draft-asset API, проверяет checksum, archive contents, code signature, staple и Gatekeeper до stable publication.
+- [x] Logs и artifacts не содержат `.p12`, `.p8`, passwords, private Sparkle key или decoded Keychain data; cleanup выполняется и при failure/cancel.
 - [ ] Повторный run для того же tag не создаёт второй release и не заменяет уже опубликованный immutable asset.
 
 ## Verification
 
 - [x] Focused workflow tests/static checks для tag/version admission, missing secrets, failed notarization status и cleanup trap.
-- [ ] Полный SwiftPM/Xcode test and build gate перед release job.
-- [ ] Реальный protected tag run на GitHub-hosted macOS runner.
-- [ ] До публикации ZIP, повторно скачанный из draft через API, проходит SHA-256, archive inventory, strict verifier, `stapler validate` и Gatekeeper; после публикации та же проверка повторяется через публичный URL без GitHub authentication.
+- [x] Полный SwiftPM/Xcode test and build gate перед release job.
+- [x] Реальный protected tag run на GitHub-hosted macOS runner.
+- [x] До публикации ZIP, повторно скачанный из draft через API, проходит SHA-256, archive inventory, strict verifier, `stapler validate` и Gatekeeper; после публикации та же проверка повторяется через публичный URL без GitHub authentication.
 - [ ] Clean-machine launch на минимальной поддерживаемой macOS 14 показывает ожидаемый Developer ID/Gatekeeper path.
-- [ ] Repository public-view smoke подтверждает README/LICENSE/SECURITY, release notes и доступность ZIP без GitHub authentication.
+- [x] Repository public-view smoke подтверждает README/LICENSE/SECURITY, release notes и доступность ZIP без GitHub authentication.
 
 ## Implementation report
 
@@ -86,7 +85,7 @@ covers:
 
 - Добавлены MIT `LICENSE`, публичный README, SECURITY policy и release notes template с install, Accessibility, Settings, shortcuts, Launch at Login и privacy notes.
 - `.github/workflows/release.yml` принимает только stable version tag или reviewed recovery input, использует protected Environment `release`, pinned checkout и минимальный `contents: write` только для same-repository Release.
-- `scripts/package-hosted-release.sh` валидирует protected values, декодирует `.p12`/`.p8` в runner temp, импортирует certificate во временный Keychain и удаляет key files/Keychain через cleanup trap.
+- `scripts/package-hosted-release.sh` валидирует protected values, декодирует `.p12`/`.p8` в runner temp, импортирует certificate во временный Keychain, временно добавляет его в user search list, проверяет exact Developer ID identity и восстанавливает исходный search list через cleanup trap.
 - `scripts/package-release.sh` сохраняет локальный Keychain-profile path и добавляет hosted App Store Connect API authentication без изменения strict signing/notarization verifier.
 - `scripts/publish-github-release.sh` создаёт или обновляет только draft, повторно скачивает candidate через authenticated API, проверяет checksum/signature/staple/Gatekeeper, публикует stable release и повторяет проверку через публичный URL. Уже опубликованный tag immutable и fail closed отклоняет rerun.
 - Добавлены admission, environment, notary result и static release-contract checks.
@@ -100,8 +99,11 @@ covers:
 - Commit `7dbd37dc117305f6b3c695f0505c079e7572fee0` прошёл hosted unsigned CI run `33162629048`: version, CI/release contract, audit, 150 tests, Debug/Release builds и built metadata завершились успешно.
 - `tomfordrumm/Qipli` переведён в public после audit. `main` требует strict `test-and-build`, linear history, conversation resolution и запрещает force-push/delete с enforce-admins. Environment `release` требует `tomfordrumm` approval и custom tag policy `v*.*.*`.
 - Unauthenticated public-view smoke получил HTTP 200 для repository, README, LICENSE и SECURITY. Включены private vulnerability reporting, Dependabot security updates, secret scanning и push protection.
+- Первый tag run `33164714425` fail closed остановился до notarization и publication: import `.p12` прошёл, но Xcode не видел временный Keychain вне user search list. PR `#4` добавил search-list setup, exact identity preflight и restoration; обязательный CI прошёл.
+- Protected tag run `33165198739` на commit `0681078f8a38154aca52981d2f5185bd4c69c58b` прошёл 150 SwiftPM tests, unsigned build gate, universal Developer ID archive, App Store Connect API notarization, stapling, cleanup, draft verification и stable publication.
+- Публичный release [`v1.0.0`](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.0) содержит `Qipli-1.0.0.zip` и checksum. Независимое unauthenticated скачивание подтвердило SHA-256 `b7edd1d56322de6487ea2563a2200185fa430dcca74355e1a052744725d9804e`, version `1.0.0 (1)`, Developer ID signature, stapled ticket и Gatekeeper `source=Notarized Developer ID`.
 
 ### Отклонения и остаточные риски
 
-- Hosted `.p12`, `.p8`, Key ID и Issuer ID пока не предоставлены и Environment secrets пусты. Поэтому реальный protected tag run, hosted universal archive, Apple submission и публикация release asset не проверены.
-- Clean-machine launch на macOS 14 остаётся отдельным release gate S008.
+- Реальный rerun опубликованного `v1.0.0` ещё не выполнен; contract fail closed запрещает второй release или замену immutable assets, но operational proof остаётся открытым.
+- Clean-machine launch на macOS 14 остаётся отдельным release gate S008 и незакрытым verification step S014.
