@@ -10,7 +10,7 @@
 - Milestone M1 — рабочая локальная история — завершён.
 - Milestone M2 — Paste Stack — завершён.
 - Milestone M3 — visual polish и product setup — активен: S009 и S010 завершены, S011 и S012 реализованы и ожидают ручной проверки.
-- Milestone M4 — public delivery и secure updates — активен: repository public, S013 завершён, protected release run опубликовал signed/notarized `v1.0.0`. S014 `needs_verification` до immutable rerun и clean-machine macOS 14 launch; S015 `planned` после S014.
+- Milestone M4 — public delivery и secure updates — активен: repository public, S013 завершён, protected release run опубликовал signed/notarized `v1.0.0`. S014 `needs_verification`; S015 `in_progress` с подтверждённым путём `v1.0.1 → v1.0.2`.
 - Corrective slice S016 `needs_verification`: History-only keyboard routing, single paste transaction, fresh capture и passive click-away реализованы; SwiftPM и unsigned Xcode build пройдены, остаётся manual macOS interaction matrix.
 - S008 остаётся финальным blocked release gate до завершения S011/S012, S014–S016 и полной clean-machine/manual release matrix. Локальные Developer ID и notarization credentials подтверждены 2026-08-26.
 - Fail-closed release workflow опубликовал первый Developer ID-signed и notarized GitHub Release `v1.0.0`; публичный ZIP независимо скачан и принят Gatekeeper.
@@ -35,7 +35,7 @@
 | S012 | Edge-to-edge Paste Stack с кастомным header | `needs_verification` | S007, S009 |
 | S013 | Версии и безопасный public CI | `done` | — |
 | S014 | Публичный репозиторий и подписанные GitHub-релизы | `needs_verification` | public `v1.0.0` опубликован; остаются immutable rerun и clean-machine macOS 14 launch |
-| S015 | Безопасные обновления через Sparkle | `planned` | S014 |
+| S015 | Безопасные обновления через Sparkle | `in_progress` | реализация разрешена параллельно manual gates S014; `v1.0.1 → v1.0.2` |
 | S016 | Надёжная навигация и закрытие History | `needs_verification` | S003 |
 
 ## Блокеры и recheck points
@@ -44,11 +44,12 @@ Product-code blockers для S011, S012 и S016 отсутствуют; срез
 
 - S013: push-to-main run `33158358277` обнаружил несовместимый macOS 15 SDK; после перехода на `macos-26` run `33158511887` прошёл. Обычный PR run `33159567400` и fork-style run `33160652451` из `404-Hub/Qipli` также прошли без release secrets и write permissions.
 - S014 не имеет implementation/credential blocker: protected run `33165198739` опубликовал `v1.0.0`, а публичный ZIP прошёл повторную unauthenticated проверку. До `done` остаются immutable rerun proof и clean-machine macOS 14 launch.
-- S015 ожидает завершения S014; immutable signed release asset для будущего appcast уже существует.
+- S015 product code и release pipeline реализованы для `v1.0.1 (2)`: exact Sparkle `2.9.6`, manual/opt-in UI, отдельный EdDSA key, signed appcast и workflow-based HTTPS GitHub Pages. До закрытия нужны hosted PR/tag run, ручная установка `v1.0.1` и реальный update на `v1.0.2` с failure/data-preservation matrix.
 - S008 заблокирован: S011/S012/S016 manual checks, S014/S015 и clean-machine/manual release matrix не завершены.
 - Developer ID Application, Team ID и `qipli-notary` Keychain profile проверены реальной accepted notarization submission.
 - В S008 повторить подтверждённый в S001 Accessibility/event-tap flow на чистой минимально поддерживаемой macOS 14 с подписанным release artifact.
 - S014 повторил universal `arm64+x86_64` сборку на GitHub-hosted runner, Apple notarization, stapling и Gatekeeper verification.
+- S015 локально: 153 SwiftPM и 153 Xcode tests прошли; unsigned universal Release `1.0.1 (2)` содержит Sparkle.framework и production feed metadata. Public key совпал с Keychain keypair, тестовый appcast прошёл XML/metadata/length/EdDSA verification, privacy/release contract scripts прошли. GitHub Pages включён в HTTPS workflow mode; production feed ещё не опубликован.
 
 ## Последнее проверенное состояние
 
@@ -61,7 +62,7 @@ Product-code blockers для S011, S012 и S016 отсутствуют; срез
 - S002 добавил локальную Core Data/SQLite history, changeCount monitor, retention и базовую панель; SwiftPM и Xcode XCTest прошли по 20 тестов, Xcode Release build прошёл.
 - Пользователь вручную подтвердил exact text/Unicode/multiline capture, duplicates, игнорирование non-text, restart persistence, durable delete, clear-all confirmation, неизменность system pasteboard и отсутствие clipboard payload в логах.
 - S003 реализован: keyboard-active History panel с локализованной strong user-initiated activation, read-only entries/single-select/double-click paste, local search/ID selection, non-animated selection auto-scroll и fresh-show top viewport reset, durable exact-occurrence activity recency, safe history paste executor с target activation before close и bounded main-run-loop wait, active exact-hotkey filtering, deferred keyboard state/window actions и retryable failures. SwiftPM и Xcode XCTest прошли по 45 тестов; Xcode Debug/Release builds прошли. Пользователь подтвердил реальные focus/paste/failure/recency/viewport paths и clean-console keyboard navigation.
-- S001–S007, S009, S010 и S013 имеют статус `done`; S011, S012, S014 и S016 — `needs_verification`; S008 — `blocked`; S015 — `planned`.
+- S001–S007, S009, S010 и S013 имеют статус `done`; S011, S012, S014 и S016 — `needs_verification`; S015 — `in_progress`; S008 — `blocked`.
 - S006 добавил UUID reservation/rollback state machine и deferred sequential paste executor: exact ordinary untagged `⌘V` прерывается только для active Stack with pending/reserved occurrence; tagged events/keyUp/modifiers pass stack path. Used означает successful tagged command dispatch, not target-field confirmation; last all-used snapshot publishes before deferred close. Native `List` processing/used/auto-finish states разделены common-mode run-loop boundaries и unchanged state не публикуется повторно. SwiftPM: 80 tests, 0 failures; Xcode Debug XCTest и universal Release (`arm64+x86_64`) прошли. User подтвердил complete post-fix manual macOS matrix и clean console без layout-recursion warning.
 - S004 добавил временную in-memory StackSession: exact `⌘⇧C` начинает либо сохраняет collection session, показывает nonactivating panel и dispatch-ит tagged ordinary `⌘C` в остающееся active source app; resulting source-owned copy попадает в Stack только после durable History capture и сохраняет duplicate/Unicode occurrences. Menu Start остаётся пустым. Cancel/close/exact global Escape очищают только session; ordinary `⌘V` остаётся не перехваченным. SwiftPM и Xcode Debug XCTest: 59 tests, 0 errors; universal Release arm64+x86_64 собран. Пользователь подтвердил полную ручную matrix: source focus, copies/duplicates/Unicode/multiline, repeat hotkey, Escape/Cancel/red close, History retention, new empty Stack, second display и full-screen/Space.
 - S005 добавил in-memory base-order/direction state machine: UUID-only atomic reorder, direct/reverse next, append-at-end after reorder и narrow traversal lock for S006. Compact nonactivating panel показывает direction/Next и native drag plus accessible Move Up/Down intents without changing ordinary `⌘V`. После ручной regression report direction/drag mutations перенесены за common-mode RunLoop boundary с exact-ID snapshot; SwiftPM и Xcode Debug XCTest: 68 tests, 0 errors; universal Release arm64+x86_64 собран. Пользователь подтвердил полную manual matrix, включая clean console и full-width separators.
@@ -141,3 +142,4 @@ Product-code blockers для S011, S012 и S016 отсутствуют; срез
 | 2026-08-28 | Подготовлен fork-style CI gate S013. | Создан приватный fork `404-Hub/Qipli`; отдельная ветка используется только для реального PR обратно в upstream. В upstream временно разрешён запуск fork PR workflows, при этом write tokens и repository secrets/variables для forks оставлены выключенными. |
 | 2026-08-28 | S013 переведён в `done`. | Fork-style PR `#2` из `404-Hub/Qipli` запустил run `33160652451`; read-only unsigned job прошёл за 1 минуту 59 секунд. Все acceptance criteria и verification steps S013 закрыты. Временная fork workflow policy должна быть выключена до merge PR `#2`. |
 | 2026-08-28 | S014 опубликовал `v1.0.0` и переведён в `needs_verification`. | Первый protected run fail closed обнаружил missing user Keychain search-list setup; PR `#4` прошёл CI и исправил hosted signing. Run `33165198739` выполнил tests/build, Developer ID signing, App Store Connect API notarization, stapling, cleanup, draft verification и stable publication. Независимое публичное скачивание подтвердило SHA-256, version `1.0.0 (1)` и Gatekeeper. Остаются immutable rerun и clean-machine macOS 14 launch. |
+| 2026-08-28 | S015 реализован локально и остаётся `in_progress`. | `v1.0.1 (2)` подключает exact Sparkle `2.9.6`, manual/opt-in update UI и изолированный adapter. EdDSA key, fail-closed appcast/release ordering и workflow-based HTTPS GitHub Pages подготовлены; 153 SwiftPM и 153 Xcode tests, universal Release, key/appcast/privacy/contract checks прошли. Требуются hosted PR/tag, manual `v1.0.1` install и реальный `v1.0.1 → v1.0.2` update/failure matrix. |

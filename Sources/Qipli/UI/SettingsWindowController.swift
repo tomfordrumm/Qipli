@@ -182,6 +182,25 @@ private struct GeneralSettingsView: View {
                 }
             }
 
+            Section("Updates") {
+                Button("Check for Updates…") {
+                    viewModel.checkForUpdates()
+                }
+                .disabled(!viewModel.canCheckForUpdates)
+                .accessibilityHint("Checks Qipli's public update feed now.")
+
+                Toggle(
+                    "Automatically check for updates",
+                    isOn: Binding(
+                        get: { viewModel.automaticallyChecksForUpdates },
+                        set: { viewModel.setAutomaticallyChecksForUpdates($0) }
+                    )
+                )
+                Text(viewModel.updateCheckDescription)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Section("Onboarding") {
                 Button("Show Onboarding Again", action: showOnboarding)
                 Text("Review Qipli's privacy, permission, login, and shortcut setup without resetting your choices.")

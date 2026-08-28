@@ -14,20 +14,24 @@ final class ApplicationShell: NSObject {
     private let stackSequentialPasteExecutor: StackSequentialPasteExecutor
     private let pasteboardMonitor: PasteboardMonitor
     private let shortcutPreferences: ShortcutPreferences
+    private let secureUpdater: SecureUpdaterServicing
     private let settingsViewModel: SettingsViewModel
     private var settingsWindowController: SettingsWindowController!
     private var onboardingCoordinator: OnboardingCoordinator!
     private var onboardingWindowController: OnboardingWindowController!
     private var retentionTimer: Timer?
     private var permissionStateObservation: AnyCancellable?
+    private var updateAvailabilityObservation: AnyCancellable?
     private var statusItem: NSStatusItem?
     private let pasteStackMenuItem = NSMenuItem()
+    private let checkForUpdatesMenuItem = NSMenuItem()
 
     init(
         permissionService: AccessibilityPermissionService = AccessibilityPermissionService(),
         inputAdapter: GlobalInputEventAdapting? = nil,
         shortcutPreferences: ShortcutPreferences = ShortcutPreferences(),
         launchAtLoginService: LaunchAtLoginServicing = SystemLaunchAtLoginService(),
+        secureUpdater: SecureUpdaterServicing? = nil,
         onboardingCompletionStore: OnboardingCompletionStoring = OnboardingCompletionStore(),
         historyStore: HistoryStoring? = nil,
         pasteCommandDispatcher: TaggedPasteCommandDispatching? = nil,
@@ -107,9 +111,12 @@ final class ApplicationShell: NSObject {
             showStackPanel: { panelController.showPasteStack() },
             copyCommandDispatcher: resolvedCopyCommandDispatcher
         )
+        let resolvedSecureUpdater = secureUpdater ?? SparkleSecureUpdater()
+        self.secureUpdater = resolvedSecureUpdater
         settingsViewModel = SettingsViewModel(
             shortcutPreferences: shortcutPreferences,
-            launchAtLoginService: launchAtLoginService
+            launchAtLoginService: launchAtLoginService,
+            secureUpdater: resolvedSecureUpdater
         )
         super.init()
 
@@ -207,7 +214,9 @@ final class ApplicationShell: NSObject {
     }
 
     private func startProductServices() {
+        secureUpdater.start()
         configureStatusItem()
+        observeUpdateAvailability()
         observePermissionChanges()
         refreshInputAvailability()
         historyViewModel.reload()
@@ -224,6 +233,9 @@ final class ApplicationShell: NSObject {
         permissionService.stopMonitoringSystemSettingsChanges()
         permissionStateObservation?.cancel()
         permissionStateObservation = nil
+        updateAvailabilityObservation?.cancel()
+        updateAvailabilityObservation = nil
+        secureUpdater.stop()
         inputCoordinator.stop()
         pasteboardMonitor.stop()
         retentionTimer?.invalidate()
@@ -266,6 +278,11 @@ final class ApplicationShell: NSObject {
         menu.addItem(pasteStackMenuItem)
         menu.addItem(.separator())
 
+        checkForUpdatesMenuItem.title = "Check for Updates…"
+        checkForUpdatesMenuItem.target = self
+        checkForUpdatesMenuItem.action = #selector(checkForUpdates)
+        checkForUpdatesMenuItem.isEnabled = settingsViewModel.canCheckForUpdates
+        menu.addItem(checkForUpdatesMenuItem)
         menu.addItem(menuItem(title: "Settings…", action: #selector(showSettings)))
 
         menu.addItem(.separator())
@@ -303,6 +320,15 @@ final class ApplicationShell: NSObject {
                 Task { @MainActor [weak self] in
                     self?.refreshInputAvailability()
                 }
+            }
+    }
+
+    private func observeUpdateAvailability() {
+        guard updateAvailabilityObservation == nil else { return }
+        updateAvailabilityObservation = settingsViewModel.$canCheckForUpdates
+            .removeDuplicates()
+            .sink { [weak self] canCheck in
+                self?.checkForUpdatesMenuItem.isEnabled = canCheck
             }
     }
 
@@ -361,6 +387,10 @@ final class ApplicationShell: NSObject {
 
     @objc private func showSettings() {
         settingsWindowController.show()
+    }
+
+    @objc private func checkForUpdates() {
+        settingsViewModel.checkForUpdates()
     }
 
     private func showPermissionSettings() {
