@@ -21,7 +21,7 @@ concurrency:
 jobs:
   signed-release:
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 90
     environment: release
 
     steps:

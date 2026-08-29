@@ -69,7 +69,8 @@ Local preferences ──> SettingsService ──> Shortcut snapshot ──> Inpu
 System login items ──> LaunchAtLoginService ──> Settings / Onboarding
 First-run state ──> OnboardingCoordinator ──> startup gate ──> PasteboardMonitor
 
-Version tag ──> protected GitHub Actions ──> signed/notarized ZIP ──> GitHub Release
+Version tag ──> protected GitHub Actions ──> signed/notarized DMG + ZIP ──> GitHub Release
+Landing page ──> releases/latest/download/Qipli.dmg ──> drag Qipli to Applications
 Sparkle updater ──> public HTTPS appcast ──> EdDSA-verified ZIP ──> in-place app update
 ```
 
@@ -80,7 +81,7 @@ Sparkle updater ──> public HTTPS appcast ──> EdDSA-verified ZIP ──> 
 - release job получает минимальные write permissions, проходит protected GitHub Environment и импортирует exportable Developer ID identity во временный Keychain;
 - notarization использует App Store Connect API key из GitHub Secrets; `.p12`, `.p8`, пароли и Sparkle private key никогда не коммитятся и не печатаются;
 - existing fail-closed verifier остаётся общей границей для local и CI packaging. CI не дублирует ослабленную проверку;
-- GitHub Release сначала создаётся как draft. Asset, checksum и release notes публикуются до update feed; failed run не меняет текущий stable feed;
+- GitHub Release сначала создаётся как draft. Versioned DMG, identical stable `Qipli.dmg` alias, DMG checksum, ZIP, ZIP checksum и release notes проверяются до публикации; failed run не меняет текущий stable feed;
 - EdDSA secret проходит раннюю fail-closed сверку с `SUPublicEDKey`; после публичной проверки release asset appcast упаковывается в отдельный Pages artifact и разворачивается pinned official Pages Actions;
 - временный Keychain и key files удаляются в unconditional cleanup step. Fork/PR code не исполняется в контексте release secrets.
 
@@ -360,8 +361,8 @@ QipliUITests/         in-app keyboard and panel flows
 - `.github/workflows/ci.yml` запускается на pull request и push в `main`, использует `contents: read`, не получает release secrets и выполняет tests плюс unsigned build.
 - `.github/workflows/release.yml` запускается только по документированному stable tag или эквивалентному manual dispatch для recovery, использует protected `release` Environment и не подписывает произвольный fork/PR commit.
 - Debug может использовать development signing. Локальный устанавливаемый ZIP создаётся только `scripts/package-local.sh` со стабильной `Apple Development` identity; ad-hoc `Sign to Run Locally` отклоняется и не должен использоваться для проверки сохранения TCC-разрешения между rebuilds.
-- Public release создаётся только `scripts/package-release.sh`: Developer ID Application, Hardened Runtime, secure timestamp, notarization через локальный Keychain profile или CI App Store Connect API credential, stapled ticket и повторная проверка распакованного ZIP. Pipeline fail-closed отклоняет ad-hoc/no-Team-ID, `get-task-allow`, App Sandbox/network entitlements, неверный bundle/minimum OS, non-universal binary, forbidden metadata, отсутствие stapled ticket или Gatekeeper acceptance.
-- Release artifact сначала загружается в draft GitHub Release вместе с checksum и release notes. Workflow скачивает candidate через authenticated draft-asset API и проверяет его до stable publication; после публикации S014/S008 повторяют проверку через публичный URL без GitHub authentication.
+- Public release создаётся только `scripts/package-release.sh`: Developer ID Application, Hardened Runtime, secure timestamp, notarization app bundle, stapled ticket, повторная проверка распакованного ZIP, затем создание, Developer ID подпись, отдельная notarization и stapling финального DMG. DMG содержит branded background, `Qipli.app`, ссылку на `/Applications` и скомпилированный AppIcon. Pipeline fail-closed отклоняет ad-hoc/no-Team-ID, `get-task-allow`, App Sandbox/network entitlements, неверный bundle/minimum OS/icon, non-universal binary, forbidden metadata, отсутствие stapled ticket или Gatekeeper acceptance.
+- Versioned DMG/ZIP и checksums сначала загружаются в draft GitHub Release вместе с identical alias `Qipli.dmg` и release notes. Workflow скачивает candidates через authenticated draft-asset API и проверяет их до stable publication; после публикации S014/S008 повторяют проверки через публичные URLs без GitHub authentication. Лендинг использует `releases/latest/download/Qipli.dmg`; Sparkle appcast продолжает ссылаться только на immutable versioned ZIP.
 - Sparkle `generate_appcast` подписывает archive отдельным EdDSA key. GitHub Pages использует workflow-based HTTPS deployment без publishing branch или PAT; appcast разворачивается только после готового stable asset, не хранит private key и не ссылается на mutable `latest` URL.
 - Notarization требует внешней сети и Apple credentials только в release pipeline; установленному Qipli эти credentials никогда не нужны.
 - Core History/Paste Stack работают без сети. Manual или opt-in update check требует HTTPS-доступ к GitHub Pages и GitHub Releases.

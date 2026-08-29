@@ -20,7 +20,11 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle")
             ],
             path: "Sources/Qipli",
-            exclude: ["Resources/Info.plist", "Resources/Qipli.entitlements"]
+            exclude: [
+                "Resources/Assets.xcassets",
+                "Resources/Info.plist",
+                "Resources/Qipli.entitlements"
+            ]
         ),
         .testTarget(
             name: "QipliTests",

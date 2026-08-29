@@ -293,3 +293,13 @@
 - Решение: сохранить `v1.0.1` как исторический broken release; выпустить `v1.0.2 (3)` как ручной hotfix с explicit embedded-framework runpath. Unsigned CI, protected release gate и signed app verifier обязаны проверять Sparkle dependency и нужный `LC_RPATH` для каждой architecture. Первый реальный updater proof переносится на `v1.0.2 → v1.0.3`.
 - Причина: новая версия сохраняет воспроизводимую публичную историю и numeric ordering, а runtime-linking gate закрывает точную границу, которую пропустили build/signing checks.
 - Последствия: `v1.0.1` не может обновиться самостоятельно, потому что падает до запуска Sparkle; пользователь вручную устанавливает `v1.0.2`. Production appcast меняется только после успешного immutable `v1.0.2` release. S015 остаётся `in_progress` до manual launch `v1.0.2` и signed/notarized update `v1.0.2 → v1.0.3` с полной preservation/failure matrix.
+
+## D-030: DMG служит ручной установке, ZIP остаётся каналом Sparkle
+
+- Статус: `accepted`
+- Дата: 2026-08-28
+- Источник: пользователь
+- Контекст: ссылка лендинга должна сразу скачивать готовый образ, а ручная установка на macOS должна быть интуитивной: открыть образ и перетащить Qipli в Applications. ZIP удобен для Sparkle, но заставляет пользователя самостоятельно распаковывать и переносить приложение.
+- Решение: каждый следующий stable release публикует branded versioned DMG, его checksum и идентичный стабильный alias `Qipli.dmg` для `releases/latest/download/Qipli.dmg`. DMG содержит Qipli с собственным AppIcon, ссылку на `/Applications`, фон и стрелку; финальный контейнер отдельно подписывается Developer ID, notarize-ится, stapled и проходит Gatekeeper. Immutable versioned ZIP сохраняется как единственный asset appcast/Sparkle.
+- Причина: DMG даёт привычный macOS install path и стабильную прямую ссылку без подмены роли update archive. Отдельная проверка финального контейнера гарантирует, что доверие относится к тому файлу, который открывает пользователь.
+- Последствия: release pipeline создаёт и проверяет два контейнера, а protected run может занимать дольше из-за дополнительной notarization. Старые GitHub Releases остаются immutable и не получают DMG задним числом; прямая ссылка начнёт работать после публикации первого нового релиза с `Qipli.dmg`.

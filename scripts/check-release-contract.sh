@@ -19,6 +19,10 @@ sparkle_resigner="$repository_root/scripts/resign-sparkle-for-release.sh"
 release_packager="$repository_root/scripts/package-release.sh"
 signed_app_verifier="$repository_root/scripts/verify-signed-app.sh"
 runtime_link_verifier="$repository_root/scripts/verify-runtime-linking.sh"
+dmg_builder="$repository_root/scripts/create-dmg.sh"
+dmg_verifier="$repository_root/scripts/verify-dmg.sh"
+dmg_background="$repository_root/release-assets/dmg/install-background.png"
+dmg_layout="$repository_root/release-assets/dmg/configure-window.applescript"
 
 [[ -f "$workflow" ]] || fail "missing .github/workflows/release.yml"
 [[ -f "$hosted_packager" ]] || fail "missing hosted release packager"
@@ -28,6 +32,21 @@ runtime_link_verifier="$repository_root/scripts/verify-runtime-linking.sh"
 [[ -f "$sparkle_key_validator" ]] || fail "missing Sparkle key validator"
 [[ -f "$sparkle_resigner" ]] || fail "missing Sparkle release resigner"
 [[ -x "$runtime_link_verifier" ]] || fail "missing executable runtime linking verifier"
+[[ -x "$dmg_builder" ]] || fail "missing executable DMG builder"
+[[ -x "$dmg_verifier" ]] || fail "missing executable DMG verifier"
+[[ -s "$dmg_background" ]] || fail "missing DMG background"
+[[ -s "$dmg_layout" ]] || fail "missing DMG Finder layout"
+
+dmg_background_width=$(/usr/bin/sips -g pixelWidth "$dmg_background" \
+    | /usr/bin/awk '/pixelWidth:/ { print $2 }')
+dmg_background_height=$(/usr/bin/sips -g pixelHeight "$dmg_background" \
+    | /usr/bin/awk '/pixelHeight:/ { print $2 }')
+dmg_background_dpi=$(/usr/bin/sips -g dpiWidth "$dmg_background" \
+    | /usr/bin/awk '/dpiWidth:/ { print $2 }')
+[[ "$dmg_background_width" == "1320" && "$dmg_background_height" == "840" ]] \
+    || fail "DMG background must be 1320x840 pixels"
+[[ "$dmg_background_dpi" == "144.000" ]] \
+    || fail "DMG background must use 144 dpi Retina metadata"
 
 grep -Eq '^  push:$' "$workflow" || fail "release workflow must have a push trigger"
 grep -Fq "      - 'v*.*.*'" "$workflow" || fail "release workflow must be limited to version tags"
@@ -80,6 +99,10 @@ grep -Fq 'gh release download' "$publisher" \
     || fail "authenticated draft asset download is missing"
 grep -Fq 'public_base_url=' "$publisher" \
     || fail "public unauthenticated download verification is missing"
+grep -Fq 'stable_dmg_name="Qipli.dmg"' "$publisher" \
+    || fail "stable direct-download DMG asset is missing"
+grep -Fq 'releases/latest/download/$stable_dmg_name' "$publisher" \
+    || fail "latest DMG direct-download verification is missing"
 grep -Fq 'QIPLI_SPARKLE_PRIVATE_KEY' "$appcast_generator" \
     || fail "appcast generator must require the protected EdDSA key"
 grep -Fq -- '--ed-key-file -' "$appcast_generator" \
@@ -88,10 +111,31 @@ grep -Fq -- '--require-public' "$pages_stager" \
     || fail "Pages stager must verify the public immutable asset"
 grep -Fq 'resign-sparkle-for-release.sh' "$release_packager" \
     || fail "release packaging must re-sign nested Sparkle code"
+grep -Fq 'create-dmg.sh' "$release_packager" \
+    || fail "release packaging must create a DMG installer"
+grep -Fq 'verify-dmg.sh' "$release_packager" \
+    || fail "release packaging must verify the DMG installer"
+grep -Fq 'xcrun notarytool submit "$dmg_path"' "$release_packager" \
+    || fail "release packaging must notarize the final DMG"
+grep -Fq 'xcrun stapler staple "$dmg_path"' "$release_packager" \
+    || fail "release packaging must staple the final DMG"
+grep -Fq 'archive_name="Qipli-$version.zip"' "$appcast_generator" \
+    || fail "Sparkle updates must remain on the versioned ZIP artifact"
 resign_step_line=$(grep -n 'resign-sparkle-for-release.sh' "$release_packager" | cut -d: -f1)
 pre_notary_verify_line=$(grep -n '"$script_dir/verify-signed-app.sh" \\' "$release_packager" | head -n 1 | cut -d: -f1)
 (( resign_step_line < pre_notary_verify_line )) \
     || fail "nested Sparkle signing must run before pre-notarization verification"
+
+dmg_create_line=$(grep -n 'create-dmg.sh' "$release_packager" | cut -d: -f1)
+dmg_codesign_line=$(grep -n '/usr/bin/codesign ' "$release_packager" | cut -d: -f1)
+dmg_notary_line=$(grep -n 'xcrun notarytool submit "$dmg_path"' "$release_packager" | cut -d: -f1)
+dmg_staple_line=$(grep -n 'xcrun stapler staple "$dmg_path"' "$release_packager" | cut -d: -f1)
+dmg_final_verify_line=$(grep -n 'verify-dmg.sh" --mode release' "$release_packager" | tail -n 1 | cut -d: -f1)
+(( dmg_create_line < dmg_codesign_line \
+    && dmg_codesign_line < dmg_notary_line \
+    && dmg_notary_line < dmg_staple_line \
+    && dmg_staple_line < dmg_final_verify_line )) \
+    || fail "DMG must be created, signed, notarized, stapled, and verified in order"
 
 installer_line=$(grep -n 'resign_target "$installer_xpc"' "$sparkle_resigner" | cut -d: -f1)
 downloader_line=$(grep -n 'resign_target --preserve-metadata=entitlements "$downloader_xpc"' "$sparkle_resigner" | cut -d: -f1)
@@ -120,4 +164,4 @@ release_line=$(grep -n 'scripts/publish-github-release.sh' "$workflow" | head -n
 appcast_line=$(grep -n 'scripts/stage-sparkle-pages.sh' "$workflow" | head -n 1 | cut -d: -f1)
 (( appcast_line > release_line )) || fail "appcast must be published after the GitHub Release"
 
-echo "Release contract valid: protected tag workflow, ephemeral credentials, immutable release, signed appcast published last."
+echo "Release contract valid: protected tag workflow, notarized DMG and ZIP, immutable release, signed appcast published last."
