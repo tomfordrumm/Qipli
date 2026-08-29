@@ -1,7 +1,7 @@
 ---
 id: S010
 title: Settings, пользовательские сочетания и запуск при входе
-status: done
+status: needs_verification
 depends_on:
   - S001
   - S007
@@ -97,6 +97,7 @@ covers:
 - [x] AppKit tests singleton activation, window lifecycle и сохранение accessory/menu-bar application behavior.
 - [x] Полный SwiftPM/Xcode XCTest suite, Debug и universal Release builds с deployment target macOS 14.
 - [x] Пользовательская ручная приёмка основного Settings, shortcuts, permission и Launch at Login пути выполнена 2026-08-26; проверенные сценарии работают.
+- [ ] После corrective fix 2026-08-29 повторное переключение General ↔ Shortcuts не выводит `Publishing changes from within view updates` в Xcode console.
 
 Расширенная logout/login, VoiceOver, display modes, clean-console и clean-machine matrix не выдаётся за выполненную. По явному решению пользователя она перенесена в общий предрелизный прогон S008 и не блокирует приёмку S010.
 
@@ -120,6 +121,7 @@ covers:
 - Recorder применяет History, Start/Collect Paste Stack и Reactivate Previous сразу. Event tap получает текущий immutable snapshot через thread-safe provider; ordinary `⌘V`, active-Stack `Esc`, synthetic marker и keyDown admission остаются отдельными неизменяемыми контрактами.
 - Shortcuts UI сообщает recording, validation, recovery и errors текстом и SF Symbols, имеет accessibility label/value/help и Reset to Defaults, который меняет только shortcut preferences.
 - После пользовательской проверки удалены дублирующие `Permission: …` из status menu и отдельная Permission panel. Попытка запустить Paste Stack без Accessibility или при недоступном input listener открывает singleton Settings на General.
+- Corrective fix 2026-08-29 отделил локальный `TabView` selection от `SettingsViewModel`: пользовательский выбор сначала меняет `@State`, а синхронизация модели откладывается до следующего main-run-loop turn. Programmatic переход в General по-прежнему синхронизируется в обратную сторону.
 
 ### Изменённые файлы
 
@@ -148,6 +150,7 @@ covers:
 - `plutil -lint Qipli.xcodeproj/project.pbxproj` и `git diff --check` прошли.
 - 2026-08-26 пользователь проверил большую часть переданной ручной матрицы, подтвердил корректную работу проверенных сценариев и явно принял S010 как `done`.
 - Полный logout/login, VoiceOver/keyboard, appearance/accessibility display modes, clean console и clean-machine прогон остаётся частью предрелизной проверки S008.
+- После corrective fix 2026-08-29 focused Xcode test `SettingsWindowControllerTests` прошёл: 1 test, 0 failures. Требуется короткий ручной clean-console retest переключения вкладок.
 
 ### Отклонения от плана
 
@@ -155,4 +158,4 @@ covers:
 
 ### Оставшиеся проблемы
 
-Product-code blockers отсутствуют. S010 принят и завершён. Непройденные пункты расширенной системной матрицы сохранены как предрелизная проверка S008 и не отмечены как фактически выполненные.
+Product-code blockers отсутствуют. S010 временно возвращён в `needs_verification` только до ручного clean-console retest переключения General ↔ Shortcuts; остальные ранее принятые контракты не переоткрывались. Непройденные пункты расширенной системной матрицы сохранены как предрелизная проверка S008 и не отмечены как фактически выполненные.
