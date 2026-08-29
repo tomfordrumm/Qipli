@@ -12,7 +12,7 @@
 - Milestone M3 — visual polish и product setup — активен: S009 и S010 завершены, S011 и S012 реализованы и ожидают ручной проверки.
 - Milestone M4 — public delivery и secure updates — активен: repository public, S013 завершён, signed/notarized `v1.0.4 (5)` опубликован с versioned DMG, stable `Qipli.dmg` и immutable Sparkle ZIP. Лендинг доступен на `https://qipli.yhub.net` и скачивает публичный latest DMG. S014 `needs_verification` только до immutable rerun proof и clean-machine macOS 14 launch; S015 `in_progress` до завершения update matrix.
 - Corrective slice S016 `needs_verification`: History-only keyboard routing, single paste transaction, fresh capture и passive click-away реализованы; SwiftPM и unsigned Xcode build пройдены, остаётся manual macOS interaction matrix.
-- Milestone M6 — performance hardening — активен: S017–S018 `done`, S019 `ready`, S020–S022 `planned`; реализация выполняется строго по порядку с отдельным commit после каждого среза.
+- Milestone M6 — performance hardening — активен: S017–S018 `done`, S019 `needs_verification`, S020 `ready`, S021–S022 `planned`; реализация выполняется строго по порядку с отдельным commit после каждого среза.
 - S008 остаётся финальным blocked release gate до завершения S011/S012, S014–S016 и полной clean-machine/manual release matrix. Локальные Developer ID и notarization credentials подтверждены 2026-08-26.
 - Fail-closed release workflow опубликовал первый Developer ID-signed и notarized GitHub Release `v1.0.0`; публичный ZIP независимо скачан и принят Gatekeeper.
 - Завершённые срезы: [`S001 — Скелет приложения и системное разрешение`](slices/S001-foundation-permissions.md), [`S002 — Захват, хранение и удаление истории`](slices/S002-history-capture-retention.md), [`S003 — Поиск и повторная вставка из истории`](slices/S003-history-search-paste.md), [`S004 — Сбор и визуальная панель Paste Stack`](slices/S004-stack-collection.md), [`S005 — Порядок и направление обхода`](slices/S005-stack-order-direction.md), [`S006 — Последовательная вставка и прогресс`](slices/S006-stack-sequential-paste.md), [`S007 — Повторная активация и отмена`](slices/S007-stack-recovery-cancel.md), [`S009 — Адаптивные стеклянные панели`](slices/S009-adaptive-glass-panels.md), [`S010 — Settings, пользовательские сочетания и запуск при входе`](slices/S010-settings-shortcuts-login.md) и [`S013 — Версии и безопасный public CI`](slices/S013-versioning-public-ci.md).
@@ -40,8 +40,8 @@
 | S016 | Надёжная навигация и закрытие History | `needs_verification` | S003 |
 | S017 | Performance baselines и instrumentation | `done` | — |
 | S018 | Эффективное History storage | `done` | S017 |
-| S019 | Асинхронный History pipeline | `ready` | S018 |
-| S020 | Отзывчивый поиск и ограниченные previews | `planned` | S019 |
+| S019 | Асинхронный History pipeline | `needs_verification` | S018; automated gates пройдены, остаётся manual immediate-show smoke |
+| S020 | Отзывчивый поиск и ограниченные previews | `ready` | S019 implementation завершена |
 | S021 | Масштабируемый Paste Stack | `planned` | S020 |
 | S022 | Энергоэффективный pasteboard polling | `planned` | S021 |
 
@@ -50,6 +50,8 @@
 Product-code blockers для S011, S012 и S016 отсутствуют; срезы реализованы и ожидают ручной проверки. S013 завершён после local и hosted main/PR/fork CI.
 
 S017–S022 не имеют внешнего blocker. Performance changes должны сохранять exact full clipboard text, duplicate occurrences, History-first persistence, self-write suppression, ordinary `Command-V` вне active Stack и fresh capture перед History show.
+
+S019 автоматически проверен: persistence сериализован вне main actor, fresh History show ждёт ordered capture queue, repeated presentation не refetch-ит storage. До `done` остаётся ручной rapid-copy → immediate History smoke установленного приложения.
 
 - S013: push-to-main run `33158358277` обнаружил несовместимый macOS 15 SDK; после перехода на `macos-26` run `33158511887` прошёл. Обычный PR run `33159567400` и fork-style run `33160652451` из `404-Hub/Qipli` также прошли без release secrets и write permissions.
 - S014 не имеет implementation/credential blocker: protected run `33165198739` опубликовал `v1.0.0`, а публичный ZIP прошёл повторную unauthenticated проверку. До `done` остаются immutable rerun proof и clean-machine macOS 14 launch.
@@ -77,7 +79,7 @@ S017–S022 не имеют внешнего blocker. Performance changes дол
 - S002 добавил локальную Core Data/SQLite history, changeCount monitor, retention и базовую панель; SwiftPM и Xcode XCTest прошли по 20 тестов, Xcode Release build прошёл.
 - Пользователь вручную подтвердил exact text/Unicode/multiline capture, duplicates, игнорирование non-text, restart persistence, durable delete, clear-all confirmation, неизменность system pasteboard и отсутствие clipboard payload в логах.
 - S003 реализован: keyboard-active History panel с локализованной strong user-initiated activation, read-only entries/single-select/double-click paste, local search/ID selection, non-animated selection auto-scroll и fresh-show top viewport reset, durable exact-occurrence activity recency, safe history paste executor с target activation before close и bounded main-run-loop wait, active exact-hotkey filtering, deferred keyboard state/window actions и retryable failures. SwiftPM и Xcode XCTest прошли по 45 тестов; Xcode Debug/Release builds прошли. Пользователь подтвердил реальные focus/paste/failure/recency/viewport paths и clean-console keyboard navigation.
-- S001–S007, S009, S010, S013, S017 и S018 имеют статус `done`; S011, S012, S014 и S016 — `needs_verification`; S015 — `in_progress`; S019 — `ready`; S020–S022 — `planned`; S008 — `blocked`.
+- S001–S007, S009, S010, S013, S017 и S018 имеют статус `done`; S011, S012, S014, S016 и S019 — `needs_verification`; S015 — `in_progress`; S020 — `ready`; S021–S022 — `planned`; S008 — `blocked`.
 - S006 добавил UUID reservation/rollback state machine и deferred sequential paste executor: exact ordinary untagged `⌘V` прерывается только для active Stack with pending/reserved occurrence; tagged events/keyUp/modifiers pass stack path. Used означает successful tagged command dispatch, not target-field confirmation; last all-used snapshot publishes before deferred close. Native `List` processing/used/auto-finish states разделены common-mode run-loop boundaries и unchanged state не публикуется повторно. SwiftPM: 80 tests, 0 failures; Xcode Debug XCTest и universal Release (`arm64+x86_64`) прошли. User подтвердил complete post-fix manual macOS matrix и clean console без layout-recursion warning.
 - S004 добавил временную in-memory StackSession: exact `⌘⇧C` начинает либо сохраняет collection session, показывает nonactivating panel и dispatch-ит tagged ordinary `⌘C` в остающееся active source app; resulting source-owned copy попадает в Stack только после durable History capture и сохраняет duplicate/Unicode occurrences. Menu Start остаётся пустым. Cancel/close/exact global Escape очищают только session; ordinary `⌘V` остаётся не перехваченным. SwiftPM и Xcode Debug XCTest: 59 tests, 0 errors; universal Release arm64+x86_64 собран. Пользователь подтвердил полную ручную matrix: source focus, copies/duplicates/Unicode/multiline, repeat hotkey, Escape/Cancel/red close, History retention, new empty Stack, second display и full-screen/Space.
 - S005 добавил in-memory base-order/direction state machine: UUID-only atomic reorder, direct/reverse next, append-at-end after reorder и narrow traversal lock for S006. Compact nonactivating panel показывает direction/Next и native drag plus accessible Move Up/Down intents without changing ordinary `⌘V`. После ручной regression report direction/drag mutations перенесены за common-mode RunLoop boundary с exact-ID snapshot; SwiftPM и Xcode Debug XCTest: 68 tests, 0 errors; universal Release arm64+x86_64 собран. Пользователь подтвердил полную manual matrix, включая clean console и full-width separators.
@@ -98,7 +100,7 @@ S017–S022 не имеют внешнего blocker. Performance changes дол
 
 ## Следующее действие
 
-Реализовать S019: перенести History persistence в последовательную background boundary, сделать capture/show pipeline асинхронным и убрать unconditional reload при повторном показе.
+Реализовать S020: добавить cancellable stale-safe search и ограничить preview construction без изменения exact full stored/pasted text.
 
 ## Журнал переходов
 
@@ -174,3 +176,4 @@ S017–S022 не имеют внешнего blocker. Performance changes дол
 | 2026-08-29 | Запланирован Milestone M6 performance hardening. | Пользователь принял все findings и последовательность S017–S022. Локальный baseline отделяет подтверждённые main-thread/linear-scaling проблемы от неподтверждённой memory leak; каждый срез получает focused performance/regression tests и отдельный commit. |
 | 2026-08-29 | S017 завершён; S018 переведён в `ready`. | Payload-free `PerformanceProbe`, deterministic fixtures 1 800/10 000/50 000, long-text, 10 000-element Stack, storage и unchanged-poll baselines покрыты 7 focused tests. Полный SwiftPM suite: 161 tests; полный Xcode Debug suite и unsigned universal Release `x86_64 arm64` прошли. |
 | 2026-08-29 | S018 завершён; S019 переведён в `ready`. | Existing capturedAt-only store проходит lightweight migration; exact UUID использует covering index, ordered query — composite index без temp B-tree. Batch retention удаляет 1 000 synthetic expired entries без изменения свежего порядка. SwiftPM: 162 tests; Xcode Debug и universal Release прошли. |
+| 2026-08-29 | S019 реализован; S020 переведён в `ready`. | History storage сериализован actor boundary и private Core Data context вне main thread; ordered capture queue сохраняет History-first и drain перед fresh show, а presentation использует snapshot без unconditional refetch. SwiftPM/Xcode: 166 tests; targeted Thread Sanitizer и universal Release прошли. До `done` остаётся manual rapid-copy → immediate History smoke. |

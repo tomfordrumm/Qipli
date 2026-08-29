@@ -17,11 +17,12 @@ final class HistoryViewModel: ObservableObject {
     @Published private(set) var searchFocusRequestID = 0
     @Published private(set) var presentationViewportResetRequestID = 0
 
-    private let service: HistoryService
+    private let service: SerializedHistoryService
     private var allEntries: [HistoryEntry] = []
+    private var hasLoadedSnapshot = false
 
     init(service: HistoryService) {
-        self.service = service
+        self.service = SerializedHistoryService(service: service)
     }
 
     var selectedEntry: HistoryEntry? {
@@ -38,7 +39,9 @@ final class HistoryViewModel: ObservableObject {
         selectedEntryID = nil
         pasteFailure = nil
         isPasteInProgress = false
-        reload(selectFirstResult: true)
+        if hasLoadedSnapshot, state != .error {
+            applyFilter(selectFirstResult: true)
+        }
     }
 
     func requestSearchFocus() {
@@ -52,10 +55,11 @@ final class HistoryViewModel: ObservableObject {
         presentationViewportResetRequestID &+= 1
     }
 
-    func reload(selectFirstResult: Bool = false) {
+    func reload(selectFirstResult: Bool = false) async {
         state = .loading
         do {
-            allEntries = try service.entries()
+            allEntries = try await service.entries()
+            hasLoadedSnapshot = true
             applyFilter(selectFirstResult: selectFirstResult)
         } catch {
             state = .error
@@ -105,18 +109,19 @@ final class HistoryViewModel: ObservableObject {
     /// Paste dispatch already succeeded when this is called. A recency persistence
     /// failure is intentionally non-fatal: it must not report a false paste failure
     /// or cause a second dispatch.
-    func markUsedAfterSuccessfulPaste(id: UUID) {
-        try? service.markUsed(id: id)
+    func markUsedAfterSuccessfulPaste(id: UUID) async {
+        try? await service.markUsed(id: id)
     }
 
     /// Captures first so optional consumers, such as Paste Stack collection, can
     /// safely reference the durable History occurrence rather than creating a
     /// separate in-memory-only value.
     @discardableResult
-    func recordExternalText(_ text: String) -> HistoryEntry? {
+    func recordExternalText(_ text: String) async -> HistoryEntry? {
         do {
-            guard let entry = try service.capture(text: text) else { return nil }
+            guard let entry = try await service.capture(text: text) else { return nil }
             allEntries.insert(entry, at: 0)
+            hasLoadedSnapshot = true
             applyFilter(selectFirstResult: false)
             return entry
         } catch {
@@ -125,12 +130,12 @@ final class HistoryViewModel: ObservableObject {
         }
     }
 
-    func delete(_ entry: HistoryEntry) {
+    func delete(_ entry: HistoryEntry) async {
         let previousEntries = visibleEntries
         let deletedIndex = previousEntries.firstIndex { $0.id == entry.id }
         let selectedBeforeDelete = selectedEntryID
         do {
-            try service.delete(id: entry.id)
+            try await service.delete(id: entry.id)
             allEntries.removeAll { $0.id == entry.id }
             applyFilter(selectFirstResult: false)
 
@@ -147,10 +152,11 @@ final class HistoryViewModel: ObservableObject {
     }
 
     @discardableResult
-    func clearAll() -> Bool {
+    func clearAll() async -> Bool {
         do {
-            try service.clearAll()
+            try await service.clearAll()
             allEntries = []
+            hasLoadedSnapshot = true
             query = ""
             selectedEntryID = nil
             pasteFailure = nil

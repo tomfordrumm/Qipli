@@ -60,7 +60,7 @@ final class ApplicationShell: NSObject {
             // persistence work. A later Start/Cancel cannot claim this copy;
             // the session watermark also rejects a write that predates Start.
             let captureContext = stackSessionController?.captureContext
-            stackCaptureCoordinator?.recordExternalText(
+            stackCaptureCoordinator?.enqueueExternalText(
                 change.text,
                 observedChangeCount: change.changeCount,
                 stackCaptureContext: captureContext
@@ -157,7 +157,7 @@ final class ApplicationShell: NSObject {
                 self?.showOnboardingAgain()
             },
             clearHistory: { [weak self] in
-                self?.historyViewModel.clearAll() ?? false
+                await self?.historyViewModel.clearAll() ?? false
             }
         )
 
@@ -219,11 +219,14 @@ final class ApplicationShell: NSObject {
         observeUpdateAvailability()
         observePermissionChanges()
         refreshInputAvailability()
-        historyViewModel.reload()
         pasteboardMonitor.start()
-        retentionTimer = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.historyViewModel.reload()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.historyViewModel.reload()
+            self.retentionTimer = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.historyViewModel.reload()
+                }
             }
         }
     }
@@ -337,11 +340,14 @@ final class ApplicationShell: NSObject {
     }
 
     @objc private func showHistory() {
-        // Close the polling freshness window before History reloads. The monitor
-        // and capture coordinator are main-actor synchronous, so this exact
-        // change is durable and visible in the first presentation.
+        // Close the polling freshness window, then wait for the ordered durable
+        // capture pipeline before presenting its current in-memory snapshot.
         pasteboardMonitor.poll()
-        panels.showHistory()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.stackCaptureCoordinator.drainPendingCaptures()
+            self.panels.showHistory()
+        }
     }
 
     @objc private func togglePasteStackFromMenu() {

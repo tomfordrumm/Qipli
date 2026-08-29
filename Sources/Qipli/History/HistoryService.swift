@@ -54,3 +54,33 @@ final class HistoryService {
         clock.now.addingTimeInterval(-Self.retention)
     }
 }
+
+/// Serializes every storage operation on a non-main actor. The synchronous
+/// service remains the policy boundary; only this executor crosses into UI code.
+actor SerializedHistoryService {
+    private let service: HistoryService
+
+    init(service: HistoryService) {
+        self.service = service
+    }
+
+    func entries() throws -> [HistoryEntry] {
+        try service.entries()
+    }
+
+    func capture(text: String) throws -> HistoryEntry? {
+        try service.capture(text: text)
+    }
+
+    func markUsed(id: UUID) throws {
+        try service.markUsed(id: id)
+    }
+
+    func delete(id: UUID) throws {
+        try service.delete(id: id)
+    }
+
+    func clearAll() throws {
+        try service.clearAll()
+    }
+}

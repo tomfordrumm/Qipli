@@ -46,7 +46,7 @@ final class StackSessionControllerTests: XCTestCase {
         XCTAssertFalse(controller.traversalHasStarted)
     }
 
-    func testCaptureBeforeStartAndCaptureFromCanceledSessionNeverEnterNewSession() {
+    func testCaptureBeforeStartAndCaptureFromCanceledSessionNeverEnterNewSession() async {
         let store = StackTestHistoryStore()
         let viewModel = HistoryViewModel(service: HistoryService(store: store))
         let controller = StackSessionController()
@@ -58,19 +58,19 @@ final class StackSessionControllerTests: XCTestCase {
         let preStartContext = controller.captureContext
         XCTAssertNil(preStartContext)
         XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: 10))
-        coordinator.recordExternalText("pre-start fixture", observedChangeCount: 10, stackCaptureContext: preStartContext)
+        await coordinator.recordExternalText("pre-start fixture", observedChangeCount: 10, stackCaptureContext: preStartContext)
         XCTAssertTrue(controller.occurrences.isEmpty)
 
         let canceledContext = controller.captureContext
         controller.cancel()
         XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: 20))
-        coordinator.recordExternalText("stale fixture", observedChangeCount: 21, stackCaptureContext: canceledContext)
+        await coordinator.recordExternalText("stale fixture", observedChangeCount: 21, stackCaptureContext: canceledContext)
 
         XCTAssertEqual(store.createdTexts, ["pre-start fixture", "stale fixture"])
         XCTAssertTrue(controller.occurrences.isEmpty)
     }
 
-    func testHistorySavesBeforeStackAppendAndSaveFailureLeavesStackUnchanged() {
+    func testHistorySavesBeforeStackAppendAndSaveFailureLeavesStackUnchanged() async {
         let store = StackTestHistoryStore()
         let viewModel = HistoryViewModel(service: HistoryService(store: store))
         let controller = StackSessionController()
@@ -82,7 +82,7 @@ final class StackSessionControllerTests: XCTestCase {
         let context = controller.captureContext
         store.onCreate = { XCTAssertTrue(controller.occurrences.isEmpty) }
 
-        coordinator.recordExternalText("durable fixture", observedChangeCount: 11, stackCaptureContext: context)
+        await coordinator.recordExternalText("durable fixture", observedChangeCount: 11, stackCaptureContext: context)
         store.onCreate = nil
 
         XCTAssertEqual(store.createdTexts, ["durable fixture"])
@@ -90,13 +90,13 @@ final class StackSessionControllerTests: XCTestCase {
         XCTAssertFalse(controller.hasCaptureError)
 
         store.createError = HistoryStoreError.unavailable
-        coordinator.recordExternalText("failed fixture", observedChangeCount: 12, stackCaptureContext: context)
+        await coordinator.recordExternalText("failed fixture", observedChangeCount: 12, stackCaptureContext: context)
 
         XCTAssertEqual(controller.occurrences.map(\.text), ["durable fixture"])
         XCTAssertTrue(controller.hasCaptureError)
     }
 
-    func testWhitespaceOnlyCaptureIsIgnoredWithoutHistoryOrStackError() {
+    func testWhitespaceOnlyCaptureIsIgnoredWithoutHistoryOrStackError() async {
         let store = StackTestHistoryStore()
         let viewModel = HistoryViewModel(service: HistoryService(store: store))
         let controller = StackSessionController()
@@ -106,7 +106,7 @@ final class StackSessionControllerTests: XCTestCase {
         )
         XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: 10))
 
-        coordinator.recordExternalText(
+        await coordinator.recordExternalText(
             " \t\n",
             observedChangeCount: 11,
             stackCaptureContext: controller.captureContext
@@ -115,6 +115,27 @@ final class StackSessionControllerTests: XCTestCase {
         XCTAssertTrue(store.createdTexts.isEmpty)
         XCTAssertTrue(controller.occurrences.isEmpty)
         XCTAssertFalse(controller.hasCaptureError)
+    }
+
+    func testQueuedCapturesPersistAndPublishInObservedOrder() async {
+        let store = StackTestHistoryStore()
+        let viewModel = HistoryViewModel(service: HistoryService(store: store))
+        let controller = StackSessionController()
+        let coordinator = StackCollectionCaptureCoordinator(
+            historyViewModel: viewModel,
+            stackSessionController: controller
+        )
+        XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: 10))
+        let context = controller.captureContext
+
+        coordinator.enqueueExternalText("duplicate", observedChangeCount: 11, stackCaptureContext: context)
+        coordinator.enqueueExternalText("duplicate", observedChangeCount: 12, stackCaptureContext: context)
+        coordinator.enqueueExternalText("third", observedChangeCount: 13, stackCaptureContext: context)
+        await coordinator.drainPendingCaptures()
+
+        XCTAssertEqual(store.createdTexts, ["duplicate", "duplicate", "third"])
+        XCTAssertEqual(controller.occurrences.map(\.text), ["duplicate", "duplicate", "third"])
+        XCTAssertNotEqual(controller.occurrences[0].id, controller.occurrences[1].id)
     }
 
     func testPreviewTruncatesOnlyDisplayValue() {
@@ -343,7 +364,7 @@ final class StackSessionControllerTests: XCTestCase {
         XCTAssertTrue(canceledController.occurrences.isEmpty)
     }
 
-    func testClipboardChangeBeforeStartButPolledAfterStartStaysHistoryOnly() {
+    func testClipboardChangeBeforeStartButPolledAfterStartStaysHistoryOnly() async {
         let pasteboard = StackTestPasteboard(changeCount: 10)
         let store = StackTestHistoryStore()
         let viewModel = HistoryViewModel(service: HistoryService(store: store))
@@ -353,7 +374,7 @@ final class StackSessionControllerTests: XCTestCase {
             stackSessionController: controller
         )
         let monitor = PasteboardMonitor(pasteboard: pasteboard) { change in
-            coordinator.recordExternalText(
+            coordinator.enqueueExternalText(
                 change.text,
                 observedChangeCount: change.changeCount,
                 stackCaptureContext: controller.captureContext
@@ -365,12 +386,13 @@ final class StackSessionControllerTests: XCTestCase {
         pasteboard.setText("before start fixture")
         XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: pasteboard.changeCount))
         monitor.poll()
+        await coordinator.drainPendingCaptures()
 
         XCTAssertEqual(store.createdTexts, ["before start fixture"])
         XCTAssertTrue(controller.occurrences.isEmpty)
     }
 
-    func testPreStartClipboardStorageFailureDoesNotSurfaceStackError() {
+    func testPreStartClipboardStorageFailureDoesNotSurfaceStackError() async {
         let pasteboard = StackTestPasteboard(changeCount: 10)
         let store = StackTestHistoryStore()
         let viewModel = HistoryViewModel(service: HistoryService(store: store))
@@ -380,7 +402,7 @@ final class StackSessionControllerTests: XCTestCase {
             stackSessionController: controller
         )
         let monitor = PasteboardMonitor(pasteboard: pasteboard) { change in
-            coordinator.recordExternalText(
+            coordinator.enqueueExternalText(
                 change.text,
                 observedChangeCount: change.changeCount,
                 stackCaptureContext: controller.captureContext
@@ -393,6 +415,7 @@ final class StackSessionControllerTests: XCTestCase {
         XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: pasteboard.changeCount))
         store.createError = HistoryStoreError.unavailable
         monitor.poll()
+        await coordinator.drainPendingCaptures()
 
         XCTAssertTrue(controller.occurrences.isEmpty)
         XCTAssertFalse(controller.hasCaptureError)

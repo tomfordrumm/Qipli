@@ -4,14 +4,14 @@ import XCTest
 
 @MainActor
 final class HistoryViewModelSearchTests: XCTestCase {
-    func testLocalizedCaseInsensitiveSearchSelectsFirstResultAndKeepsStoredText() throws {
+    func testLocalizedCaseInsensitiveSearchSelectsFirstResultAndKeepsStoredText() async throws {
         let first = makeEntry("first", offset: 1)
         let matching = makeEntry("Äpfel", offset: 2)
         let other = makeEntry("other", offset: 3)
         let store = InMemoryHistoryStore(entries: [other, matching, first])
         let viewModel = HistoryViewModel(service: HistoryService(store: store))
 
-        viewModel.reload(selectFirstResult: true)
+        await viewModel.reload(selectFirstResult: true)
         viewModel.updateQuery("äP")
 
         XCTAssertEqual(viewModel.visibleEntries, [matching])
@@ -19,13 +19,13 @@ final class HistoryViewModelSearchTests: XCTestCase {
         XCTAssertEqual(store.entries.first { $0.id == matching.id }?.text, "Äpfel")
     }
 
-    func testSelectionMovesWithinVisibleResultsAndResetsAfterQueryChange() {
+    func testSelectionMovesWithinVisibleResultsAndResetsAfterQueryChange() async {
         let first = makeEntry("alpha", offset: 3)
         let second = makeEntry("alphabet", offset: 2)
         let third = makeEntry("beta", offset: 1)
         let viewModel = HistoryViewModel(service: HistoryService(store: InMemoryHistoryStore(entries: [first, second, third])))
 
-        viewModel.reload(selectFirstResult: true)
+        await viewModel.reload(selectFirstResult: true)
         viewModel.moveSelection(by: 1)
         XCTAssertEqual(viewModel.selectedEntryID, second.id)
 
@@ -37,41 +37,42 @@ final class HistoryViewModelSearchTests: XCTestCase {
         XCTAssertEqual(viewModel.selectedEntryID, first.id)
     }
 
-    func testDeletingSelectedFilteredEntrySelectsNearestVisibleEntry() {
+    func testDeletingSelectedFilteredEntrySelectsNearestVisibleEntry() async {
         let first = makeEntry("needle one", offset: 3)
         let second = makeEntry("needle two", offset: 2)
         let third = makeEntry("needle three", offset: 1)
         let store = InMemoryHistoryStore(entries: [first, second, third])
         let viewModel = HistoryViewModel(service: HistoryService(store: store))
 
-        viewModel.reload(selectFirstResult: true)
+        await viewModel.reload(selectFirstResult: true)
         viewModel.updateQuery("needle")
         viewModel.select(id: second.id)
-        viewModel.delete(second)
+        await viewModel.delete(second)
 
         XCTAssertEqual(viewModel.visibleEntries.map(\.id), [first.id, third.id])
         XCTAssertEqual(viewModel.selectedEntryID, third.id)
         XCTAssertFalse(store.entries.contains { $0.id == second.id })
     }
 
-    func testPromotionStorageFailureDoesNotClaimPasteFailureOrChangeOccurrence() {
+    func testPromotionStorageFailureDoesNotClaimPasteFailureOrChangeOccurrence() async {
         let entry = makeEntry("stable", offset: 1)
         let store = InMemoryHistoryStore(entries: [entry], markUsedError: HistoryStoreError.unavailable)
         let viewModel = HistoryViewModel(service: HistoryService(store: store))
 
-        viewModel.reload(selectFirstResult: true)
-        viewModel.markUsedAfterSuccessfulPaste(id: entry.id)
+        await viewModel.reload(selectFirstResult: true)
+        await viewModel.markUsedAfterSuccessfulPaste(id: entry.id)
 
         XCTAssertEqual(viewModel.selectedEntry, entry)
         XCTAssertNil(viewModel.pasteFailure)
         XCTAssertEqual(store.entries, [entry])
     }
 
-    func testFreshPresentationViewportResetSignalIsIndependentFromSearchFocus() {
+    func testFreshPresentationViewportResetSignalIsIndependentFromSearchFocus() async {
         let first = makeEntry("first", offset: 2)
         let second = makeEntry("second", offset: 1)
         let viewModel = HistoryViewModel(service: HistoryService(store: InMemoryHistoryStore(entries: [first, second])))
 
+        await viewModel.reload()
         viewModel.prepareForPresentation()
         viewModel.requestPresentationViewportReset()
 
@@ -84,35 +85,88 @@ final class HistoryViewModelSearchTests: XCTestCase {
         XCTAssertEqual(viewModel.searchFocusRequestID, 1)
     }
 
-    func testClearAllReportsSuccessAndFailureWithoutClaimingAFalseEmptyState() {
+    func testClearAllReportsSuccessAndFailureWithoutClaimingAFalseEmptyState() async {
         let entry = makeEntry("private", offset: 1)
         let store = InMemoryHistoryStore(entries: [entry])
         let viewModel = HistoryViewModel(service: HistoryService(store: store))
-        viewModel.reload(selectFirstResult: true)
+        await viewModel.reload(selectFirstResult: true)
 
         store.clearAllError = HistoryStoreError.unavailable
-        XCTAssertFalse(viewModel.clearAll())
+        let failedClearResult = await viewModel.clearAll()
+        XCTAssertFalse(failedClearResult)
         XCTAssertEqual(viewModel.state, .error)
         XCTAssertEqual(store.entries, [entry])
 
         store.clearAllError = nil
-        XCTAssertTrue(viewModel.clearAll())
+        let successfulClearResult = await viewModel.clearAll()
+        XCTAssertTrue(successfulClearResult)
         XCTAssertEqual(viewModel.state, .empty)
         XCTAssertTrue(store.entries.isEmpty)
     }
 
-    func testExternalCaptureUpdatesVisibleHistoryWithoutRefetchingStorage() {
+    func testExternalCaptureUpdatesVisibleHistoryWithoutRefetchingStorage() async {
         let existing = makeEntry("existing", offset: 1)
         let store = InMemoryHistoryStore(entries: [existing])
         let viewModel = HistoryViewModel(service: HistoryService(store: store))
-        viewModel.reload(selectFirstResult: true)
+        await viewModel.reload(selectFirstResult: true)
         let fetchCountBeforeCapture = store.fetchCount
 
-        let captured = viewModel.recordExternalText("new capture")
+        let captured = await viewModel.recordExternalText("new capture")
 
         XCTAssertEqual(store.fetchCount, fetchCountBeforeCapture)
         XCTAssertEqual(viewModel.visibleEntries.first?.id, captured?.id)
         XCTAssertEqual(viewModel.visibleEntries.map(\.text), ["new capture", "existing"])
+    }
+
+    func testRepeatedPresentationsReuseLoadedSnapshotWithoutRefetchingStorage() async {
+        let store = InMemoryHistoryStore(entries: [makeEntry("existing", offset: 1)])
+        let viewModel = HistoryViewModel(service: HistoryService(store: store))
+        await viewModel.reload(selectFirstResult: true)
+        let fetchCountAfterStartup = store.fetchCount
+
+        viewModel.prepareForPresentation()
+        viewModel.prepareForPresentation()
+
+        XCTAssertEqual(store.fetchCount, fetchCountAfterStartup)
+        XCTAssertEqual(viewModel.visibleEntries.map(\.text), ["existing"])
+    }
+
+    func testEveryViewModelStorageOperationRunsAwayFromMainThread() async {
+        let existing = makeEntry("existing", offset: 1)
+        let store = InMemoryHistoryStore(entries: [existing])
+        let viewModel = HistoryViewModel(service: HistoryService(store: store))
+
+        await viewModel.reload()
+        let captured = await viewModel.recordExternalText("captured")
+        await viewModel.markUsedAfterSuccessfulPaste(id: existing.id)
+        if let captured {
+            await viewModel.delete(captured)
+        }
+        _ = await viewModel.clearAll()
+
+        XCTAssertEqual(store.operationNames, ["fetch", "create", "markUsed", "delete", "clearAll"])
+        XCTAssertTrue(store.operationWasOnMainThread.allSatisfy { !$0 })
+    }
+
+    func testMainActorRemainsAvailableWhileStorageFetchIsBlocked() async {
+        let fetchStarted = expectation(description: "background fetch started")
+        let releaseFetch = DispatchSemaphore(value: 0)
+        let store = InMemoryHistoryStore(entries: [makeEntry("existing", offset: 1)])
+        store.onFetch = {
+            fetchStarted.fulfill()
+            _ = releaseFetch.wait(timeout: .now() + 2)
+        }
+        let viewModel = HistoryViewModel(service: HistoryService(store: store))
+
+        let reload = Task { @MainActor in
+            await viewModel.reload()
+        }
+        await fulfillment(of: [fetchStarted], timeout: 0.5)
+
+        XCTAssertEqual(viewModel.state, .loading)
+        releaseFetch.signal()
+        await reload.value
+        XCTAssertEqual(viewModel.visibleEntries.map(\.text), ["existing"])
     }
 
     private func makeEntry(_ text: String, offset: TimeInterval) -> HistoryEntry {
@@ -457,12 +511,13 @@ final class HistoryPanelIntentTests: XCTestCase {
         XCTAssertEqual(trace.closeCount, 1)
     }
 
-    func testWindowKeyboardDownThenEnterPastesTheMovedSelectionSnapshot() {
+    func testWindowKeyboardDownThenEnterPastesTheMovedSelectionSnapshot() async {
         let first = makeEntry("first fixture", offset: 2)
         let second = makeEntry("second fixture", offset: 1)
         let viewModel = HistoryViewModel(
             service: HistoryService(store: InMemoryHistoryStore(entries: [first, second]))
         )
+        await viewModel.reload()
         viewModel.prepareForPresentation()
         var pastedEntries: [HistoryEntry] = []
         var closeCount = 0
@@ -760,6 +815,9 @@ private final class InMemoryHistoryStore: HistoryStoring {
     var markUsedError: Error?
     var clearAllError: Error?
     private(set) var fetchCount = 0
+    private(set) var operationNames: [String] = []
+    private(set) var operationWasOnMainThread: [Bool] = []
+    var onFetch: (() -> Void)?
 
     init(entries: [HistoryEntry] = [], markUsedError: Error? = nil) {
         self.entries = entries
@@ -767,7 +825,9 @@ private final class InMemoryHistoryStore: HistoryStoring {
     }
 
     func fetchCurrent(since cutoff: Date) throws -> [HistoryEntry] {
+        recordOperation("fetch")
         fetchCount += 1
+        onFetch?()
         return entries
             .filter { $0.activityAt > cutoff }
             .sorted {
@@ -779,12 +839,14 @@ private final class InMemoryHistoryStore: HistoryStoring {
     }
 
     func create(text: String, activityAt: Date) throws -> HistoryEntry {
+        recordOperation("create")
         let entry = HistoryEntry(id: UUID(), text: text, activityAt: activityAt)
         entries.append(entry)
         return entry
     }
 
     func markUsed(id: UUID, activityAt: Date) throws {
+        recordOperation("markUsed")
         if let markUsedError { throw markUsedError }
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
         let entry = entries[index]
@@ -792,12 +854,19 @@ private final class InMemoryHistoryStore: HistoryStoring {
     }
 
     func delete(id: UUID) throws {
+        recordOperation("delete")
         entries.removeAll { $0.id == id }
     }
 
     func clearAll() throws {
+        recordOperation("clearAll")
         if let clearAllError { throw clearAllError }
         entries = []
+    }
+
+    private func recordOperation(_ name: String) {
+        operationNames.append(name)
+        operationWasOnMainThread.append(Thread.isMainThread)
     }
 }
 
