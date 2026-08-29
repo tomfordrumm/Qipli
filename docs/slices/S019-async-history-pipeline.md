@@ -78,6 +78,7 @@ Core Data work выполняется последовательно вне main
 - Ordered queue test подтвердил rapid duplicate captures, exact order, distinct occurrences и History-first failure contract; explicit poll + drain tests подтверждают свежесть перед presentation.
 - Repeated presentation test подтвердил неизменный fetch counter после initial load.
 - Corrective focused tests подтвердили promotion использованного occurrence на первое место и удаление истёкшего cached occurrence без увеличения fetch counter; Xcode `HistoryViewModelSearchTests`: 16 tests, 0 failures.
+- Финальный corrective HEAD: полный Xcode и clean-copy SwiftPM suites по 179 tests, 0 failures; unsigned universal Release `x86_64 arm64`.
 - Полный SwiftPM suite из clean copy: 166 tests, 0 failures. Полный Xcode Debug suite: 166 tests, 0 failures. Targeted Thread Sanitizer run: пройден.
 - Unsigned universal Release build: пройден, executable содержит `arm64` и `x86_64`.
 

@@ -73,6 +73,7 @@ Paste Stack определяет следующий occurrence одним лин
 - Focused Stack state-machine suite: 44 tests, 0 failures; direct/reverse, reorder, append, reservation, used/processing, failures и reactivation semantics сохранены.
 - Performance suite: 10 tests, 0 failures. Worst-case 10 000-element resolver посетил ровно 10 000 occurrences, включая priority fallback; 10 000 UI rows использовали один traversal visit после snapshot preparation. Новый append gate подтвердил 10 000 revisions/inspections/publications для 10 000 entries.
 - После corrective fix полный focused `StackSessionControllerTests` прошёл 44/44; processing и completion теперь публикуют два logical snapshots вместо трёх property-level signals.
+- Финальный corrective HEAD прошёл полный Xcode и clean-copy SwiftPM suites по 179 tests, 0 failures; unsigned universal Release `x86_64 arm64`.
 - Полный SwiftPM suite из clean copy: 172 tests, 0 failures. Полный unsigned Xcode Debug suite: 172 tests, 0 failures.
 - Unsigned universal Release build прошёл с `arm64` и `x86_64`; bounded Stack preview и exact occurrence text tests остались зелёными.
 
