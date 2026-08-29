@@ -573,10 +573,10 @@ final class StackSessionControllerTests: XCTestCase {
         XCTAssertEqual(controller.acceptNextPasteInput(), .consumeAndDispatch)
         executor.executeReservedPaste()
 
-        // Processing changes the occurrence and first-paste traversal lock;
-        // completion changes the occurrence. Clearing an already-nil failure
-        // must not add a fourth publication.
-        XCTAssertEqual(publicationCount, 3)
+        // Processing plus first-paste traversal lock are one logical snapshot;
+        // completion is the second. Clearing an already-nil failure must not
+        // add another publication.
+        XCTAssertEqual(publicationCount, 2)
         XCTAssertEqual(controller.occurrences.first?.state, .used)
     }
 

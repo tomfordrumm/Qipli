@@ -115,6 +115,7 @@ struct StackPasteReservation: Equatable, Sendable {
 final class StackSession {
     let captureContext: StackCaptureContext
     private(set) var occurrences: [StackOccurrence] = []
+    private(set) var occurrencesRevision: UInt64 = 0
     private(set) var traversalDirection: StackTraversalDirection = .direct
     private(set) var traversalHasStarted = false
     private(set) var reservedOccurrenceID: UUID?
@@ -158,6 +159,7 @@ final class StackSession {
             position: occurrences.count
         )
         occurrences.append(occurrence)
+        occurrencesRevision &+= 1
         return occurrence
     }
 
@@ -173,6 +175,7 @@ final class StackSession {
             ? .reactivation
             : .traversal
         occurrences[index] = replacingState(of: nextOccurrence, with: .processing)
+        occurrencesRevision &+= 1
         return occurrences[index]
     }
 
@@ -253,6 +256,7 @@ final class StackSession {
                 state: occurrence.state
             )
         }
+        occurrencesRevision &+= 1
         return true
     }
 
@@ -288,6 +292,7 @@ final class StackSession {
     private func updateOccurrence(id: UUID, state: StackOccurrenceState) {
         guard let index = occurrences.firstIndex(where: { $0.id == id }) else { return }
         occurrences[index] = replacingState(of: occurrences[index], with: state)
+        occurrencesRevision &+= 1
     }
 
     private func replacingState(
@@ -327,19 +332,24 @@ enum StackPasteFailure: Equatable {
 /// UI-facing lifetime owner for the one optional StackSession.
 /// The session is released, rather than reset in place, when collection ends.
 final class StackSessionController: ObservableObject {
-    @Published private(set) var occurrences: [StackOccurrence] = []
-    @Published private(set) var traversalDirection: StackTraversalDirection = .direct
-    @Published private(set) var traversalHasStarted = false
+    private(set) var traversalDirection: StackTraversalDirection = .direct
+    private(set) var traversalHasStarted = false
     @Published private(set) var hasCaptureError = false
     @Published private(set) var hasCopyCommandDispatchFailure = false
     @Published private(set) var pasteFailure: StackPasteFailure?
-    @Published private(set) var reactivationPriorityID: UUID?
+    private(set) var reactivationPriorityID: UUID?
     private(set) var nextOccurrenceID: UUID?
 
     private(set) var session: StackSession?
     private let onNextTraversalVisit: (() -> Void)?
+    private var publishedSessionID: UUID?
+    private var publishedOccurrencesRevision: UInt64 = 0
 
     var isActive: Bool { session != nil }
+    /// The session is the only long-lived owner of this array. Returning it on
+    /// demand avoids retaining a second `@Published` Array buffer that forces a
+    /// copy-on-write of the whole Stack on the next append.
+    var occurrences: [StackOccurrence] { session?.occurrences ?? [] }
     var nextOccurrence: StackOccurrence? {
         guard let nextOccurrenceID else { return nil }
         return occurrences.first { $0.id == nextOccurrenceID }
@@ -375,8 +385,8 @@ final class StackSessionController: ObservableObject {
             onNextTraversalVisit: onNextTraversalVisit
         )
         publishSessionState()
-        hasCaptureError = false
-        hasCopyCommandDispatchFailure = false
+        setCaptureError(false)
+        setCopyCommandDispatchFailure(false)
         setPasteFailure(nil)
         return true
     }
@@ -393,9 +403,8 @@ final class StackSessionController: ObservableObject {
               observedChangeCount > captureContext.captureAfterChangeCount
         else { return }
         _ = session.append(historyEntry: entry)
-        nextOccurrenceID = session.nextOccurrence?.id
-        occurrences = session.occurrences
-        hasCaptureError = false
+        publishSessionState()
+        setCaptureError(false)
     }
 
     /// Storage failures must be visible, but never create an in-memory orphan.
@@ -407,16 +416,16 @@ final class StackSessionController: ObservableObject {
               session?.captureContext == captureContext,
               observedChangeCount > captureContext.captureAfterChangeCount
         else { return }
-        hasCaptureError = true
+        setCaptureError(true)
     }
 
     func recordCopyCommandDispatchFailure() {
         guard isActive else { return }
-        hasCopyCommandDispatchFailure = true
+        setCopyCommandDispatchFailure(true)
     }
 
     func clearCopyCommandDispatchFailure() {
-        hasCopyCommandDispatchFailure = false
+        setCopyCommandDispatchFailure(false)
     }
 
     @discardableResult
@@ -524,31 +533,49 @@ final class StackSessionController: ObservableObject {
     func cancel() {
         session = nil
         publishSessionState()
-        hasCaptureError = false
-        hasCopyCommandDispatchFailure = false
+        setCaptureError(false)
+        setCopyCommandDispatchFailure(false)
         setPasteFailure(nil)
     }
 
     private func publishSessionState() {
-        let newOccurrences = session?.occurrences ?? []
+        let newSessionID = session?.captureContext.sessionID
+        let newOccurrencesRevision = session?.occurrencesRevision ?? 0
         let newDirection = session?.traversalDirection ?? .direct
         let newTraversalHasStarted = session?.traversalHasStarted ?? false
         let newReactivationPriorityID = session?.reactivationPriorityID
         let newNextOccurrenceID = session?.nextOccurrence?.id
+
+        guard publishedSessionID != newSessionID
+                || publishedOccurrencesRevision != newOccurrencesRevision
+                || traversalDirection != newDirection
+                || traversalHasStarted != newTraversalHasStarted
+                || reactivationPriorityID != newReactivationPriorityID
+                || nextOccurrenceID != newNextOccurrenceID
+        else { return }
+
+        objectWillChange.send()
+        publishedSessionID = newSessionID
+        publishedOccurrencesRevision = newOccurrencesRevision
         nextOccurrenceID = newNextOccurrenceID
-        if occurrences != newOccurrences { occurrences = newOccurrences }
-        if traversalDirection != newDirection { traversalDirection = newDirection }
-        if traversalHasStarted != newTraversalHasStarted {
-            traversalHasStarted = newTraversalHasStarted
-        }
-        if reactivationPriorityID != newReactivationPriorityID {
-            reactivationPriorityID = newReactivationPriorityID
-        }
+        traversalDirection = newDirection
+        traversalHasStarted = newTraversalHasStarted
+        reactivationPriorityID = newReactivationPriorityID
     }
 
     private func setPasteFailure(_ newValue: StackPasteFailure?) {
         guard pasteFailure != newValue else { return }
         pasteFailure = newValue
+    }
+
+    private func setCaptureError(_ newValue: Bool) {
+        guard hasCaptureError != newValue else { return }
+        hasCaptureError = newValue
+    }
+
+    private func setCopyCommandDispatchFailure(_ newValue: Bool) {
+        guard hasCopyCommandDispatchFailure != newValue else { return }
+        hasCopyCommandDispatchFailure = newValue
     }
 }
 

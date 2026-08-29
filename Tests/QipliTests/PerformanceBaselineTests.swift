@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import XCTest
 @testable import Qipli
@@ -177,6 +178,30 @@ final class PerformanceBaselineTests: XCTestCase {
 
         XCTAssertEqual(matchingRows, 1)
         XCTAssertEqual(traversalVisits, 1)
+    }
+
+    @MainActor
+    func testStackAppendKeepsOneSessionCollectionAndOnePublicationPerOccurrence() {
+        var traversalVisits = 0
+        let controller = StackSessionController(onNextTraversalVisit: { traversalVisits += 1 })
+        XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: 0))
+        let context = controller.captureContext
+        var publicationCount = 0
+        let observation = controller.objectWillChange.sink { _ in publicationCount += 1 }
+        defer { observation.cancel() }
+
+        for (offset, entry) in SyntheticPerformanceFixtures.historyEntries(count: 10_000).enumerated() {
+            controller.appendPersistedHistoryEntry(
+                entry,
+                observedChangeCount: offset + 1,
+                for: context
+            )
+        }
+
+        XCTAssertEqual(controller.occurrences.count, 10_000)
+        XCTAssertEqual(controller.session?.occurrencesRevision, 10_000)
+        XCTAssertEqual(traversalVisits, 10_000)
+        XCTAssertEqual(publicationCount, 10_000)
     }
 
     @MainActor
