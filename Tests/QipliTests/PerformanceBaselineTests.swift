@@ -70,7 +70,8 @@ final class PerformanceBaselineTests: XCTestCase {
     }
 
     func testPreviewBaselineKeepsExactOccurrenceTextOutsideDisplayValue() {
-        let fullText = SyntheticPerformanceFixtures.longText(characterCount: 50_000)
+        let fixtureCharacterCount = 50_000
+        let fullText = SyntheticPerformanceFixtures.longText(characterCount: fixtureCharacterCount)
         let occurrence = StackOccurrence(
             id: SyntheticPerformanceFixtures.uuid(index: 1),
             historyEntryID: SyntheticPerformanceFixtures.uuid(index: 2),
@@ -79,7 +80,7 @@ final class PerformanceBaselineTests: XCTestCase {
         )
         let probe = RecordingPerformanceProbe()
 
-        let preview = probe.probe.measure(.previewConstruction, itemCount: fullText.count) {
+        let preview = probe.probe.measure(.previewConstruction, itemCount: fixtureCharacterCount) {
             StackPreview.text(for: occurrence.text)
         }
 

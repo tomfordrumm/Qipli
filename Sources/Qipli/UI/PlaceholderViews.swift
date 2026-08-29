@@ -80,11 +80,16 @@ struct HistoryPanelView: View {
             ContentUnavailableView("No History Yet", systemImage: "clipboard", description: Text("Copied text will appear here while Qipli is running."))
         case let .list(entries):
             if entries.isEmpty {
-                ContentUnavailableView(
-                    "No Matching History",
-                    systemImage: "magnifyingglass",
-                    description: Text("Try a different search term.")
-                )
+                if viewModel.isSearchInProgress {
+                    ProgressView("Searching…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ContentUnavailableView(
+                        "No Matching History",
+                        systemImage: "magnifyingglass",
+                        description: Text("Try a different search term.")
+                    )
+                }
             } else {
                 ScrollViewReader { proxy in
                     List(entries) { entry in
@@ -94,7 +99,7 @@ struct HistoryPanelView: View {
                             Button {
                                 schedule(.select(entry.id))
                             } label: {
-                                Text(entry.text)
+                                Text(HistoryPreview.text(for: entry.text))
                                     .lineLimit(3)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .contentShape(Rectangle())

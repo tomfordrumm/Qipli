@@ -13,6 +13,7 @@ final class HistoryViewModelSearchTests: XCTestCase {
 
         await viewModel.reload(selectFirstResult: true)
         viewModel.updateQuery("äP")
+        await viewModel.waitForPendingSearch()
 
         XCTAssertEqual(viewModel.visibleEntries, [matching])
         XCTAssertEqual(viewModel.selectedEntryID, matching.id)
@@ -30,6 +31,7 @@ final class HistoryViewModelSearchTests: XCTestCase {
         XCTAssertEqual(viewModel.selectedEntryID, second.id)
 
         viewModel.updateQuery("alpha")
+        await viewModel.waitForPendingSearch()
         XCTAssertEqual(viewModel.selectedEntryID, first.id)
         viewModel.moveSelection(by: 100)
         XCTAssertEqual(viewModel.selectedEntryID, second.id)
@@ -46,6 +48,7 @@ final class HistoryViewModelSearchTests: XCTestCase {
 
         await viewModel.reload(selectFirstResult: true)
         viewModel.updateQuery("needle")
+        await viewModel.waitForPendingSearch()
         viewModel.select(id: second.id)
         await viewModel.delete(second)
 
@@ -169,8 +172,159 @@ final class HistoryViewModelSearchTests: XCTestCase {
         XCTAssertEqual(viewModel.visibleEntries.map(\.text), ["existing"])
     }
 
+    func testStaleSearchCompletionCannotReplaceLatestQueryResults() async {
+        let alpha = makeEntry("alpha result", offset: 2)
+        let beta = makeEntry("beta result", offset: 1)
+        let searcher = StaleCompletionHistorySearcher()
+        let viewModel = HistoryViewModel(
+            service: HistoryService(store: InMemoryHistoryStore(entries: [alpha, beta])),
+            searcher: searcher,
+            searchDebounceNanoseconds: 0
+        )
+        await viewModel.reload()
+
+        viewModel.updateQuery("alpha")
+        await searcher.waitUntilSlowSearchStarts()
+        viewModel.updateQuery("beta")
+        await viewModel.waitForPendingSearch()
+
+        XCTAssertEqual(viewModel.visibleEntries, [beta])
+        XCTAssertEqual(viewModel.selectedEntryID, beta.id)
+        await searcher.releaseSlowSearch()
+        await searcher.waitUntilSlowSearchFinishes()
+        await Task.yield()
+        XCTAssertEqual(viewModel.visibleEntries, [beta])
+        XCTAssertEqual(viewModel.query, "beta")
+    }
+
+    func testSearchRunsOffMainActorAndEmptyQueryRestoresSnapshotImmediately() async {
+        let first = makeEntry("alpha", offset: 2)
+        let second = makeEntry("beta", offset: 1)
+        let searcher = RecordingHistorySearcher()
+        let viewModel = HistoryViewModel(
+            service: HistoryService(store: InMemoryHistoryStore(entries: [first, second])),
+            searcher: searcher,
+            searchDebounceNanoseconds: 0
+        )
+        await viewModel.reload()
+
+        viewModel.updateQuery("missing")
+        await viewModel.waitForPendingSearch()
+        XCTAssertTrue(viewModel.visibleEntries.isEmpty)
+        XCTAssertNil(viewModel.selectedEntryID)
+        let searchRanOnMainThread = await searcher.lastRunWasOnMainThread()
+        XCTAssertFalse(searchRanOnMainThread)
+
+        viewModel.updateQuery("")
+        XCTAssertEqual(viewModel.visibleEntries, [first, second])
+        XCTAssertEqual(viewModel.selectedEntryID, first.id)
+        XCTAssertFalse(viewModel.isSearchInProgress)
+    }
+
+    func testBoundedPreviewTraversesOnlyLimitPlusOneUnicodeCharacters() {
+        let family = "👨‍👩‍👧‍👦"
+        let fullText = family + "\n" + "é" + "🦊" + String(repeating: "tail", count: 10_000)
+        var traversedCharacters: [Character] = []
+
+        let preview = BoundedTextPreview.text(
+            for: fullText,
+            maximumCharacters: 3,
+            didTraverse: { traversedCharacters.append($0) }
+        )
+
+        XCTAssertEqual(traversedCharacters, [Character(family), "\n", "é", "🦊"])
+        XCTAssertEqual(preview, family + "\n" + "é…")
+        XCTAssertEqual(HistoryPreview.text(for: "short\n🦊"), "short\n🦊")
+    }
+
+    func testSearchBeyondPreviewBoundaryStillPastesExactLongText() async {
+        let marker = "needle-beyond-preview"
+        let fullText = String(repeating: "🦊", count: HistoryPreview.maximumCharacters + 500) + "\n" + marker
+        let entry = makeEntry(fullText, offset: 1)
+        let viewModel = HistoryViewModel(
+            service: HistoryService(store: InMemoryHistoryStore(entries: [entry])),
+            searchDebounceNanoseconds: 0
+        )
+        await viewModel.reload()
+
+        XCTAssertFalse(HistoryPreview.text(for: fullText).contains(marker))
+        viewModel.updateQuery(marker)
+        await viewModel.waitForPendingSearch()
+        XCTAssertEqual(viewModel.selectedEntry?.text, fullText)
+
+        let trace = Trace()
+        let writer = FakeHistoryPasteboardWriter(changeCount: 42, trace: trace)
+        let executor = HistoryPasteExecutor(
+            permissionService: FakeHistoryPermissionService(state: .granted),
+            pasteboardWriter: writer,
+            registerSelfWrite: { _ in },
+            commandDispatcher: FakePasteCommandDispatcher(trace: trace, result: true)
+        )
+        var result: Result<Void, HistoryPasteFailure>?
+        executor.paste(
+            entry: viewModel.selectedEntry!,
+            target: FakeHistoryPasteTarget(trace: trace),
+            closePanel: {},
+            completion: { result = $0 }
+        )
+
+        XCTAssertNoThrow(try result?.get())
+        XCTAssertEqual(writer.writtenTexts, [fullText])
+    }
+
     private func makeEntry(_ text: String, offset: TimeInterval) -> HistoryEntry {
         HistoryEntry(id: UUID(), text: text, activityAt: Date.now.addingTimeInterval(offset))
+    }
+}
+
+private actor RecordingHistorySearcher: HistorySearching {
+    private var ranOnMainThread = false
+
+    func matches(in entries: [HistoryEntry], query: String) -> [HistoryEntry] {
+        ranOnMainThread = Thread.isMainThread
+        return entries.filter { $0.text.localizedCaseInsensitiveContains(query) }
+    }
+
+    func lastRunWasOnMainThread() -> Bool {
+        ranOnMainThread
+    }
+}
+
+private actor StaleCompletionHistorySearcher: HistorySearching {
+    private var slowSearchStarted = false
+    private var slowSearchFinished = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var finishWaiters: [CheckedContinuation<Void, Never>] = []
+    private var slowSearchContinuation: CheckedContinuation<Void, Never>?
+
+    func matches(in entries: [HistoryEntry], query: String) async -> [HistoryEntry] {
+        if query == "alpha" {
+            slowSearchStarted = true
+            startWaiters.forEach { $0.resume() }
+            startWaiters = []
+            await withCheckedContinuation { continuation in
+                slowSearchContinuation = continuation
+            }
+            slowSearchFinished = true
+            finishWaiters.forEach { $0.resume() }
+            finishWaiters = []
+        }
+        return entries.filter { $0.text.localizedCaseInsensitiveContains(query) }
+    }
+
+    func waitUntilSlowSearchStarts() async {
+        guard !slowSearchStarted else { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func releaseSlowSearch() {
+        slowSearchContinuation?.resume()
+        slowSearchContinuation = nil
+    }
+
+    func waitUntilSlowSearchFinishes() async {
+        guard !slowSearchFinished else { return }
+        await withCheckedContinuation { finishWaiters.append($0) }
     }
 }
 

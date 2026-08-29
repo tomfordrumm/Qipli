@@ -1,7 +1,7 @@
 ---
 id: S020
 title: Отзывчивый поиск и ограниченные previews
-status: ready
+status: needs_verification
 depends_on:
   - S019
 covers:
@@ -41,30 +41,38 @@ covers:
 
 ## Acceptance criteria
 
-- [ ] Быстрый ввод нескольких query публикует только результат последнего generation.
-- [ ] Search не выполняет линейный full-snapshot filter на main actor и сохраняет localized case-insensitive substring behavior.
-- [ ] Empty/no-results/selection/navigation остаются корректными при async completion.
-- [ ] Preview traversal ограничен `limit + 1`, корректен для Unicode grapheme clusters/multiline и не раскрывает лишний текст.
-- [ ] Full long text находится по фрагменту за preview boundary и вставляется без усечения.
+- [x] Быстрый ввод нескольких query публикует только результат последнего generation.
+- [x] Search не выполняет линейный full-snapshot filter на main actor и сохраняет localized case-insensitive substring behavior.
+- [x] Empty/no-results/selection/navigation остаются корректными при async completion.
+- [x] Preview traversal ограничен `limit + 1`, корректен для Unicode grapheme clusters/multiline и не раскрывает лишний текст.
+- [x] Full long text находится по фрагменту за preview boundary и вставляется без усечения.
 
 ## Verification
 
-- [ ] Focused cancellation/stale-result/search-semantics tests.
-- [ ] Preview operation-count и long-text exact-paste tests.
-- [ ] S017 search/preview baselines на 1 800/10 000/50 000 synthetic entries.
-- [ ] Full SwiftPM/Xcode suite и unsigned universal Release build.
+- [x] Focused cancellation/stale-result/search-semantics tests.
+- [x] Preview operation-count и long-text exact-paste tests.
+- [x] S017 search/preview baselines на 1 800/10 000/50 000 synthetic entries.
+- [x] Full SwiftPM/Xcode suite и unsigned universal Release build.
 - [ ] Manual rapid typing/clear/retype smoke в History.
 
 ## Implementation report
 
 ### Реализовано
 
-Не заполнено.
+- `BackgroundHistorySearcher` выполняет localized case-insensitive substring filter за actor boundary над immutable value snapshot; каждое обновление query отменяет прежнюю task и увеличивает generation.
+- Непустой query получает debounce 100 ms, состояние `Searching…` и stale-result guard; empty query синхронно возвращает текущий ordered snapshot.
+- Async reload/capture/delete дожидаются актуального background filter перед возвратом, поэтому storage mutation не оставляет промежуточный пустой result.
+- Общий `BoundedTextPreview` для History и Paste Stack обходит максимум `limit + 1` Unicode grapheme clusters. Stored/search/paste text остаётся полным и точным.
 
 ### Проверено
 
-Не заполнено.
+- Focused History search suite: 14 tests, 0 failures, включая управляемое завершение stale generation и подтверждение off-main search.
+- Long Unicode/multiline preview test подтвердил ровно `limit + 1` traversal; exact-paste test нашёл marker за preview boundary и записал полный text.
+- S017 performance baseline suite остаётся зелёным на snapshots 1 800/10 000/50 000 и long-text fixture.
+- Полный SwiftPM suite из clean copy: 170 tests, 0 failures. Полный unsigned Xcode Debug suite: 170 tests, 0 failures.
+- Unsigned universal Release build прошёл с `arm64` и `x86_64`.
 
 ### Отклонения и остаточные риски
 
-Не заполнено.
+- Ручной rapid typing/clear/retype smoke в реальной History panel не выполнялся; до него срез остаётся `needs_verification`.
+- Search по-прежнему линейный по полному snapshot; срез устраняет main-thread stall и stale publication, но сознательно не вводит FTS и не меняет substring semantics.

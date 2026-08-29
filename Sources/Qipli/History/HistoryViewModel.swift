@@ -7,6 +7,24 @@ enum HistoryViewState: Equatable {
     case error
 }
 
+protocol HistorySearching: Sendable {
+    func matches(in entries: [HistoryEntry], query: String) async -> [HistoryEntry]
+}
+
+actor BackgroundHistorySearcher: HistorySearching {
+    func matches(in entries: [HistoryEntry], query: String) -> [HistoryEntry] {
+        var matches: [HistoryEntry] = []
+        matches.reserveCapacity(min(entries.count, 64))
+        for entry in entries {
+            guard !Task.isCancelled else { return [] }
+            if entry.text.localizedCaseInsensitiveContains(query) {
+                matches.append(entry)
+            }
+        }
+        return matches
+    }
+}
+
 @MainActor
 final class HistoryViewModel: ObservableObject {
     @Published private(set) var state: HistoryViewState = .loading
@@ -16,13 +34,24 @@ final class HistoryViewModel: ObservableObject {
     @Published private(set) var isPasteInProgress = false
     @Published private(set) var searchFocusRequestID = 0
     @Published private(set) var presentationViewportResetRequestID = 0
+    @Published private(set) var isSearchInProgress = false
 
     private let service: SerializedHistoryService
+    private let searcher: any HistorySearching
+    private let searchDebounceNanoseconds: UInt64
     private var allEntries: [HistoryEntry] = []
     private var hasLoadedSnapshot = false
+    private var searchGeneration = 0
+    private var searchTask: Task<Void, Never>?
 
-    init(service: HistoryService) {
+    init(
+        service: HistoryService,
+        searcher: any HistorySearching = BackgroundHistorySearcher(),
+        searchDebounceNanoseconds: UInt64 = 100_000_000
+    ) {
         self.service = SerializedHistoryService(service: service)
+        self.searcher = searcher
+        self.searchDebounceNanoseconds = searchDebounceNanoseconds
     }
 
     var selectedEntry: HistoryEntry? {
@@ -40,7 +69,7 @@ final class HistoryViewModel: ObservableObject {
         pasteFailure = nil
         isPasteInProgress = false
         if hasLoadedSnapshot, state != .error {
-            applyFilter(selectFirstResult: true)
+            scheduleFilter(selectFirstResult: true, debounce: false)
         }
     }
 
@@ -60,8 +89,10 @@ final class HistoryViewModel: ObservableObject {
         do {
             allEntries = try await service.entries()
             hasLoadedSnapshot = true
-            applyFilter(selectFirstResult: selectFirstResult)
+            scheduleFilter(selectFirstResult: selectFirstResult, debounce: false)
+            await waitForPendingSearch()
         } catch {
+            cancelSearch()
             state = .error
             selectedEntryID = nil
         }
@@ -70,7 +101,7 @@ final class HistoryViewModel: ObservableObject {
     func updateQuery(_ query: String) {
         self.query = query
         pasteFailure = nil
-        applyFilter(selectFirstResult: true)
+        scheduleFilter(selectFirstResult: true, debounce: true)
     }
 
     func moveSelection(by offset: Int) {
@@ -122,9 +153,11 @@ final class HistoryViewModel: ObservableObject {
             guard let entry = try await service.capture(text: text) else { return nil }
             allEntries.insert(entry, at: 0)
             hasLoadedSnapshot = true
-            applyFilter(selectFirstResult: false)
+            scheduleFilter(selectFirstResult: false, debounce: false)
+            await waitForPendingSearch()
             return entry
         } catch {
+            cancelSearch()
             state = .error
             return nil
         }
@@ -137,7 +170,8 @@ final class HistoryViewModel: ObservableObject {
         do {
             try await service.delete(id: entry.id)
             allEntries.removeAll { $0.id == entry.id }
-            applyFilter(selectFirstResult: false)
+            scheduleFilter(selectFirstResult: false, debounce: false)
+            await waitForPendingSearch()
 
             if selectedBeforeDelete == entry.id, let deletedIndex {
                 let entries = visibleEntries
@@ -146,6 +180,7 @@ final class HistoryViewModel: ObservableObject {
                 selectedEntryID = visibleEntries.first?.id
             }
         } catch {
+            cancelSearch()
             state = .error
             selectedEntryID = nil
         }
@@ -157,6 +192,7 @@ final class HistoryViewModel: ObservableObject {
             try await service.clearAll()
             allEntries = []
             hasLoadedSnapshot = true
+            cancelSearch()
             query = ""
             selectedEntryID = nil
             pasteFailure = nil
@@ -164,29 +200,69 @@ final class HistoryViewModel: ObservableObject {
             state = .empty
             return true
         } catch {
+            cancelSearch()
             state = .error
             selectedEntryID = nil
             return false
         }
     }
 
-    private func applyFilter(selectFirstResult: Bool) {
-        let entries: [HistoryEntry]
-        if query.isEmpty {
-            entries = allEntries
-        } else {
-            entries = allEntries.filter { $0.text.localizedCaseInsensitiveContains(query) }
-        }
+    func waitForPendingSearch() async {
+        await searchTask?.value
+    }
+
+    private func scheduleFilter(selectFirstResult: Bool, debounce: Bool) {
+        searchGeneration &+= 1
+        let generation = searchGeneration
+        searchTask?.cancel()
 
         if allEntries.isEmpty {
+            isSearchInProgress = false
             state = .empty
             selectedEntryID = nil
             return
         }
 
+        guard !query.isEmpty else {
+            isSearchInProgress = false
+            publish(entries: allEntries, selectFirstResult: selectFirstResult)
+            return
+        }
+
+        let snapshot = allEntries
+        let requestedQuery = query
+        let searcher = searcher
+        let delay = debounce ? searchDebounceNanoseconds : 0
+        isSearchInProgress = true
+        state = .list([])
+        selectedEntryID = nil
+        searchTask = Task { @MainActor [weak self] in
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled else { return }
+            }
+            let entries = await searcher.matches(in: snapshot, query: requestedQuery)
+            guard !Task.isCancelled,
+                  let self,
+                  generation == self.searchGeneration,
+                  requestedQuery == self.query
+            else { return }
+            self.isSearchInProgress = false
+            self.publish(entries: entries, selectFirstResult: selectFirstResult)
+        }
+    }
+
+    private func publish(entries: [HistoryEntry], selectFirstResult: Bool) {
         state = .list(entries)
         if selectFirstResult || !entries.contains(where: { $0.id == selectedEntryID }) {
             selectedEntryID = entries.first?.id
         }
+    }
+
+    private func cancelSearch() {
+        searchGeneration &+= 1
+        searchTask?.cancel()
+        searchTask = nil
+        isSearchInProgress = false
     }
 }
