@@ -151,13 +151,21 @@ final class CoreDataHistoryStore: HistoryStoring {
     }
 
     private func removeExpired(before cutoff: Date, in context: NSManagedObjectContext) throws {
-        let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
+        let request = NSFetchRequest<NSFetchRequestResult>(entityName: Self.entityName)
         request.predicate = NSPredicate(format: "capturedAt <= %@", cutoff as NSDate)
-        for object in try context.fetch(request) {
-            context.delete(object)
-        }
+        let deleteRequest = NSBatchDeleteRequest(fetchRequest: request)
+        deleteRequest.resultType = .resultTypeObjectIDs
+        guard let result = try context.execute(deleteRequest) as? NSBatchDeleteResult,
+              let deletedObjectIDs = result.result as? [NSManagedObjectID],
+              !deletedObjectIDs.isEmpty
+        else { return }
+
+        NSManagedObjectContext.mergeChanges(
+            fromRemoteContextSave: [NSDeletedObjectsKey: deletedObjectIDs],
+            into: [context]
+        )
         if context.hasChanges {
-            try context.save()
+            context.processPendingChanges()
         }
     }
 
@@ -174,6 +182,10 @@ final class CoreDataHistoryStore: HistoryStoring {
         let entry = NSEntityDescription()
         entry.name = entityName
         entry.managedObjectClassName = NSStringFromClass(NSManagedObject.self)
+        // Fetch indexes are not part of Core Data's compatibility hash by default.
+        // Bump the entity hash so existing stores perform a lightweight migration
+        // and receive the S018 index layout instead of keeping their legacy index.
+        entry.versionHashModifier = "performance-indexes-v1"
 
         let id = NSAttributeDescription()
         id.name = "id"
@@ -191,11 +203,18 @@ final class CoreDataHistoryStore: HistoryStoring {
         capturedAt.isOptional = false
 
         entry.properties = [id, text, capturedAt]
-        let capturedAtIndex = NSFetchIndexDescription(
-            name: "capturedAtIndex",
-            elements: [NSFetchIndexElementDescription(property: capturedAt, collationType: .binary)]
+        let idIndex = NSFetchIndexDescription(
+            name: "idIndex",
+            elements: [NSFetchIndexElementDescription(property: id, collationType: .binary)]
         )
-        entry.indexes = [capturedAtIndex]
+        let activityOrderIndex = NSFetchIndexDescription(
+            name: "activityOrderIndex",
+            elements: [
+                NSFetchIndexElementDescription(property: capturedAt, collationType: .binary),
+                NSFetchIndexElementDescription(property: id, collationType: .binary),
+            ]
+        )
+        entry.indexes = [idIndex, activityOrderIndex]
         model.entities = [entry]
         return NSPersistentContainer(name: "QipliHistory", managedObjectModel: model)
     }
