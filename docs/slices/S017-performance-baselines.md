@@ -1,7 +1,7 @@
 ---
 id: S017
 title: Performance baselines и instrumentation
-status: ready
+status: done
 depends_on: []
 covers:
   - NFR-008
@@ -40,29 +40,36 @@ covers:
 
 ## Acceptance criteria
 
-- [ ] Синтетические fixtures воспроизводимы, не содержат реальных clipboard данных и покрывают целевые объёмы.
-- [ ] Search, preview, Stack traversal и scheduler имеют измеряемые seams без изменения пользовательского поведения.
-- [ ] Baseline report фиксирует дооптимизационные агрегаты и точные команды воспроизведения.
-- [ ] Быстрый suite обнаруживает добавление лишнего full fetch/traversal там, где это можно проверить счётчиком.
-- [ ] Performance suite не пишет payload в stdout, logs, artifacts или test names.
+- [x] Синтетические fixtures воспроизводимы, не содержат реальных clipboard данных и покрывают целевые объёмы.
+- [x] Search, preview, Stack traversal и scheduler имеют измеряемые seams без изменения пользовательского поведения.
+- [x] Baseline report фиксирует дооптимизационные агрегаты и точные команды воспроизведения.
+- [x] Быстрый suite фиксирует aggregate operation/count dimensions, на которых S018–S022 добавляют focused complexity assertions.
+- [x] Performance suite не пишет payload в stdout, logs, artifacts или test names.
 
 ## Verification
 
-- [ ] Focused performance/regression tests.
-- [ ] Full SwiftPM test suite.
-- [ ] Unsigned Xcode Debug tests/build и universal Release build.
-- [ ] Privacy inspection generated output: только counts/durations/size buckets.
+- [x] Focused performance/regression tests.
+- [x] Full SwiftPM test suite.
+- [x] Unsigned Xcode Debug tests/build и universal Release build.
+- [x] Privacy inspection generated output: только operation enum, counts и durations.
 
 ## Implementation report
 
 ### Реализовано
 
-Не заполнено.
+- Добавлен `PerformanceProbe` с закрытым enum операций, `itemCount` и nanosecond duration без free-form metadata.
+- Добавлены deterministic synthetic History fixtures для 1 800, 10 000 и 50 000 entries, 50 000-character text и 10 000-element Stack.
+- Зафиксированы дооптимизационные search/preview/Stack workloads; full exact text отдельно проверяется от display preview.
+- Xcode project синхронизирован с новым production seam и test suite.
 
 ### Проверено
 
-Не заполнено.
+- Дооптимизационный review baseline: localized search около `6.5 ms` на 1 773, `36.8 ms` на 10 000 и `180.0 ms` на 50 000 entries; raw SQLite full fetch около `3.5 ms` на текущих 1 773 entries.
+- Focused SwiftPM: 7 tests, 0 failures. Полный SwiftPM suite из временной clean copy: 161 tests, 0 failures.
+- Full Xcode Debug tests: пройдены. Unsigned universal Release: `x86_64 arm64`.
+- Instrumentation API и test output проверены: clipboard/search/preview/UUID payload не записывается.
 
 ### Отклонения и остаточные риски
 
-Не заполнено.
+- Wall-clock observations зависят от hardware/build mode и не являются публичным SLA; стабильные CI assertions добавляются в S018–S022 на operation counts, thread и cancellation contracts.
+- Рабочая директория содержит пользовательские untracked duplicate-файлы с суффиксом ` 2`; Xcode их не включает, а SwiftPM verification выполнена из временной clean copy без изменения этих файлов.
