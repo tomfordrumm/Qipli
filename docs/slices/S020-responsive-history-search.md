@@ -60,6 +60,7 @@ covers:
 ### Реализовано
 
 - `BackgroundHistorySearcher` выполняет localized case-insensitive substring filter за actor boundary над immutable value snapshot; каждое обновление query отменяет прежнюю task и увеличивает generation.
+- Общий `HistorySearchMatcher` является production implementation и test seam: на каждом незавершённом поиске он инспектирует каждую запись ровно один раз, исключая скрытый вложенный full-snapshot traversal.
 - Непустой query получает debounce 100 ms, состояние `Searching…` и stale-result guard; empty query синхронно возвращает текущий ordered snapshot.
 - Async reload/capture/delete дожидаются актуального background filter перед возвратом, поэтому storage mutation не оставляет промежуточный пустой result.
 - Общий `BoundedTextPreview` для History и Paste Stack обходит максимум `limit + 1` Unicode grapheme clusters. Stored/search/paste text остаётся полным и точным.
@@ -69,6 +70,7 @@ covers:
 - Focused History search suite: 14 tests, 0 failures, включая управляемое завершение stale generation и подтверждение off-main search.
 - Long Unicode/multiline preview test подтвердил ровно `limit + 1` traversal; exact-paste test нашёл marker за preview boundary и записал полный text.
 - S017 performance baseline suite остаётся зелёным на snapshots 1 800/10 000/50 000 и long-text fixture.
+- Corrective operation-count gate 2026-08-29 подтвердил inspection counts `1 800/10 000/50 000`; совместный Xcode performance/search run прошёл 25/25.
 - Полный SwiftPM suite из clean copy: 170 tests, 0 failures. Полный unsigned Xcode Debug suite: 170 tests, 0 failures.
 - Unsigned universal Release build прошёл с `arm64` и `x86_64`.
 

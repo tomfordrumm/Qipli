@@ -40,16 +40,24 @@ final class PerformanceBaselineTests: XCTestCase {
 
     func testSearchBaselineWorkloadsPreserveLocalizedSubstringSemantics() {
         let probe = RecordingPerformanceProbe()
+        var inspectionCounts: [Int] = []
 
         for size in [1_800, 10_000, 50_000] {
             let entries = SyntheticPerformanceFixtures.historyEntries(count: size)
+            var inspectedEntries = 0
             let matches = probe.probe.measure(.historySearch, itemCount: size) {
-                entries.filter { $0.text.localizedCaseInsensitiveContains("NÉEDLE") }
+                HistorySearchMatcher.matches(
+                    in: entries,
+                    query: "NÉEDLE",
+                    didInspect: { inspectedEntries += 1 }
+                )
             }
 
             XCTAssertEqual(matches.count, SyntheticPerformanceFixtures.expectedNeedleCount(in: size))
+            inspectionCounts.append(inspectedEntries)
         }
 
+        XCTAssertEqual(inspectionCounts, [1_800, 10_000, 50_000])
         XCTAssertEqual(probe.observations.map(\.operation), Array(repeating: .historySearch, count: 3))
         XCTAssertEqual(probe.observations.map(\.itemCount), [1_800, 10_000, 50_000])
         XCTAssertTrue(probe.observations.allSatisfy { $0.elapsedNanoseconds > 0 })

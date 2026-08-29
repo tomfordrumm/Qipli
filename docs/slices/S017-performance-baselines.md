@@ -60,6 +60,7 @@ covers:
 - Добавлен `PerformanceProbe` с закрытым enum операций, `itemCount` и nanosecond duration без free-form metadata.
 - Добавлены deterministic synthetic History fixtures для 1 800, 10 000 и 50 000 entries, 50 000-character text и 10 000-element Stack.
 - Зафиксированы дооптимизационные search/preview/Stack workloads; full exact text отдельно проверяется от display preview.
+- Search baseline теперь использует production matcher seam и детерминированно требует ровно один inspection на entry для snapshots 1 800/10 000/50 000; wall-clock остаётся только наблюдением.
 - Xcode project синхронизирован с новым production seam и test suite.
 
 ### Проверено
@@ -68,6 +69,7 @@ covers:
 - Focused SwiftPM: 7 tests, 0 failures. Полный SwiftPM suite из временной clean copy: 161 tests, 0 failures.
 - Full Xcode Debug tests: пройдены. Unsigned universal Release: `x86_64 arm64`.
 - Instrumentation API и test output проверены: clipboard/search/preview/UUID payload не записывается.
+- Corrective Xcode run 2026-08-29: `PerformanceBaselineTests` 9/9 и совместный History search run 25/25; linear inspection counts равны размерам fixtures.
 
 ### Отклонения и остаточные риски
 
