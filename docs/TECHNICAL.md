@@ -115,10 +115,20 @@ Sparkle updater ──> public HTTPS appcast ──> EdDSA-verified ZIP ──> 
 ### HistoryService
 
 - является единственной точкой записи, поиска, удаления и retention cleanup;
+- выполняет persistent-store work через последовательную background execution boundary; main actor получает только immutable `HistoryEntry` snapshots;
+- хранит актуальный in-memory snapshot для UI, поэтому повторный показ History не требует безусловного full fetch;
 - не отдаёт записи, чья последняя активность старше или равна 30 дням, даже если фоновая очистка ещё не завершилась;
 - поддерживает отдельные одинаковые события;
-- выполняет очистку при запуске, перед выдачей результатов и периодически при длительной работе;
+- выполняет batch retention cleanup при запуске, перед выдачей результатов и периодически при длительной работе без материализации удаляемых managed objects;
+- использует persistent index для exact UUID lookup; индекс сортировки добавляется только если S018 докажет измеримый выигрыш без неприемлемой цены записи;
 - при «Очистить всё» уничтожает/пересоздаёт persistent store либо эквивалентно удаляет основную БД и sidecar-файлы после закрытия соединений.
+
+### Performance boundary
+
+- S017 фиксирует воспроизводимые baselines на синтетических payload-free fixtures примерно для 1 800, 10 000 и 50 000 History entries, длинного текста и больших Paste Stack. Наблюдённые wall-clock значения являются evidence для регрессий, но не превращаются в выдуманный публичный SLA.
+- Проверки разделяют storage/query, search/filter, preview construction, Stack traversal/render preparation и pasteboard scheduler. Каждая последующая оптимизация обязана иметь focused regression test на изменяемую границу.
+- Локальная Debug/test instrumentation может измерять длительность и счётчики операций, но не включает clipboard text, search query, preview, UUID или другие пользовательские payload в сообщения, signpost metadata и имена файлов.
+- Абсолютные timing thresholds применяются только к стабильным алгоритмическим seams или явно калибруемым benchmark runs. Обычный CI прежде всего проверяет сложность, отсутствие main-thread persistent I/O, cancellation/stale-result contracts и число обходов, чтобы не стать flaky из-за shared runner load.
 
 ### StackSession
 
@@ -181,8 +191,9 @@ S010 заменяет hard-coded History/Stack/Reactivate Previous match зна�
 1. Monitor замечает новый `changeCount`.
 2. Self-write registry подтверждает, что изменение не принадлежит Qipli.
 3. Monitor читает текст ровно один раз и передаёт observed `changeCount`; перед deferred work snapshot-ятся optional active Stack session UUID и start watermark.
-4. `HistoryService` сначала сохраняет запись; только после успеха StackSession с тем же UUID получает отдельный occurrence, если observed `changeCount` строго больше watermark. Отмена/новый Start между этими шагами или write до Start оставляет событие только в History.
-5. UI обновляется из наблюдаемого состояния; ошибка хранения не маскируется.
+4. Monitor передаёт capture в последовательную asynchronous History pipeline и может дождаться её drain перед user-triggered fresh History show.
+5. `HistoryService` сначала durably сохраняет запись на background boundary; только после успеха StackSession с тем же UUID получает отдельный occurrence, если observed `changeCount` строго больше watermark. Отмена/новый Start между этими шагами или write до Start оставляет событие только в History.
+6. Main actor публикует новый immutable snapshot; ошибка хранения не маскируется и не создаёт Stack-only occurrence.
 
 Порядок «сначала история, потом стек» гарантирует, что отмена/сбой стека не оставит значение только в памяти.
 
@@ -335,6 +346,12 @@ QipliUITests/         in-app keyboard and panel flows
 - S013: version/tag validation, CI permission/static-secret checks и unsigned SwiftPM/Xcode build path;
 - S014: release admission, draft/publish ordering, cleanup behavior и fail-closed packaging with fake command boundaries; реальная подпись/notarization проверяется отдельным protected run;
 - S015: updater opt-in/default/manual-check state, feed/version selection, invalid-signature/offline/install failure через injected adapter без реальной сети в unit tests;
+- S017: payload-free benchmark fixtures, baseline report и instrumentation counters для History/search/preview/Stack/polling без пользовательского clipboard;
+- S018: UUID index contract, batch retention без managed-object materialization и измеряемый query-plan regression;
+- S019: persistent I/O не на main thread, последовательность быстрых capture, save-before-append, fresh-show drain и отсутствие unconditional show reload;
+- S020: cancellable/stale-safe localized search, ограниченный preview traversal и exact full-text storage/search/paste;
+- S021: direct/reverse next за один линейный проход и одна подготовка next-ID на render snapshot без скрытого O(N²);
+- S022: один scheduler callback на tick, tolerance/cancel lifecycle, self-write suppression и capture frequency без реального pasteboard в unit tests;
 - build: Debug и Release для deployment target macOS 14.
 
 ### Вручную на чистой системе
@@ -388,7 +405,7 @@ CI использует тот же verifier, но создаёт временн
 
 ## 11. Технические предположения и точки перепроверки
 
-- Core Data достаточно для объёма 30-дневной текстовой истории; до оптимизации нужно измерить реальный объём и поиск на репрезентативном локальном наборе.
+- Измерение 2026-08-29 подтвердило, что текущий локальный 30-дневный объём помещается в Core Data, но main-thread synchronous pipeline и линейный search плохо масштабируются; S017–S020 сохраняют Core Data и устраняют подтверждённые bottlenecks без новой persistence dependency.
 - Одного Accessibility-разрешения достаточно для выбранного event tap/paste flow на macOS 14+; S001 обязан проверить это на чистом профиле и не скрывать дополнительное системное требование, если оно появится.
 - Локальный Developer ID/notary pipeline подтверждён. Для S014 отдельно нужно подтвердить exportable Developer ID private key и App Store Connect API key в protected GitHub Environment; локальный Data Protection Keychain profile сам по себе не переносится на hosted runner.
 - `UserDefaults` достаточно для малых несекретных preferences; несовместимая shortcut schema должна fail closed к defaults, а login-item status никогда не кэшируется как source of truth.
