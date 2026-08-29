@@ -40,7 +40,7 @@ protocol PasteboardPollScheduling: AnyObject {
 }
 
 @MainActor
-private final class TimerPasteboardPollCancellation: PasteboardPollCancellation {
+final class TimerPasteboardPollCancellation: PasteboardPollCancellation {
     private var timer: Timer?
 
     init(timer: Timer) {
@@ -50,6 +50,10 @@ private final class TimerPasteboardPollCancellation: PasteboardPollCancellation 
     func cancel() {
         timer?.invalidate()
         timer = nil
+    }
+
+    deinit {
+        timer?.invalidate()
     }
 }
 

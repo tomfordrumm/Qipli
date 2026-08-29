@@ -36,6 +36,7 @@ PasteboardMonitor сохраняет текущую capture latency и reliabili
 - Production interval остаётся `0.35 s` в этом срезе; tolerance может coalesce wakeups, но explicit fresh show poll остаётся немедленным.
 - Каждый timer fire вызывает максимум один poll и не создаёт unstructured Task, когда changeCount не изменился.
 - Start/stop идемпотентны, stop invalidates scheduler, onboarding gate по-прежнему запрещает pasteboard read до завершения.
+- Освобождение production cancellation token также invalidates timer, даже если future owner забудет явный `cancel()`.
 - Self-write registry, exact observed changeCount, serialization и rapid external capture order сохраняются.
 
 ## Acceptance criteria
@@ -64,9 +65,11 @@ PasteboardMonitor сохраняет текущую capture latency и reliabili
 
 Lifecycle стал явно идемпотентным: repeated `start()` не создаёт второй scheduler, `stop()` отменяет future fires, а restart снова фиксирует baseline. Explicit `poll()`/capture drain S019 остаются независимыми от timer cadence. Self-write suppression, exact `changeCount` и onboarding baseline не менялись.
 
+Corrective hardening 2026-08-29 добавил defensive timer invalidation в `TimerPasteboardPollCancellation.deinit`; основной explicit `stop()` contract остаётся прежним.
+
 ### Проверено
 
-Focused `PasteboardMonitorTests`: 9 тестов; `PerformanceBaselineTests`: 9 тестов. Operation-count baseline выполнил 10 000 scheduler fires: один callback на fire, `10 001` чтение `changeCount` с учётом start baseline и `0` чтений clipboard text.
+Focused corrective run: `PasteboardMonitorTests` 10/10 и `PerformanceBaselineTests` 10/10. Lifecycle test подтверждает invalidation при освобождении cancellation token без явного cancel. Operation-count baseline выполнил 10 000 scheduler fires: один callback на fire, `10 001` чтение `changeCount` с учётом start baseline и `0` чтений clipboard text.
 
 Полные SwiftPM и unsigned Xcode Debug suites: 175 тестов, 0 failures. Unsigned universal Release build прошёл; executable содержит `x86_64 arm64`.
 

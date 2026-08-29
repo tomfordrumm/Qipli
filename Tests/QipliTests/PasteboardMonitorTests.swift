@@ -143,6 +143,21 @@ final class PasteboardMonitorTests: XCTestCase {
         XCTAssertEqual(scheduler.lastTolerance, 0.2)
     }
 
+    func testTimerCancellationInvalidatesItsTimerWhenReleasedWithoutExplicitCancel() {
+        let timer = Timer(timeInterval: 3_600, repeats: true) { _ in }
+        RunLoop.main.add(timer, forMode: .common)
+        weak var releasedCancellation: TimerPasteboardPollCancellation?
+
+        do {
+            let cancellation = TimerPasteboardPollCancellation(timer: timer)
+            releasedCancellation = cancellation
+            XCTAssertTrue(timer.isValid)
+        }
+
+        XCTAssertNil(releasedCancellation)
+        XCTAssertFalse(timer.isValid)
+    }
+
     func testScheduledRapidDuplicatesAndSelfWriteKeepExactSuppressionBehavior() {
         let pasteboard = FakePasteboard(changeCount: 50)
         let scheduler = FakePasteboardPollScheduler()
