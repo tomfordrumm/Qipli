@@ -45,6 +45,8 @@
 		A00100000000000000000040 /* SecureUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000040 /* SecureUpdater.swift */; };
 		A00100000000000000000041 /* UpdatesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000041 /* UpdatesTests.swift */; };
 		A00100000000000000000042 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000042 /* Assets.xcassets */; };
+		A00100000000000000000043 /* PerformanceInstrumentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000043 /* PerformanceInstrumentation.swift */; };
+		A00100000000000000000044 /* PerformanceBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000044 /* PerformanceBaselineTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -100,6 +102,8 @@
 		A00200000000000000000040 /* SecureUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureUpdater.swift; sourceTree = "<group>"; };
 		A00200000000000000000041 /* UpdatesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatesTests.swift; sourceTree = "<group>"; };
 		A00200000000000000000042 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A00200000000000000000043 /* PerformanceInstrumentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceInstrumentation.swift; sourceTree = "<group>"; };
+		A00200000000000000000044 /* PerformanceBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceBaselineTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -142,6 +146,7 @@
 				A00400000000000000000012 /* Settings */,
 				A00400000000000000000013 /* Onboarding */,
 				A00400000000000000000015 /* Updates */,
+				A00400000000000000000016 /* Performance */,
 				A00400000000000000000005 /* UI */,
 				A00400000000000000000008 /* Resources */,
 			);
@@ -194,6 +199,7 @@
 				A00200000000000000000035 /* SettingsTests.swift */,
 				A00200000000000000000038 /* OnboardingTests.swift */,
 				A00200000000000000000041 /* UpdatesTests.swift */,
+				A00200000000000000000044 /* PerformanceBaselineTests.swift */,
 			);
 			path = Tests/QipliTests;
 			sourceTree = "<group>";
@@ -279,6 +285,14 @@
 				A00200000000000000000040 /* SecureUpdater.swift */,
 			);
 			path = Updates;
+			sourceTree = "<group>";
+		};
+		A00400000000000000000016 /* Performance */ = {
+			isa = PBXGroup;
+			children = (
+				A00200000000000000000043 /* PerformanceInstrumentation.swift */,
+			);
+			path = Performance;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -404,6 +418,7 @@
 				A00100000000000000000036 /* OnboardingCoordinator.swift in Sources */,
 				A00100000000000000000037 /* OnboardingWindowController.swift in Sources */,
 				A00100000000000000000040 /* SecureUpdater.swift in Sources */,
+				A00100000000000000000043 /* PerformanceInstrumentation.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -420,6 +435,7 @@
 				A00100000000000000000035 /* SettingsTests.swift in Sources */,
 				A00100000000000000000038 /* OnboardingTests.swift in Sources */,
 				A00100000000000000000041 /* UpdatesTests.swift in Sources */,
+				A00100000000000000000044 /* PerformanceBaselineTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
