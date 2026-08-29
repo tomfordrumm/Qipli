@@ -1,7 +1,7 @@
 ---
 id: S022
 title: Энергоэффективный pasteboard polling
-status: ready
+status: needs_verification
 depends_on:
   - S021
 covers:
@@ -40,31 +40,36 @@ PasteboardMonitor сохраняет текущую capture latency и reliabili
 
 ## Acceptance criteria
 
-- [ ] Scheduler получает документированные interval/tolerance; один fire приводит к одному poll.
-- [ ] Пустой tick не создаёт Task; async work начинается только при реальном capture pipeline или explicit drain.
-- [ ] Stop отменяет future ticks, repeated start не создаёт второй timer.
-- [ ] Self-write suppression и rapid duplicate external changes сохраняют поведение.
-- [ ] Immediate History show poll/drain S019 не зависит от timer tolerance.
+- [x] Scheduler получает документированные interval/tolerance; один fire приводит к одному poll.
+- [x] Пустой tick не создаёт Task; async work начинается только при реальном capture pipeline или explicit drain.
+- [x] Stop отменяет future ticks, repeated start не создаёт второй timer.
+- [x] Self-write suppression и rapid duplicate external changes сохраняют поведение.
+- [x] Immediate History show poll/drain S019 не зависит от timer tolerance.
 - [ ] Idle observation не показывает регрессию CPU/wakeups относительно S017 baseline.
 
 ## Verification
 
-- [ ] Focused scheduler lifecycle/one-fire-one-poll tests с fake pasteboard.
-- [ ] Rapid capture, self-write, onboarding baseline и fresh-show integration tests.
-- [ ] S017 polling instrumentation до/после; локальный idle observation.
-- [ ] Full SwiftPM/Xcode suite и unsigned universal Release build.
+- [x] Focused scheduler lifecycle/one-fire-one-poll tests с fake pasteboard.
+- [x] Rapid capture, self-write, onboarding baseline и fresh-show integration tests.
+- [x] S017 polling instrumentation до/после.
+- [ ] Локальный idle observation реального приложения.
+- [x] Full SwiftPM/Xcode suite и unsigned universal Release build.
 - [ ] Manual быстрые копирования, duplicate, History immediate show и sleep/wake smoke.
 
 ## Implementation report
 
 ### Реализовано
 
-Не заполнено.
+Добавлен injectable `PasteboardPollScheduling`: production scheduler создаёт repeating main-run-loop timer с interval `0.35 s` и tolerance `0.05 s`. Callback вызывает actor-isolated `poll()` напрямую, поэтому неизменившийся `changeCount` больше не создаёт unstructured `Task` на каждом tick.
+
+Lifecycle стал явно идемпотентным: repeated `start()` не создаёт второй scheduler, `stop()` отменяет future fires, а restart снова фиксирует baseline. Explicit `poll()`/capture drain S019 остаются независимыми от timer cadence. Self-write suppression, exact `changeCount` и onboarding baseline не менялись.
 
 ### Проверено
 
-Не заполнено.
+Focused `PasteboardMonitorTests`: 9 тестов; `PerformanceBaselineTests`: 9 тестов. Operation-count baseline выполнил 10 000 scheduler fires: один callback на fire, `10 001` чтение `changeCount` с учётом start baseline и `0` чтений clipboard text.
+
+Полные SwiftPM и unsigned Xcode Debug suites: 175 тестов, 0 failures. Unsigned universal Release build прошёл; executable содержит `x86_64 arm64`.
 
 ### Отклонения и остаточные риски
 
-Не заполнено.
+Реальный idle CPU/wakeup observation, быстрые копирования/duplicate, immediate History show и sleep/wake smoke не выполнялись автоматически. До их ручного прохождения срез остаётся `needs_verification`; polling frequency намеренно не снижалась.

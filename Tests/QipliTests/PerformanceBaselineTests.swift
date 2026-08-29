@@ -174,19 +174,24 @@ final class PerformanceBaselineTests: XCTestCase {
     @MainActor
     func testUnchangedPasteboardPollingBaselineDoesNotReadTextPayload() {
         let pasteboard = BaselinePasteboard(changeCount: 7)
-        let monitor = PasteboardMonitor(pasteboard: pasteboard) { _ in
+        let scheduler = BaselinePollScheduler()
+        let monitor = PasteboardMonitor(pasteboard: pasteboard, scheduler: scheduler) { _ in
             XCTFail("An unchanged pasteboard must not enter capture.")
         }
-        monitor.start(interval: 3_600)
+        monitor.start()
         defer { monitor.stop() }
         let probe = RecordingPerformanceProbe()
 
         probe.probe.measure(.pasteboardPoll, itemCount: 10_000) {
             for _ in 0..<10_000 {
-                monitor.poll()
+                scheduler.fire()
             }
         }
 
+        XCTAssertEqual(scheduler.scheduleCount, 1)
+        XCTAssertEqual(scheduler.interval, PasteboardMonitor.productionInterval)
+        XCTAssertEqual(scheduler.tolerance, PasteboardMonitor.productionTolerance)
+        XCTAssertEqual(pasteboard.changeCountReadCount, 10_001)
         XCTAssertEqual(pasteboard.textValueReadCount, 0)
         XCTAssertEqual(probe.observations.single?.operation, .pasteboardPoll)
     }
@@ -253,16 +258,60 @@ private final class BaselineHistoryStore: HistoryStoring {
 }
 
 private final class BaselinePasteboard: PasteboardReading {
-    let changeCount: Int
+    private let storedChangeCount: Int
+    private(set) var changeCountReadCount = 0
     private(set) var textValueReadCount = 0
 
     init(changeCount: Int) {
-        self.changeCount = changeCount
+        storedChangeCount = changeCount
+    }
+
+    var changeCount: Int {
+        changeCountReadCount += 1
+        return storedChangeCount
     }
 
     func textValue() -> String? {
         textValueReadCount += 1
         return nil
+    }
+}
+
+@MainActor
+private final class BaselinePollScheduler: PasteboardPollScheduling {
+    private var action: (@MainActor () -> Void)?
+    private(set) var scheduleCount = 0
+    private(set) var interval: TimeInterval?
+    private(set) var tolerance: TimeInterval?
+
+    func schedule(
+        interval: TimeInterval,
+        tolerance: TimeInterval,
+        action: @escaping @MainActor () -> Void
+    ) -> PasteboardPollCancellation {
+        scheduleCount += 1
+        self.interval = interval
+        self.tolerance = tolerance
+        self.action = action
+        return BaselinePollCancellation { [weak self] in self?.action = nil }
+    }
+
+    func fire() {
+        action?()
+    }
+}
+
+@MainActor
+private final class BaselinePollCancellation: PasteboardPollCancellation {
+    private var action: (@MainActor () -> Void)?
+
+    init(action: @escaping @MainActor () -> Void) {
+        self.action = action
+    }
+
+    func cancel() {
+        action?()
+        action = nil
     }
 }
 
