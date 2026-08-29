@@ -151,6 +151,7 @@ covers:
 - 2026-08-26 пользователь проверил большую часть переданной ручной матрицы, подтвердил корректную работу проверенных сценариев и явно принял S010 как `done`.
 - Полный logout/login, VoiceOver/keyboard, appearance/accessibility display modes, clean console и clean-machine прогон остаётся частью предрелизной проверки S008.
 - После corrective fix 2026-08-29 focused Xcode test `SettingsWindowControllerTests` прошёл: 1 test, 0 failures. Требуется короткий ручной clean-console retest переключения вкладок.
+- Финальный corrective HEAD прошёл полный Xcode и clean-copy SwiftPM suites: по 179 tests, 0 failures; unsigned universal Release содержит `x86_64 arm64`.
 
 ### Отклонения от плана
 

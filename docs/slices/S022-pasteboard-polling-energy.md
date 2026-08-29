@@ -73,6 +73,8 @@ Focused corrective run: `PasteboardMonitorTests` 10/10 и `PerformanceBaselineTe
 
 Полные SwiftPM и unsigned Xcode Debug suites: 175 тестов, 0 failures. Unsigned universal Release build прошёл; executable содержит `x86_64 arm64`.
 
+Финальный corrective HEAD прошёл обновлённые полные Xcode и clean-copy SwiftPM suites: по 179 tests, 0 failures; unsigned universal Release снова содержит `x86_64 arm64`.
+
 ### Отклонения и остаточные риски
 
 Реальный idle CPU/wakeup observation, быстрые копирования/duplicate, immediate History show и sleep/wake smoke не выполнялись автоматически. До их ручного прохождения срез остаётся `needs_verification`; polling frequency намеренно не снижалась.

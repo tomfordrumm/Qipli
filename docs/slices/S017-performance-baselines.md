@@ -70,6 +70,7 @@ covers:
 - Full Xcode Debug tests: пройдены. Unsigned universal Release: `x86_64 arm64`.
 - Instrumentation API и test output проверены: clipboard/search/preview/UUID payload не записывается.
 - Corrective Xcode run 2026-08-29: `PerformanceBaselineTests` 9/9 и совместный History search run 25/25; linear inspection counts равны размерам fixtures.
+- После Stack append gate performance suite содержит 10 tests; финальный corrective HEAD прошёл полный Xcode и clean-copy SwiftPM suites по 179/179 и universal Release `x86_64 arm64`.
 
 ### Отклонения и остаточные риски
 

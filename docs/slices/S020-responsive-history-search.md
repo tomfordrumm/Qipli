@@ -71,6 +71,7 @@ covers:
 - Long Unicode/multiline preview test подтвердил ровно `limit + 1` traversal; exact-paste test нашёл marker за preview boundary и записал полный text.
 - S017 performance baseline suite остаётся зелёным на snapshots 1 800/10 000/50 000 и long-text fixture.
 - Corrective operation-count gate 2026-08-29 подтвердил inspection counts `1 800/10 000/50 000`; совместный Xcode performance/search run прошёл 25/25.
+- Финальный corrective HEAD прошёл полный Xcode и clean-copy SwiftPM suites по 179 tests, 0 failures; unsigned universal Release `x86_64 arm64`.
 - Полный SwiftPM suite из clean copy: 170 tests, 0 failures. Полный unsigned Xcode Debug suite: 170 tests, 0 failures.
 - Unsigned universal Release build прошёл с `arm64` и `x86_64`.
 
