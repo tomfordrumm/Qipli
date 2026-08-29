@@ -51,6 +51,19 @@
 
 Результат: подписанный notarized артефакт для macOS 14+, заново скачанный и проверенный на чистой системе вместе с onboarding, Settings, permission, custom-shortcut и launch-at-login flows.
 
+## Milestone M6 — Performance hardening
+
+После milestone локальные History и Paste Stack сохраняют подтверждённое поведение при росте данных, persistent I/O не блокирует main actor, а performance regressions обнаруживаются воспроизводимыми payload-free checks.
+
+17. [`S017 — Performance baselines и instrumentation`](slices/S017-performance-baselines.md) — `ready`; фиксирует безопасные fixtures, измеряемые seams и исходные baselines до оптимизаций.
+18. [`S018 — Эффективное History storage`](slices/S018-history-storage-efficiency.md) — зависит от S017; UUID index, batch retention и query-plan verification.
+19. [`S019 — Асинхронный History pipeline`](slices/S019-async-history-pipeline.md) — зависит от S018; background persistence, строгий порядок capture и отсутствие unconditional show reload.
+20. [`S020 — Отзывчивый поиск и ограниченные previews`](slices/S020-responsive-history-search.md) — зависит от S019; cancellable stale-safe search и bounded UI text traversal.
+21. [`S021 — Масштабируемый Paste Stack`](slices/S021-paste-stack-scaling.md) — зависит от S020; один линейный traversal и подготовка next-state один раз на render snapshot.
+22. [`S022 — Энергоэффективный pasteboard polling`](slices/S022-pasteboard-polling-energy.md) — зависит от S021; scheduler tolerance и отсутствие Task allocation на пустом tick без снижения частоты.
+
+Результат: приложение имеет измеряемые performance contracts и focused regression coverage для storage, capture, search, preview, Stack и polling без изменения privacy или пользовательских сценариев.
+
 ## Граф зависимостей
 
 ```text
@@ -62,9 +75,10 @@ S001 + S007 + S009 -> S010 -> S011
 S003 -> S016
 S013 -> S014 -> S015
 S003 + S007 + S010 + S011 + S012 + S014 + S015 + S016 -> S008
+S017 -> S018 -> S019 -> S020 -> S021 -> S022
 ```
 
-Граф ацикличен. S013 завершён после локальных и hosted main/PR/fork CI runs. S014 опубликовал реальный `v1.0.0` и остаётся `needs_verification` до immutable rerun и clean-machine proof. Пользователь разрешил начать S015 параллельно, потому что implementation/credential blocker снят; `v1.0.1` добавил Sparkle, но не запускался из-за missing runtime search path, поэтому `v1.0.2` исправляет launch вручную, а `v1.0.3` доказывает update. S011, S012 и S016 реализованы и требуют ручной проверки. S008 остаётся финальным gate. Изменения pasteboard/input, permission, ServiceManagement, network, dependency, signing или update contracts должны сначала согласовываться в `TECHNICAL.md` и `DECISIONS.md`.
+Граф ацикличен. Performance hardening выполняется строго S017–S022: сначала воспроизводимая измерительная граница, затем storage, asynchronous History, search/preview, Stack и polling. Это не снимает независимые manual gates S008/S011/S012/S014–S016. S013 завершён после локальных и hosted main/PR/fork CI runs. S014 опубликовал реальный `v1.0.0` и остаётся `needs_verification` до immutable rerun и clean-machine proof. Пользователь разрешил начать S015 параллельно, потому что implementation/credential blocker снят; `v1.0.1` добавил Sparkle, но не запускался из-за missing runtime search path, поэтому `v1.0.2` исправляет launch вручную, а `v1.0.3` доказывает update. S011, S012 и S016 реализованы и требуют ручной проверки. S008 остаётся финальным gate. Изменения pasteboard/input, permission, ServiceManagement, network, dependency, signing, update или performance contracts должны сначала согласовываться в `TECHNICAL.md` и `DECISIONS.md`.
 
 ## Покрытие требований
 
@@ -117,6 +131,10 @@ S003 + S007 + S010 + S011 + S012 + S014 + S015 + S016 -> S008
 | NFR-012–NFR-013 | S013, S014 |
 | NFR-014 | S014, S015, S008 |
 | NFR-015 | S015, S008 |
+| NFR-016 | S018, S019 |
+| NFR-017 | S019 |
+| NFR-018–NFR-019 | S017, S020 |
+| NFR-020 | S017, S019, S022 |
 
 Каждое must-have требование покрыто хотя бы одним срезом. Детальные acceptance criteria и verification находятся только в соответствующих slice-файлах.
 

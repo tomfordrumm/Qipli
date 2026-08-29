@@ -26,6 +26,12 @@
 - `docs/slices/S014-public-signed-github-releases.md` — публичный репозиторий и подписанные notarized GitHub-релизы по тегу.
 - `docs/slices/S015-sparkle-secure-updates.md` — ручная и opt-in автоматическая проверка обновлений через Sparkle.
 - `docs/slices/S016-history-interaction-reliability.md` — надёжная навигация, вставка и History-only click-away.
+- `docs/slices/S017-performance-baselines.md` — воспроизводимые performance baselines, бюджеты и безопасная instrumentation.
+- `docs/slices/S018-history-storage-efficiency.md` — индексы History, batch retention и проверка query plan.
+- `docs/slices/S019-async-history-pipeline.md` — последовательный background persistence pipeline и устранение лишних reload.
+- `docs/slices/S020-responsive-history-search.md` — отзывчивый поиск и ограниченные UI previews без потери полного текста.
+- `docs/slices/S021-paste-stack-scaling.md` — линейная обработка больших Paste Stack без скрытого квадратичного рендеринга.
+- `docs/slices/S022-pasteboard-polling-energy.md` — энергоэффективный pasteboard polling с прежней частотой и capture-контрактом.
 
 ### Подход к поставке
 

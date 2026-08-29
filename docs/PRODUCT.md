@@ -2,7 +2,7 @@
 
 Статус: согласованный план MVP, публичной поставки и безопасных обновлений
 
-Дата актуализации: 2026-08-26
+Дата актуализации: 2026-08-29
 
 Источник исходного замысла: [`../PROJECT_BRIEF.md`](../PROJECT_BRIEF.md)
 
@@ -188,6 +188,11 @@ Qipli — бесплатное open-source приложение для macOS, к
 | NFR-013 | CI использует минимальные GitHub token permissions, фиксированные версии или commit SHA сторонних Actions, ephemeral Keychain для release job и гарантированное удаление временного signing material. |
 | NFR-014 | Каждый update ZIP проходит Developer ID validation, Apple notarization, Sparkle EdDSA verification и HTTPS delivery; приватные Apple и Sparkle keys не входят в repository, artifacts, appcast или logs. |
 | NFR-015 | Update check не содержит clipboard text, history entries, search query, previews или локальные identifiers Qipli; фоновые проверки выполняются только после явного opt-in и могут быть отключены. |
+| NFR-016 | Чтение, запись, retention и удаление History не выполняют persistent-store I/O на main actor; операции остаются последовательными, а UI получает immutable value snapshots в порядке `capturedAt DESC, id DESC`. |
+| NFR-017 | Повторный показ History использует уже загруженный актуальный snapshot и не запускает безусловный полный fetch; внешнее копирование непосредственно перед shortcut всё равно должно появиться первым до показа панели. |
+| NFR-018 | Поиск по History не блокирует ввод: вычисление выполняется вне main actor, отменённый или устаревший результат не заменяет новый, а совпадение сохраняет семантику локализованного регистронезависимого substring search. |
+| NFR-019 | History и Paste Stack строят ограниченный display preview, не обходя весь большой текст ради длины; storage, search и paste всегда используют точное полное значение без усечения. |
+| NFR-020 | Pasteboard polling сохраняет интервал и fresh-show capture contract, не создаёт вложенную задачу на каждый пустой tick и допускает scheduler tolerance; self-write suppression и последовательность быстрых внешних копирований не меняются. |
 
 ## 7. Состояния и ошибки интерфейса
 
@@ -271,6 +276,7 @@ Qipli — бесплатное open-source приложение для macOS, к
 - Основные сценарии работают без аккаунта и внешней сети.
 - Пользователь после первого запуска понимает default hotkeys и может позднее изменить их, проверить разрешение или изменить автозапуск в одном Settings window.
 - Публичный tag создаёт один однозначный подписанный release artifact, а установленная предыдущая версия обнаруживает его и обновляется без потери локальных данных и настроек.
+- На репрезентативных синтетических наборах History и Paste Stack остаются отзывчивыми при росте объёма; регрессии main-thread I/O, устаревших search results и скрытого квадратичного обхода обнаруживаются автоматическими performance checks до релиза.
 
 Числовые продуктовые KPI пока не заданы и не должны выдумываться при реализации.
 
