@@ -684,7 +684,7 @@ struct PasteStackPanelView: View {
         let index = occurrence.position
         let isReactivationPriority = sessionController.reactivationPriorityID == occurrence.id
         let isNext = !sessionController.hasReactivationPriority
-            && sessionController.nextOccurrence?.id == occurrence.id
+            && sessionController.nextOccurrenceID == occurrence.id
         let isUsed = occurrence.state == .used
         let isPriorityNext = isNext || isReactivationPriority
         let accessibleMoves = controlState.accessibilityMoveDirections(position: index)

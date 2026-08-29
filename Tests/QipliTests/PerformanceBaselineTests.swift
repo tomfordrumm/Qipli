@@ -111,6 +111,66 @@ final class PerformanceBaselineTests: XCTestCase {
         XCTAssertEqual(probe.observations.map(\.itemCount), [10_000, 10_000])
     }
 
+    func testStackNextResolverUsesAtMostOneLinearTraversalWithPriorityFallback() {
+        let entries = SyntheticPerformanceFixtures.historyEntries(count: 10_000)
+        let occurrences = entries.enumerated().map { index, entry in
+            StackOccurrence(
+                id: SyntheticPerformanceFixtures.uuid(index: index + 20_000),
+                historyEntryID: entry.id,
+                text: entry.text,
+                position: index,
+                state: index == entries.indices.last ? .pending : .used
+            )
+        }
+        var visits = 0
+
+        let directIndex = StackNextOccurrenceResolver.index(
+            in: occurrences,
+            direction: .direct,
+            reactivationPriorityID: nil,
+            didInspect: { visits += 1 }
+        )
+
+        XCTAssertEqual(directIndex, occurrences.indices.last)
+        XCTAssertEqual(visits, occurrences.count)
+
+        visits = 0
+        let reverseIndex = StackNextOccurrenceResolver.index(
+            in: occurrences,
+            direction: .reverse,
+            reactivationPriorityID: occurrences.first?.id,
+            didInspect: { visits += 1 }
+        )
+
+        XCTAssertEqual(reverseIndex, occurrences.indices.first)
+        XCTAssertEqual(visits, occurrences.count)
+    }
+
+    @MainActor
+    func testStackRenderSnapshotResolvesNextIDOnceForEveryRow() {
+        var traversalVisits = 0
+        let controller = StackSessionController(onNextTraversalVisit: { traversalVisits += 1 })
+        XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: 0))
+        let context = controller.captureContext
+        for (offset, entry) in SyntheticPerformanceFixtures.historyEntries(count: 10_000).enumerated() {
+            controller.appendPersistedHistoryEntry(
+                entry,
+                observedChangeCount: offset + 1,
+                for: context
+            )
+        }
+
+        traversalVisits = 0
+        XCTAssertTrue(controller.setTraversalDirection(.reverse))
+        let preparedNextID = controller.nextOccurrenceID
+        let matchingRows = controller.occurrences.reduce(into: 0) { count, occurrence in
+            if occurrence.id == preparedNextID { count += 1 }
+        }
+
+        XCTAssertEqual(matchingRows, 1)
+        XCTAssertEqual(traversalVisits, 1)
+    }
+
     @MainActor
     func testUnchangedPasteboardPollingBaselineDoesNotReadTextPayload() {
         let pasteboard = BaselinePasteboard(changeCount: 7)

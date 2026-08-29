@@ -1,7 +1,7 @@
 ---
 id: S021
 title: Масштабируемый Paste Stack
-status: ready
+status: needs_verification
 depends_on:
   - S020
 covers:
@@ -42,29 +42,36 @@ Paste Stack определяет следующий occurrence одним лин
 
 ## Acceptance criteria
 
-- [ ] `nextOccurrence` не аллоцирует полный filtered array и выполняет не более одного прохода.
-- [ ] UI snapshot вычисляет next ID один раз, а строки сравнивают готовый ID без session traversal.
-- [ ] 0/1/N direct/reverse, reorder, append, used, processing и reactivation tests сохраняются.
-- [ ] Large-stack operation-count растёт линейно, а не квадратично.
-- [ ] Exact full text и bounded preview contract S020 сохраняются.
+- [x] `nextOccurrence` не аллоцирует полный filtered array и выполняет не более одного прохода.
+- [x] UI snapshot вычисляет next ID один раз, а строки сравнивают готовый ID без session traversal.
+- [x] 0/1/N direct/reverse, reorder, append, used, processing и reactivation tests сохраняются.
+- [x] Large-stack operation-count растёт линейно, а не квадратично.
+- [x] Exact full text и bounded preview contract S020 сохраняются.
 
 ## Verification
 
-- [ ] Focused Stack state-machine and render-preparation tests.
-- [ ] S017 Stack baselines/operation counts до/после.
-- [ ] Full SwiftPM/Xcode suite и unsigned universal Release build.
+- [x] Focused Stack state-machine and render-preparation tests.
+- [x] S017 Stack baselines/operation counts до/после.
+- [x] Full SwiftPM/Xcode suite и unsigned universal Release build.
 - [ ] Manual reorder/direction/reactivate/paste smoke.
 
 ## Implementation report
 
 ### Реализовано
 
-Не заполнено.
+- `StackNextOccurrenceResolver` выбирает direct/reverse pending fallback и exact reactivation priority за один traversal без промежуточного filtered array.
+- Paste reservation повторно использует найденный index для перехода в `.processing`, исключая дополнительные lookup после выбора next occurrence.
+- `StackSessionController` готовит `nextOccurrenceID` вместе с каждым опубликованным session snapshot. SwiftUI rows сравнивают UUID за O(1) и больше не вызывают traversal для каждой строки.
+- Derived next ID обновляется до существующей Combine publication и сам не создаёт дополнительный render signal.
 
 ### Проверено
 
-Не заполнено.
+- Focused Stack state-machine suite: 44 tests, 0 failures; direct/reverse, reorder, append, reservation, used/processing, failures и reactivation semantics сохранены.
+- Performance suite: 9 tests, 0 failures. Worst-case 10 000-element resolver посетил ровно 10 000 occurrences, включая priority fallback; 10 000 UI rows использовали один traversal visit после snapshot preparation.
+- Полный SwiftPM suite из clean copy: 172 tests, 0 failures. Полный unsigned Xcode Debug suite: 172 tests, 0 failures.
+- Unsigned universal Release build прошёл с `arm64` и `x86_64`; bounded Stack preview и exact occurrence text tests остались зелёными.
 
 ### Отклонения и остаточные риски
 
-Не заполнено.
+- Ручной reorder/direction/reactivate/paste smoke в реальной panel не выполнялся; до него срез остаётся `needs_verification`.
+- Reorder validation и UUID-based updates остаются линейными, но больше не умножаются на число UI rows. Custom virtualization не добавлялась без доказанной необходимости.
