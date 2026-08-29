@@ -11,17 +11,28 @@ protocol HistorySearching: Sendable {
     func matches(in entries: [HistoryEntry], query: String) async -> [HistoryEntry]
 }
 
-actor BackgroundHistorySearcher: HistorySearching {
-    func matches(in entries: [HistoryEntry], query: String) -> [HistoryEntry] {
+enum HistorySearchMatcher {
+    static func matches(
+        in entries: [HistoryEntry],
+        query: String,
+        didInspect: (() -> Void)? = nil
+    ) -> [HistoryEntry] {
         var matches: [HistoryEntry] = []
         matches.reserveCapacity(min(entries.count, 64))
         for entry in entries {
             guard !Task.isCancelled else { return [] }
+            didInspect?()
             if entry.text.localizedCaseInsensitiveContains(query) {
                 matches.append(entry)
             }
         }
         return matches
+    }
+}
+
+actor BackgroundHistorySearcher: HistorySearching {
+    func matches(in entries: [HistoryEntry], query: String) -> [HistoryEntry] {
+        HistorySearchMatcher.matches(in: entries, query: query)
     }
 }
 
