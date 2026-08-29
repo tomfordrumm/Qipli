@@ -1,7 +1,7 @@
 ---
 id: S019
 title: Асинхронный History pipeline
-status: planned
+status: needs_verification
 depends_on:
   - S018
 covers:
@@ -46,31 +46,40 @@ Core Data work выполняется последовательно вне main
 
 ## Acceptance criteria
 
-- [ ] Injected store доказывает, что create/fetch/mark-used/delete/clear/retention вызываются не на main thread.
-- [ ] Rapid capture сохраняет порядок, duplicates и History-first Stack append; failure не создаёт Stack-only occurrence.
-- [ ] Copy непосредственно перед History shortcut появляется первым до presentation.
-- [ ] Два последовательных show без изменений выполняют не более одного initial/required fetch и не запускают unconditional reload.
-- [ ] Startup, hourly retention, delete-one, clear-all, mark-used promotion и error/retry states сохраняются.
-- [ ] Main actor остаётся доступен во время искусственно медленного store operation.
+- [x] Injected store доказывает, что create/fetch/mark-used/delete/clear/retention вызываются не на main thread.
+- [x] Rapid capture сохраняет порядок, duplicates и History-first Stack append; failure не создаёт Stack-only occurrence.
+- [x] Copy непосредственно перед History shortcut появляется первым до presentation.
+- [x] Два последовательных show без изменений выполняют не более одного initial/required fetch и не запускают unconditional reload.
+- [x] Startup, hourly retention, delete-one, clear-all, mark-used promotion и error/retry states сохраняются.
+- [x] Main actor остаётся доступен во время искусственно медленного store operation.
 
 ## Verification
 
-- [ ] Focused concurrency/order/failure tests с controlled fake store.
-- [ ] S017 fetch counters и capture baseline.
-- [ ] Full SwiftPM/Xcode tests; Thread Sanitizer или эквивалентный targeted run, если доступен стабильно.
-- [ ] Unsigned universal Release build.
+- [x] Focused concurrency/order/failure tests с controlled fake store.
+- [x] S017 fetch counters и capture baseline.
+- [x] Full SwiftPM/Xcode tests; Thread Sanitizer или эквивалентный targeted run, если доступен стабильно.
+- [x] Unsigned universal Release build.
 - [ ] Manual rapid-copy → immediate History show smoke без пропущенных entries.
 
 ## Implementation report
 
 ### Реализовано
 
-Не заполнено.
+- `SerializedHistoryService` изолирует synchronous policy/store API за последовательным actor boundary; `HistoryViewModel` получил async fetch/create/mark-used/delete/clear и публикует только value snapshots на main actor.
+- `CoreDataHistoryStore` использует private-queue context для всех fetch/save/delete/retention operations; managed objects не покидают store boundary.
+- Pasteboard events ставятся в ordered capture queue. Каждая операция сначала сохраняет History, затем добавляет matching Stack occurrence; `drainPendingCaptures()` закрывает freshness window перед показом History.
+- Startup и hourly refresh остались явными lifecycle operations. `prepareForPresentation()` сбрасывает presentation state поверх загруженного snapshot и больше не делает unconditional fetch.
+- Retry, delete, promotion и Settings Clear History переведены на async UI actions без блокировки main actor.
 
 ### Проверено
 
-Не заполнено.
+- Controlled store подтвердил off-main выполнение fetch/create/mark-used/delete/clear и доступность main actor, пока fetch удерживается test semaphore.
+- Ordered queue test подтвердил rapid duplicate captures, exact order, distinct occurrences и History-first failure contract; explicit poll + drain tests подтверждают свежесть перед presentation.
+- Repeated presentation test подтвердил неизменный fetch counter после initial load.
+- Полный SwiftPM suite из clean copy: 166 tests, 0 failures. Полный Xcode Debug suite: 166 tests, 0 failures. Targeted Thread Sanitizer run: пройден.
+- Unsigned universal Release build: пройден, executable содержит `arm64` и `x86_64`.
 
 ### Отклонения и остаточные риски
 
-Не заполнено.
+- Ручной rapid-copy → immediate History show на установленном приложении не выполнялся; до него срез остаётся `needs_verification`.
+- Очередь намеренно сериализует persistence: при очень медленном/недоступном store backlog сохраняет данные и порядок ценой задержки presentation, а не теряет capture.

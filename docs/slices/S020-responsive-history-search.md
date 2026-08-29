@@ -1,7 +1,7 @@
 ---
 id: S020
 title: Отзывчивый поиск и ограниченные previews
-status: planned
+status: ready
 depends_on:
   - S019
 covers:

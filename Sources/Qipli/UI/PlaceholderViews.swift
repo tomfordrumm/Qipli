@@ -168,7 +168,9 @@ struct HistoryPanelView: View {
                 Text("Qipli could not read or update local history. Your system clipboard was not changed.")
                     .foregroundStyle(.secondary)
                 Button("Retry") {
-                    viewModel.reload()
+                    Task { @MainActor in
+                        await viewModel.reload()
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -261,7 +263,11 @@ struct HistoryPanelView: View {
                 canPaste: { canPaste },
                 pasteEntry: pasteEntry,
                 close: close,
-                delete: viewModel.delete
+                delete: { entry in
+                    Task { @MainActor in
+                        await viewModel.delete(entry)
+                    }
+                }
             )
             .execute(intent)
         }

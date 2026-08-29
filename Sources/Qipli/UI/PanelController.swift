@@ -130,7 +130,9 @@ final class PanelController {
                 self.historyViewModel.endPaste()
                 switch result {
                 case .success:
-                    self.historyViewModel.markUsedAfterSuccessfulPaste(id: entry.id)
+                    Task { @MainActor [weak self] in
+                        await self?.historyViewModel.markUsedAfterSuccessfulPaste(id: entry.id)
+                    }
                 case let .failure(failure):
                     self.historyViewModel.recordPasteFailure(failure)
                     self.reopenHistoryAfterPasteFailure()

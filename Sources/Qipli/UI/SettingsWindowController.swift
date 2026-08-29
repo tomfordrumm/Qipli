@@ -10,7 +10,7 @@ final class SettingsWindowController {
     private let openAccessibilitySettings: () -> Void
     private let refreshSystemState: () -> GlobalInputStatus
     private let showOnboarding: () -> Void
-    private let clearHistory: () -> Bool
+    private let clearHistory: () async -> Bool
     private let applicationActivator: QipliApplicationActivating
     private var window: NSWindow?
 
@@ -24,7 +24,7 @@ final class SettingsWindowController {
         openAccessibilitySettings: @escaping () -> Void,
         refreshSystemState: @escaping () -> GlobalInputStatus,
         showOnboarding: @escaping () -> Void = {},
-        clearHistory: @escaping () -> Bool = { true }
+        clearHistory: @escaping () async -> Bool = { true }
     ) {
         self.viewModel = viewModel
         self.permissionService = permissionService
@@ -94,7 +94,7 @@ private struct SettingsRootView: View {
     let requestAccessibilityAccess: () -> Void
     let openAccessibilitySettings: () -> Void
     let showOnboarding: () -> Void
-    let clearHistory: () -> Bool
+    let clearHistory: () async -> Bool
 
     var body: some View {
         TabView(selection: $viewModel.selectedSection) {
@@ -124,7 +124,7 @@ private struct GeneralSettingsView: View {
     let requestAccessibilityAccess: () -> Void
     let openAccessibilitySettings: () -> Void
     let showOnboarding: () -> Void
-    let clearHistory: () -> Bool
+    let clearHistory: () async -> Bool
     @State private var confirmsClearHistory = false
     @State private var historyClearFailed = false
 
@@ -226,7 +226,9 @@ private struct GeneralSettingsView: View {
         .formStyle(.grouped)
         .alert("Clear all Qipli history?", isPresented: $confirmsClearHistory) {
             Button("Clear History", role: .destructive) {
-                historyClearFailed = !clearHistory()
+                Task { @MainActor in
+                    historyClearFailed = !(await clearHistory())
+                }
             }
             Button("Cancel", role: .cancel) {}
         } message: {

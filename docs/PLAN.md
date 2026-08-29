@@ -57,8 +57,8 @@
 
 17. [`S017 — Performance baselines и instrumentation`](slices/S017-performance-baselines.md) — завершён; безопасные fixtures, измеряемые seams и исходные baselines зафиксированы до оптимизаций.
 18. [`S018 — Эффективное History storage`](slices/S018-history-storage-efficiency.md) — завершён; UUID/composite order indices, batch retention и migration/query-plan verification реализованы.
-19. [`S019 — Асинхронный History pipeline`](slices/S019-async-history-pipeline.md) — зависит от S018; background persistence, строгий порядок capture и отсутствие unconditional show reload.
-20. [`S020 — Отзывчивый поиск и ограниченные previews`](slices/S020-responsive-history-search.md) — зависит от S019; cancellable stale-safe search и bounded UI text traversal.
+19. [`S019 — Асинхронный History pipeline`](slices/S019-async-history-pipeline.md) — реализован; background persistence, строгий порядок capture и отсутствие unconditional show reload проверены автоматически, остаётся ручной immediate-show smoke.
+20. [`S020 — Отзывчивый поиск и ограниченные previews`](slices/S020-responsive-history-search.md) — готов к реализации после S019; cancellable stale-safe search и bounded UI text traversal.
 21. [`S021 — Масштабируемый Paste Stack`](slices/S021-paste-stack-scaling.md) — зависит от S020; один линейный traversal и подготовка next-state один раз на render snapshot.
 22. [`S022 — Энергоэффективный pasteboard polling`](slices/S022-pasteboard-polling-energy.md) — зависит от S021; scheduler tolerance и отсутствие Task allocation на пустом tick без снижения частоты.
 

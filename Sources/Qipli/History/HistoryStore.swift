@@ -22,6 +22,7 @@ final class CoreDataHistoryStore: HistoryStoring {
     private static let entityName = "HistoryEntry"
     private let storeURL: URL
     private var container: NSPersistentContainer
+    private var context: NSManagedObjectContext!
 
     convenience init() throws {
         let applicationSupport = try FileManager.default.url(
@@ -138,14 +139,15 @@ final class CoreDataHistoryStore: HistoryStoring {
             loadError = error
         }
         if let loadError { throw loadError }
-        container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-        container.viewContext.undoManager = nil
+        context = container.newBackgroundContext()
+        context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+        context.undoManager = nil
     }
 
     private func contextSync<T>(_ body: (NSManagedObjectContext) throws -> T) throws -> T {
         var result: Result<T, Error>!
-        container.viewContext.performAndWait {
-            result = Result { try body(container.viewContext) }
+        context.performAndWait {
+            result = Result { try body(context) }
         }
         return try result.get()
     }
