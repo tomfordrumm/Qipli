@@ -25,35 +25,91 @@ final class SystemPasteboardReader: PasteboardReading {
     }
 }
 
+@MainActor
+protocol PasteboardPollCancellation: AnyObject {
+    func cancel()
+}
+
+@MainActor
+protocol PasteboardPollScheduling: AnyObject {
+    func schedule(
+        interval: TimeInterval,
+        tolerance: TimeInterval,
+        action: @escaping @MainActor () -> Void
+    ) -> PasteboardPollCancellation
+}
+
+@MainActor
+private final class TimerPasteboardPollCancellation: PasteboardPollCancellation {
+    private var timer: Timer?
+
+    init(timer: Timer) {
+        self.timer = timer
+    }
+
+    func cancel() {
+        timer?.invalidate()
+        timer = nil
+    }
+}
+
+@MainActor
+final class RunLoopPasteboardPollScheduler: PasteboardPollScheduling {
+    func schedule(
+        interval: TimeInterval,
+        tolerance: TimeInterval,
+        action: @escaping @MainActor () -> Void
+    ) -> PasteboardPollCancellation {
+        let timer = Timer(timeInterval: interval, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                action()
+            }
+        }
+        timer.tolerance = tolerance
+        RunLoop.main.add(timer, forMode: .common)
+        return TimerPasteboardPollCancellation(timer: timer)
+    }
+}
+
 /// Polls the system pasteboard. A suppression is tied to one exact change number, never its text.
 @MainActor
 final class PasteboardMonitor {
+    nonisolated static let productionInterval: TimeInterval = 0.35
+    nonisolated static let productionTolerance: TimeInterval = 0.05
+
     private let pasteboard: PasteboardReading
+    private let scheduler: PasteboardPollScheduling
     private let onExternalText: (PasteboardTextChange) -> Void
     private var lastChangeCount: Int?
     private var ignoredChanges = Set<Int>()
-    private var timer: Timer?
+    private var scheduledPoll: PasteboardPollCancellation?
 
-    init(pasteboard: PasteboardReading = SystemPasteboardReader(), onExternalText: @escaping (PasteboardTextChange) -> Void) {
+    init(
+        pasteboard: PasteboardReading = SystemPasteboardReader(),
+        scheduler: PasteboardPollScheduling? = nil,
+        onExternalText: @escaping (PasteboardTextChange) -> Void
+    ) {
         self.pasteboard = pasteboard
+        self.scheduler = scheduler ?? RunLoopPasteboardPollScheduler()
         self.onExternalText = onExternalText
     }
 
     var currentChangeCount: Int { pasteboard.changeCount }
 
-    func start(interval: TimeInterval = 0.35) {
-        stop()
+    func start(
+        interval: TimeInterval = productionInterval,
+        tolerance: TimeInterval = productionTolerance
+    ) {
+        guard scheduledPoll == nil else { return }
         lastChangeCount = pasteboard.changeCount
-        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.poll()
-            }
+        scheduledPoll = scheduler.schedule(interval: interval, tolerance: tolerance) { [weak self] in
+            self?.poll()
         }
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
+        scheduledPoll?.cancel()
+        scheduledPoll = nil
     }
 
     /// Called by future Qipli writers immediately after their pasteboard write completes.
