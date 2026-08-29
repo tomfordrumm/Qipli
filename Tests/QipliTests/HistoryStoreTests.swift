@@ -52,7 +52,7 @@ final class HistoryStoreTests: XCTestCase {
         store.close()
     }
 
-    func testExistingCapturedAtSchemaStoreRemainsReadableWithoutMigration() throws {
+    func testExistingCapturedAtSchemaStoreMigratesWithoutDataLossAndCreatesQueryIndexes() throws {
         let storeURL = directory.appendingPathComponent("History.sqlite")
         let id = UUID()
         let activityAt = Date(timeIntervalSinceReferenceDate: 8_500_000)
@@ -68,6 +68,19 @@ final class HistoryStoreTests: XCTestCase {
 
         XCTAssertEqual(entries, [HistoryEntry(id: id, text: "legacy occurrence", activityAt: activityAt)])
         upgradedDomainStore.close()
+
+        let exactIDPlan = try sqliteOutput(
+            database: storeURL,
+            sql: "EXPLAIN QUERY PLAN SELECT Z_PK FROM ZHISTORYENTRY WHERE ZID = X'00000000000000000000000000000000';"
+        )
+        let orderedPlan = try sqliteOutput(
+            database: storeURL,
+            sql: "EXPLAIN QUERY PLAN SELECT Z_PK FROM ZHISTORYENTRY ORDER BY ZCAPTUREDAT DESC, ZID DESC;"
+        )
+        XCTAssertTrue(exactIDPlan.contains("USING COVERING INDEX") || exactIDPlan.contains("USING INDEX"), exactIDPlan)
+        XCTAssertFalse(exactIDPlan.contains("SCAN ZHISTORYENTRY"), exactIDPlan)
+        XCTAssertTrue(orderedPlan.contains("USING COVERING INDEX") || orderedPlan.contains("USING INDEX"), orderedPlan)
+        XCTAssertFalse(orderedPlan.contains("USE TEMP B-TREE"), orderedPlan)
     }
 
     func testRetentionHidesAndPurgesBoundaryEntries() throws {
@@ -83,6 +96,24 @@ final class HistoryStoreTests: XCTestCase {
 
         XCTAssertEqual(try service.entries().map(\.id), [recent.id])
         XCTAssertEqual(try store.fetchCurrent(since: cutoff).map(\.id), [recent.id])
+        store.close()
+    }
+
+    func testRetentionBatchDeletesLargeExpiredSetWithoutChangingRecentOrdering() throws {
+        let now = Date(timeIntervalSinceReferenceDate: 9_250_000)
+        let cutoff = now.addingTimeInterval(-HistoryService.retention)
+        let store = try makeStore()
+        for index in 0..<1_000 {
+            _ = try store.create(
+                text: "synthetic-expired-\(index)",
+                activityAt: cutoff.addingTimeInterval(TimeInterval(-index))
+            )
+        }
+        let first = try store.create(text: "synthetic-recent-first", activityAt: cutoff.addingTimeInterval(1))
+        let second = try store.create(text: "synthetic-recent-second", activityAt: cutoff.addingTimeInterval(2))
+
+        XCTAssertEqual(try store.fetchCurrent(since: cutoff).map(\.id), [second.id, first.id])
+        XCTAssertEqual(try store.fetchCurrent(since: .distantPast).count, 2)
         store.close()
     }
 
@@ -175,6 +206,27 @@ final class HistoryStoreTests: XCTestCase {
 
     private func makeStore() throws -> CoreDataHistoryStore {
         try CoreDataHistoryStore(storeURL: directory.appendingPathComponent("History.sqlite"))
+    }
+
+    private func sqliteOutput(database: URL, sql: String) throws -> String {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+        process.arguments = ["-readonly", database.path, sql]
+        process.standardOutput = output
+        process.standardError = output
+        try process.run()
+        process.waitUntilExit()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        let text = String(decoding: data, as: UTF8.self)
+        guard process.terminationStatus == 0 else {
+            throw NSError(
+                domain: "HistoryStoreTests.sqlite3",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: text]
+            )
+        }
+        return text
     }
 
     private func clearStoreInSeparateLifetime(at storeURL: URL) throws {
