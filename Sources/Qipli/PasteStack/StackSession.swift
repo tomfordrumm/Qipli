@@ -62,6 +62,46 @@ enum StackPasteReservationOrigin: Equatable, Sendable {
     case reactivation
 }
 
+enum StackNextOccurrenceResolver {
+    /// Returns the exact next index in at most one traversal. When a reactivation
+    /// priority exists, the same pass remembers the directional pending fallback.
+    static func index(
+        in occurrences: [StackOccurrence],
+        direction: StackTraversalDirection,
+        reactivationPriorityID: UUID?,
+        didInspect: (() -> Void)? = nil
+    ) -> Int? {
+        var pendingFallback: Int?
+        switch direction {
+        case .direct:
+            for index in occurrences.indices {
+                didInspect?()
+                let occurrence = occurrences[index]
+                if occurrence.id == reactivationPriorityID, occurrence.state == .used {
+                    return index
+                }
+                if pendingFallback == nil, occurrence.state == .pending {
+                    pendingFallback = index
+                    if reactivationPriorityID == nil { return index }
+                }
+            }
+        case .reverse:
+            for index in occurrences.indices.reversed() {
+                didInspect?()
+                let occurrence = occurrences[index]
+                if occurrence.id == reactivationPriorityID, occurrence.state == .used {
+                    return index
+                }
+                if pendingFallback == nil, occurrence.state == .pending {
+                    pendingFallback = index
+                    if reactivationPriorityID == nil { return index }
+                }
+            }
+        }
+        return pendingFallback
+    }
+}
+
 /// Immutable snapshot handed from the synchronous event-tap reservation to
 /// deferred paste production. It contains no mutable UI state.
 struct StackPasteReservation: Equatable, Sendable {
@@ -86,22 +126,14 @@ final class StackSession {
     /// This is deliberately a single exact UUID, not an undo history. It is
     /// updated only after Qipli successfully dispatches tagged Command-V.
     private(set) var lastSuccessfullyDispatchedOccurrenceID: UUID?
+    private let onNextTraversalVisit: (() -> Void)?
 
     var nextOccurrence: StackOccurrence? {
-        if let reactivationPriorityID,
-           let priority = occurrence(id: reactivationPriorityID),
-           priority.state == .used {
-            return priority
-        }
-        let pending = occurrences.filter { $0.state == .pending }
-        return switch traversalDirection {
-        case .direct: pending.first
-        case .reverse: pending.last
-        }
+        guard let index = nextOccurrenceIndex else { return nil }
+        return occurrences[index]
     }
 
     var hasPendingOccurrence: Bool { occurrences.contains { $0.state == .pending } }
-    var canConsumePasteInput: Bool { nextOccurrence != nil || reservedOccurrenceID != nil }
     var reservedOccurrence: StackOccurrence? {
         guard let reservedOccurrenceID else { return nil }
         return occurrence(id: reservedOccurrenceID)
@@ -109,11 +141,12 @@ final class StackSession {
 
     var canAdjustTraversal: Bool { !traversalHasStarted }
 
-    init(captureAfterChangeCount: Int) {
+    init(captureAfterChangeCount: Int, onNextTraversalVisit: (() -> Void)? = nil) {
         captureContext = StackCaptureContext(
             sessionID: UUID(),
             captureAfterChangeCount: captureAfterChangeCount
         )
+        self.onNextTraversalVisit = onNextTraversalVisit
     }
 
     @discardableResult
@@ -132,14 +165,15 @@ final class StackSession {
     /// traversal next occurrence, then locks traversal. The caller must either
     /// complete or release this reservation.
     func reserveNextOccurrenceForPaste() -> StackOccurrence? {
-        guard reservedOccurrenceID == nil, let nextOccurrence else { return nil }
+        guard reservedOccurrenceID == nil, let index = nextOccurrenceIndex else { return nil }
+        let nextOccurrence = occurrences[index]
         traversalHasStarted = true
         reservedOccurrenceID = nextOccurrence.id
         reservedOccurrenceOrigin = nextOccurrence.id == reactivationPriorityID
             ? .reactivation
             : .traversal
-        updateOccurrence(id: nextOccurrence.id, state: .processing)
-        return occurrence(id: nextOccurrence.id)
+        occurrences[index] = replacingState(of: nextOccurrence, with: .processing)
+        return occurrences[index]
     }
 
     @discardableResult
@@ -242,10 +276,25 @@ final class StackSession {
         occurrences.first { $0.id == id }
     }
 
+    private var nextOccurrenceIndex: Int? {
+        StackNextOccurrenceResolver.index(
+            in: occurrences,
+            direction: traversalDirection,
+            reactivationPriorityID: reactivationPriorityID,
+            didInspect: onNextTraversalVisit
+        )
+    }
+
     private func updateOccurrence(id: UUID, state: StackOccurrenceState) {
         guard let index = occurrences.firstIndex(where: { $0.id == id }) else { return }
-        let occurrence = occurrences[index]
-        occurrences[index] = StackOccurrence(
+        occurrences[index] = replacingState(of: occurrences[index], with: state)
+    }
+
+    private func replacingState(
+        of occurrence: StackOccurrence,
+        with state: StackOccurrenceState
+    ) -> StackOccurrence {
+        StackOccurrence(
             id: occurrence.id,
             historyEntryID: occurrence.historyEntryID,
             text: occurrence.text,
@@ -285,11 +334,16 @@ final class StackSessionController: ObservableObject {
     @Published private(set) var hasCopyCommandDispatchFailure = false
     @Published private(set) var pasteFailure: StackPasteFailure?
     @Published private(set) var reactivationPriorityID: UUID?
+    private(set) var nextOccurrenceID: UUID?
 
     private(set) var session: StackSession?
+    private let onNextTraversalVisit: (() -> Void)?
 
     var isActive: Bool { session != nil }
-    var nextOccurrence: StackOccurrence? { session?.nextOccurrence }
+    var nextOccurrence: StackOccurrence? {
+        guard let nextOccurrenceID else { return nil }
+        return occurrences.first { $0.id == nextOccurrenceID }
+    }
     var hasReactivationPriority: Bool { reactivationPriorityID != nil }
     var canAdjustTraversal: Bool { session?.canAdjustTraversal ?? false }
     var hasPendingOccurrence: Bool { session?.hasPendingOccurrence ?? false }
@@ -308,11 +362,18 @@ final class StackSessionController: ObservableObject {
     /// It prevents older observations from entering a later session.
     var captureContext: StackCaptureContext? { session?.captureContext }
 
+    init(onNextTraversalVisit: (() -> Void)? = nil) {
+        self.onNextTraversalVisit = onNextTraversalVisit
+    }
+
     /// Returns false for a repeated start, preserving the existing session intact.
     @discardableResult
     func startIfNeeded(captureAfterChangeCount: Int) -> Bool {
         guard session == nil else { return false }
-        session = StackSession(captureAfterChangeCount: captureAfterChangeCount)
+        session = StackSession(
+            captureAfterChangeCount: captureAfterChangeCount,
+            onNextTraversalVisit: onNextTraversalVisit
+        )
         publishSessionState()
         hasCaptureError = false
         hasCopyCommandDispatchFailure = false
@@ -332,6 +393,7 @@ final class StackSessionController: ObservableObject {
               observedChangeCount > captureContext.captureAfterChangeCount
         else { return }
         _ = session.append(historyEntry: entry)
+        nextOccurrenceID = session.nextOccurrence?.id
         occurrences = session.occurrences
         hasCaptureError = false
     }
@@ -384,9 +446,9 @@ final class StackSessionController: ObservableObject {
     /// private domain state; the deferred executor publishes the processing
     /// UI state after the current event-loop turn.
     func acceptNextPasteInput() -> StackPasteInputDisposition {
-        guard let session, session.canConsumePasteInput else { return .passThrough }
+        guard let session else { return .passThrough }
         guard session.reservedOccurrenceID == nil else { return .consume }
-        guard session.reserveNextOccurrenceForPaste() != nil else { return .consume }
+        guard session.reserveNextOccurrenceForPaste() != nil else { return .passThrough }
         return .consumeAndDispatch
     }
 
@@ -472,6 +534,8 @@ final class StackSessionController: ObservableObject {
         let newDirection = session?.traversalDirection ?? .direct
         let newTraversalHasStarted = session?.traversalHasStarted ?? false
         let newReactivationPriorityID = session?.reactivationPriorityID
+        let newNextOccurrenceID = session?.nextOccurrence?.id
+        nextOccurrenceID = newNextOccurrenceID
         if occurrences != newOccurrences { occurrences = newOccurrences }
         if traversalDirection != newDirection { traversalDirection = newDirection }
         if traversalHasStarted != newTraversalHasStarted {
