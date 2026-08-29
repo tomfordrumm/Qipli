@@ -91,13 +91,31 @@ final class SettingsWindowController {
 private struct SettingsRootView: View {
     @ObservedObject var viewModel: SettingsViewModel
     @ObservedObject var permissionService: AccessibilityPermissionService
+    @State private var selectedSection: SettingsSection
     let requestAccessibilityAccess: () -> Void
     let openAccessibilitySettings: () -> Void
     let showOnboarding: () -> Void
     let clearHistory: () async -> Bool
 
+    init(
+        viewModel: SettingsViewModel,
+        permissionService: AccessibilityPermissionService,
+        requestAccessibilityAccess: @escaping () -> Void,
+        openAccessibilitySettings: @escaping () -> Void,
+        showOnboarding: @escaping () -> Void,
+        clearHistory: @escaping () async -> Bool
+    ) {
+        self.viewModel = viewModel
+        self.permissionService = permissionService
+        self.requestAccessibilityAccess = requestAccessibilityAccess
+        self.openAccessibilitySettings = openAccessibilitySettings
+        self.showOnboarding = showOnboarding
+        self.clearHistory = clearHistory
+        _selectedSection = State(initialValue: viewModel.selectedSection)
+    }
+
     var body: some View {
-        TabView(selection: $viewModel.selectedSection) {
+        TabView(selection: $selectedSection) {
             GeneralSettingsView(
                 viewModel: viewModel,
                 permissionService: permissionService,
@@ -115,6 +133,17 @@ private struct SettingsRootView: View {
         }
         .padding(20)
         .frame(minWidth: 520, minHeight: 400)
+        .onChange(of: selectedSection) { _, section in
+            guard viewModel.selectedSection != section else { return }
+            DispatchQueue.main.async {
+                guard selectedSection == section else { return }
+                viewModel.select(section)
+            }
+        }
+        .onChange(of: viewModel.selectedSection) { _, section in
+            guard selectedSection != section else { return }
+            selectedSection = section
+        }
     }
 }
 
