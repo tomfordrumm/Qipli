@@ -32,13 +32,13 @@ covers:
 
 ## Пользовательский результат
 
-Пользователь загружает с GitHub подписанный и notarized Qipli, устанавливает его на чистую macOS 14, понимает разрешения и локальное хранение и завершает оба основных сценария без внешней передачи содержимого.
+Пользователь напрямую загружает с лендинга подписанный и notarized Qipli DMG, перетаскивает приложение в Applications на чистой macOS 14, понимает разрешения и локальное хранение и завершает оба основных сценария без внешней передачи содержимого.
 
 ## В scope
 
 - финальный privacy/entitlements/logging audit;
 - release configuration, Developer ID signing, Hardened Runtime;
-- archive, notarization, stapling, packaging и checksum;
+- app icon, branded DMG, ZIP update artifact, notarization, stapling, packaging и checksums;
 - clean-machine install/upgrade/uninstall notes;
 - GitHub release notes с системными требованиями, onboarding, Accessibility, Settings, shortcuts и Launch at Login;
 - финальная проверка protected release workflow, stable Sparkle feed и update path между двумя production-signed версиями;

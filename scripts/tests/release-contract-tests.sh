@@ -31,6 +31,15 @@ expect_failure() {
 "$repository_root/scripts/check-release-contract.sh" >/dev/null
 passed=$((passed + 1))
 
+expect_failure "DMG builder missing app" \
+    "$repository_root/scripts/create-dmg.sh" \
+    --app "$repository_root/does-not-exist.app" \
+    --output "${TMPDIR:-/tmp}/Qipli-test.dmg"
+expect_failure "DMG verifier missing image" \
+    "$repository_root/scripts/verify-dmg.sh" \
+    --mode layout \
+    "$repository_root/does-not-exist.dmg"
+
 validator="$repository_root/scripts/validate-hosted-release-environment.sh"
 expect_failure "missing hosted secrets" env -i PATH="$PATH" "$validator"
 

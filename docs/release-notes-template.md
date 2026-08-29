@@ -5,9 +5,10 @@
 
 ## Install
 
-Download the versioned ZIP and matching `.sha256` file. Verify the checksum,
-unzip Qipli, move `Qipli.app` to `/Applications`, and launch it. The app is signed
-with Developer ID and notarized by Apple.
+Download `Qipli.dmg`, open it, drag `Qipli.app` to Applications, eject the disk
+image, and launch Qipli. The versioned DMG and matching `.sha256` file are also
+available for checksum verification. The DMG and app are signed with Developer ID
+and notarized by Apple; the ZIP remains the immutable Sparkle update artifact.
 
 ## Using Qipli
 

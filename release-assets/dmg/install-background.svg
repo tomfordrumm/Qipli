@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="840" viewBox="0 0 1320 840">
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#050918"/>
+      <stop offset="0.55" stop-color="#08133b"/>
+      <stop offset="1" stop-color="#110a35"/>
+    </linearGradient>
+    <linearGradient id="blueFold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1336c8" stop-opacity="0.15"/>
+      <stop offset="0.5" stop-color="#297cff" stop-opacity="0.94"/>
+      <stop offset="1" stop-color="#74e8ff" stop-opacity="0.82"/>
+    </linearGradient>
+    <linearGradient id="violetFold" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9a6bff" stop-opacity="0.92"/>
+      <stop offset="0.45" stop-color="#4f2fd3" stop-opacity="0.82"/>
+      <stop offset="1" stop-color="#261267" stop-opacity="0.12"/>
+    </linearGradient>
+    <linearGradient id="arrow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#85d9ff"/>
+      <stop offset="1" stop-color="#c1a7ff"/>
+    </linearGradient>
+    <radialGradient id="halo">
+      <stop offset="0" stop-color="#3e83ff" stop-opacity="0.26"/>
+      <stop offset="1" stop-color="#3e83ff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="softGlow" x="-40%" y="-80%" width="180%" height="260%">
+      <feGaussianBlur stdDeviation="14" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="12" stdDeviation="22" flood-color="#000716" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <rect width="1320" height="840" fill="url(#base)"/>
+  <ellipse cx="660" cy="430" rx="500" ry="330" fill="url(#halo)"/>
+
+  <path d="M-100 50 C170 -30 315 5 438 155 C322 158 230 227 161 346 C59 283 -34 197 -100 50Z"
+        fill="url(#blueFold)" opacity="0.82"/>
+  <path d="M1280 -80 C1125 34 1066 129 1048 288 C1179 222 1301 204 1402 230 L1402 -80Z"
+        fill="url(#violetFold)"/>
+  <path d="M-100 724 C165 576 347 623 510 764 C649 884 798 885 944 767 C1114 629 1266 596 1420 656 L1420 920 L-100 920Z"
+        fill="url(#blueFold)" opacity="0.92"/>
+  <path d="M-120 835 C148 681 341 742 504 870 L-120 920Z" fill="url(#violetFold)" opacity="0.92"/>
+
+  <text x="660" y="106" fill="#ffffff" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif"
+        font-size="58" font-weight="700" letter-spacing="-2">Qipli</text>
+  <text x="660" y="158" fill="#b8c8ee" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif"
+        font-size="24" font-weight="500">Drag Qipli to Applications</text>
+
+  <circle cx="370" cy="450" r="154" fill="#ffffff" opacity="0.035" stroke="#ffffff" stroke-opacity="0.08" stroke-width="2"/>
+  <circle cx="950" cy="450" r="154" fill="#ffffff" opacity="0.035" stroke="#ffffff" stroke-opacity="0.08" stroke-width="2"/>
+
+  <!-- Finder renders volume icon labels in black; these quiet light wells keep them legible. -->
+  <rect x="282" y="600" width="176" height="48" rx="24" fill="#dce8ff" opacity="0.92"/>
+  <rect x="816" y="600" width="268" height="48" rx="24" fill="#dce8ff" opacity="0.92"/>
+
+  <path d="M542 438 C626 386 696 386 778 438" fill="none" stroke="#76cfff"
+        stroke-opacity="0.22" stroke-width="42" stroke-linecap="round" filter="url(#softGlow)"/>
+  <path d="M542 438 C626 386 696 386 778 438" fill="none" stroke="url(#arrow)"
+        stroke-width="18" stroke-linecap="round" filter="url(#shadow)"/>
+  <path d="M752 405 L802 443 L749 474" fill="none" stroke="#c1a7ff"
+        stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <text x="660" y="676" fill="#8fa5d8" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif"
+        font-size="18" font-weight="500">macOS 14 or newer</text>
+</svg>

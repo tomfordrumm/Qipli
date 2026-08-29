@@ -22,20 +22,31 @@ version_file="$repository_root/Config/Version.xcconfig"
 version=$(sed -nE 's/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' "$version_file")
 build_number=$(sed -nE 's/^[[:space:]]*CURRENT_PROJECT_VERSION[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' "$version_file")
 commit=$(git -C "$repository_root" rev-parse HEAD)
-artifact_name="Qipli-$version.zip"
-checksum_name="$artifact_name.sha256"
-artifact_path="$repository_root/dist/$artifact_name"
-checksum_path="$repository_root/dist/$checksum_name"
-[[ -f "$artifact_path" ]] || fail "release artifact is missing: $artifact_name"
-[[ -f "$checksum_path" ]] || fail "release checksum is missing: $checksum_name"
+zip_name="Qipli-$version.zip"
+zip_checksum_name="$zip_name.sha256"
+dmg_name="Qipli-$version.dmg"
+dmg_checksum_name="$dmg_name.sha256"
+stable_dmg_name="Qipli.dmg"
+zip_path="$repository_root/dist/$zip_name"
+zip_checksum_path="$repository_root/dist/$zip_checksum_name"
+dmg_path="$repository_root/dist/$dmg_name"
+dmg_checksum_path="$repository_root/dist/$dmg_checksum_name"
+[[ -f "$zip_path" ]] || fail "release artifact is missing: $zip_name"
+[[ -f "$zip_checksum_path" ]] || fail "release checksum is missing: $zip_checksum_name"
+[[ -f "$dmg_path" ]] || fail "release artifact is missing: $dmg_name"
+[[ -f "$dmg_checksum_path" ]] || fail "release checksum is missing: $dmg_checksum_name"
 
 (
     cd "$repository_root/dist"
-    shasum -a 256 -c "$checksum_name"
+    shasum -a 256 -c "$zip_checksum_name"
+    shasum -a 256 -c "$dmg_checksum_name"
 )
 
 work_dir=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/qipli-publish.XXXXXX")
 trap 'rm -rf "$work_dir"' EXIT
+stable_dmg_path="$work_dir/$stable_dmg_name"
+/usr/bin/ditto "$dmg_path" "$stable_dmg_path"
+/usr/bin/cmp "$dmg_path" "$stable_dmg_path"
 
 published_builds="$work_dir/published-builds"
 gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
@@ -85,8 +96,11 @@ else
 fi
 
 gh release upload "$release_tag" \
-    "$artifact_path" \
-    "$checksum_path" \
+    "$zip_path" \
+    "$zip_checksum_path" \
+    "$dmg_path" \
+    "$dmg_checksum_path" \
+    "$stable_dmg_path" \
     --repo "$GITHUB_REPOSITORY" \
     --clobber
 
@@ -95,20 +109,29 @@ mkdir -p "$candidate_dir"
 gh release download "$release_tag" \
     --repo "$GITHUB_REPOSITORY" \
     --dir "$candidate_dir" \
-    --pattern "$artifact_name" \
-    --pattern "$checksum_name" \
+    --pattern "$zip_name" \
+    --pattern "$zip_checksum_name" \
+    --pattern "$dmg_name" \
+    --pattern "$dmg_checksum_name" \
+    --pattern "$stable_dmg_name" \
     --clobber
 (
     cd "$candidate_dir"
-    shasum -a 256 -c "$checksum_name"
+    shasum -a 256 -c "$zip_checksum_name"
+    shasum -a 256 -c "$dmg_checksum_name"
 )
+/usr/bin/cmp "$candidate_dir/$dmg_name" "$candidate_dir/$stable_dmg_name"
 candidate_app_dir="$work_dir/candidate-app"
 mkdir -p "$candidate_app_dir"
-ditto -x -k "$candidate_dir/$artifact_name" "$candidate_app_dir"
+ditto -x -k "$candidate_dir/$zip_name" "$candidate_app_dir"
 "$script_dir/verify-signed-app.sh" \
     --mode release \
     --team-id "$QIPLI_DEVELOPMENT_TEAM" \
     "$candidate_app_dir/Qipli.app"
+"$script_dir/verify-dmg.sh" \
+    --mode release \
+    --team-id "$QIPLI_DEVELOPMENT_TEAM" \
+    "$candidate_dir/$dmg_name"
 
 gh release edit "$release_tag" \
     --repo "$GITHUB_REPOSITORY" \
@@ -118,24 +141,43 @@ gh release edit "$release_tag" \
 public_dir="$work_dir/public"
 mkdir -p "$public_dir"
 public_base_url="https://github.com/$GITHUB_REPOSITORY/releases/download/$release_tag"
-curl --fail --location --proto '=https' --tlsv1.2 \
-    --retry 5 --retry-all-errors --retry-delay 2 \
-    --output "$public_dir/$artifact_name" \
-    "$public_base_url/$artifact_name"
-curl --fail --location --proto '=https' --tlsv1.2 \
-    --retry 5 --retry-all-errors --retry-delay 2 \
-    --output "$public_dir/$checksum_name" \
-    "$public_base_url/$checksum_name"
+for public_asset in \
+    "$zip_name" \
+    "$zip_checksum_name" \
+    "$dmg_name" \
+    "$dmg_checksum_name" \
+    "$stable_dmg_name"
+do
+    curl --fail --location --proto '=https' --tlsv1.2 \
+        --retry 5 --retry-all-errors --retry-delay 2 \
+        --output "$public_dir/$public_asset" \
+        "$public_base_url/$public_asset"
+done
 (
     cd "$public_dir"
-    shasum -a 256 -c "$checksum_name"
+    shasum -a 256 -c "$zip_checksum_name"
+    shasum -a 256 -c "$dmg_checksum_name"
 )
+/usr/bin/cmp "$public_dir/$dmg_name" "$public_dir/$stable_dmg_name"
 public_app_dir="$work_dir/public-app"
 mkdir -p "$public_app_dir"
-ditto -x -k "$public_dir/$artifact_name" "$public_app_dir"
+ditto -x -k "$public_dir/$zip_name" "$public_app_dir"
 "$script_dir/verify-signed-app.sh" \
     --mode release \
     --team-id "$QIPLI_DEVELOPMENT_TEAM" \
     "$public_app_dir/Qipli.app"
+"$script_dir/verify-dmg.sh" \
+    --mode release \
+    --team-id "$QIPLI_DEVELOPMENT_TEAM" \
+    "$public_dir/$dmg_name"
+
+latest_dmg_path="$work_dir/latest-$stable_dmg_name"
+latest_dmg_url="https://github.com/$GITHUB_REPOSITORY/releases/latest/download/$stable_dmg_name"
+curl --fail --location --proto '=https' --tlsv1.2 \
+    --retry 5 --retry-all-errors --retry-delay 2 \
+    --output "$latest_dmg_path" \
+    "$latest_dmg_url"
+/usr/bin/cmp "$public_dir/$dmg_name" "$latest_dmg_path"
 
 echo "Published and reverified: https://github.com/$GITHUB_REPOSITORY/releases/tag/$release_tag"
+echo "Direct installer: $latest_dmg_url"

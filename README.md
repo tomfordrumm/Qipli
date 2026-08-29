@@ -11,16 +11,17 @@ several values before pasting them one by one with the normal `Command-V` shortc
 
 ## Install
 
-1. Open the latest GitHub Release.
-2. Download `Qipli-X.Y.Z.zip` and its `.sha256` file.
-3. Optionally verify the download with `shasum -a 256 -c Qipli-X.Y.Z.zip.sha256`.
-4. Unzip Qipli and move `Qipli.app` to `/Applications`.
-5. Launch Qipli and follow the optional onboarding. macOS may ask you to allow
+1. Download the latest [`Qipli.dmg`](https://github.com/tomfordrumm/Qipli/releases/latest/download/Qipli.dmg).
+2. Open the disk image and drag `Qipli.app` to Applications.
+3. Eject the Qipli disk image, launch Qipli from Applications, and follow the
+   optional onboarding. macOS may ask you to allow
    Qipli under System Settings > Privacy & Security > Accessibility.
 
-Public release archives are signed with Developer ID, notarized by Apple, and
-checked with Gatekeeper before publication. Do not use a build from an untrusted
-fork or an unsigned CI run as an installed release.
+The versioned DMG and its `.sha256` file remain available on the release page for
+manual verification. Public DMGs and app bundles are signed with Developer ID,
+notarized by Apple, and checked with Gatekeeper before publication. The ZIP is the
+immutable Sparkle update artifact. Do not install builds from an untrusted fork or
+an unsigned CI run.
 
 ## Use
 

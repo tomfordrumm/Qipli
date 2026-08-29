@@ -1,6 +1,6 @@
 # Qipli — текущее состояние проекта
 
-Последняя актуализация: 2026-08-28
+Последняя актуализация: 2026-08-29
 
 Источник истины для статусов: этот файл
 
@@ -10,7 +10,7 @@
 - Milestone M1 — рабочая локальная история — завершён.
 - Milestone M2 — Paste Stack — завершён.
 - Milestone M3 — visual polish и product setup — активен: S009 и S010 завершены, S011 и S012 реализованы и ожидают ручной проверки.
-- Milestone M4 — public delivery и secure updates — активен: repository public, S013 завершён, protected release run опубликовал signed/notarized `v1.0.0`. S014 `needs_verification`; S015 `in_progress`, установленный `v1.0.2` работает, `v1.0.3 (4)` готовится для реального update proof.
+- Milestone M4 — public delivery и secure updates — активен: repository public, S013 завершён, signed/notarized `v1.0.3 (4)` опубликован. S014 `needs_verification`; branded DMG, AppIcon и прямая latest-ссылка входят в release candidate `v1.0.4 (5)`. S015 `in_progress` до завершения update matrix.
 - Corrective slice S016 `needs_verification`: History-only keyboard routing, single paste transaction, fresh capture и passive click-away реализованы; SwiftPM и unsigned Xcode build пройдены, остаётся manual macOS interaction matrix.
 - S008 остаётся финальным blocked release gate до завершения S011/S012, S014–S016 и полной clean-machine/manual release matrix. Локальные Developer ID и notarization credentials подтверждены 2026-08-26.
 - Fail-closed release workflow опубликовал первый Developer ID-signed и notarized GitHub Release `v1.0.0`; публичный ZIP независимо скачан и принят Gatekeeper.
@@ -34,7 +34,7 @@
 | S011 | Опциональный first-run onboarding | `needs_verification` | S010 |
 | S012 | Edge-to-edge Paste Stack с кастомным header | `needs_verification` | S007, S009 |
 | S013 | Версии и безопасный public CI | `done` | — |
-| S014 | Публичный репозиторий и подписанные GitHub-релизы | `needs_verification` | public `v1.0.0` опубликован; остаются immutable rerun и clean-machine macOS 14 launch |
+| S014 | Публичный репозиторий и подписанные GitHub-релизы | `needs_verification` | public ZIP-релизы подтверждены; DMG реализован локально, остаются protected DMG run, latest-link, immutable rerun и clean-machine macOS 14 launch |
 | S015 | Безопасные обновления через Sparkle | `in_progress` | `v1.0.2` runtime hotfix; затем `v1.0.2 → v1.0.3` |
 | S016 | Надёжная навигация и закрытие History | `needs_verification` | S003 |
 
@@ -44,6 +44,7 @@ Product-code blockers для S011, S012 и S016 отсутствуют; срез
 
 - S013: push-to-main run `33158358277` обнаружил несовместимый macOS 15 SDK; после перехода на `macos-26` run `33158511887` прошёл. Обычный PR run `33159567400` и fork-style run `33160652451` из `404-Hub/Qipli` также прошли без release secrets и write permissions.
 - S014 не имеет implementation/credential blocker: protected run `33165198739` опубликовал `v1.0.0`, а публичный ZIP прошёл повторную unauthenticated проверку. До `done` остаются immutable rerun proof и clean-machine macOS 14 launch.
+- S014 DMG path реализован локально 2026-08-28: app icon, визуальный drag-to-Applications образ, final-container signing/notarization/stapling, stable `Qipli.dmg` alias и latest-download URL покрыты scripts/contracts. До подтверждения нужны новый protected release и clean-machine install; `v1.0.3` задним числом не изменяется.
 - S015 public `v1.0.1 (2)` остаётся immutable broken release. Hotfix `v1.0.2 (3)` опубликован, независимо проверен и установлен пользователем; приложение открывается и работает. `v1.0.3 (4)` добавляет History keyboard guide и должен доказать реальный update с сохранением данных и настроек.
 - S008 заблокирован: S011/S012/S016 manual checks, S014/S015 и clean-machine/manual release matrix не завершены.
 - Developer ID Application, Team ID и `qipli-notary` Keychain profile проверены реальной accepted notarization submission.
@@ -149,3 +150,5 @@ Product-code blockers для S011, S012 и S016 отсутствуют; срез
 | 2026-08-28 | Локально проверен runtime hotfix `v1.0.2 (3)`. | Новый fail-closed gate отклонил installed `v1.0.1` и принял unsigned universal Release для `x86_64 arm64`; обе architecture содержат `@executable_path/../Frameworks`. Повторный Xcode Debug XCTest прошёл 153/153. Остаются hosted PR/main gates, protected release и ручной launch публичного ZIP. |
 | 2026-08-28 | Опубликован и независимо проверен runtime hotfix `v1.0.2 (3)`. | PR `#9`, main run `33177566269` и protected release run `33177849702` прошли. Public ZIP совпал с SHA-256 asset metadata, прошёл version/runtime-linking/nested-signature/stapler/Gatekeeper проверки, а production appcast указывает на exact immutable asset. Запуск независимо скачанного app удержал живой процесс без нового crash report; остаются установка в `/Applications`, UI smoke и update proof `v1.0.2 → v1.0.3`. |
 | 2026-08-28 | Пользователь подтвердил установленный `v1.0.2`; локально проверена `v1.0.3 (4)`. | Public hotfix открывается и работает из `/Applications`. Для видимого подтверждения следующей версии History получил компактный bottom-right guide `↑ ↓ Navigation` и `Return Paste`; focused test, Light snapshot, 154 SwiftPM/Xcode tests и clean universal Release с version/runtime/privacy/release-contract gates прошли. Остаются hosted gates, protected release и реальный Sparkle update. |
+| 2026-08-28 | Реализован DMG install path для следующего релиза. | Лендинг указывает на stable latest `Qipli.dmg`; release pipeline создаёт versioned ZIP для Sparkle и branded signed/notarized/stapled DMG с AppIcon, Applications alias и checksums. Static/negative contracts, site build, universal icon build и реальный Finder layout smoke прошли. Публикация, final-container Apple notarization и clean-machine install остаются следующими protected/manual gates; публичный `v1.0.3` не изменён. |
+| 2026-08-29 | Подготовлен release candidate `v1.0.4 (5)`. | Версия увеличена для первого immutable release с DMG. До публикации нужны hosted CI, protected signing/notarization run и публичная latest-link verification. |

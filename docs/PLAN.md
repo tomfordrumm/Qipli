@@ -2,7 +2,7 @@
 
 Статус: core MVP подтверждён; первый signed public release опубликован, verification и secure updates активны
 
-Дата: 2026-08-28
+Дата: 2026-08-29
 
 Источник оперативных статусов: [`STATE.md`](STATE.md)
 
@@ -40,10 +40,10 @@
 ## Milestone M4 — Публичная поставка и безопасные обновления
 
 13. [`S013 — Версии и безопасный public CI`](slices/S013-versioning-public-ci.md) — завершён; локальные, push-to-main, обычный PR и fork-style runs прошли без release secrets и write permissions.
-14. [`S014 — Публичный репозиторий и подписанные GitHub-релизы`](slices/S014-public-signed-github-releases.md) — repository public, protected tag run опубликовал Developer ID-signed/notarized `v1.0.0`; статус `needs_verification` до immutable rerun proof и clean-machine macOS 14 launch.
+14. [`S014 — Публичный репозиторий и подписанные GitHub-релизы`](slices/S014-public-signed-github-releases.md) — repository public, protected tag run опубликовал Developer ID-signed/notarized ZIP; branded DMG и прямая latest-ссылка реализованы для следующего релиза; статус `needs_verification` до protected DMG run, immutable rerun proof и clean-machine macOS 14 launch.
 15. [`S015 — Безопасные обновления через Sparkle`](slices/S015-sparkle-secure-updates.md) — `in_progress` параллельно manual gates S014; broken `v1.0.1` сохраняется immutable, `v1.0.2` является ручным runtime-linking hotfix, а `v1.0.3` должен доказать реальный upgrade.
 
-Результат: публичный репозиторий проверяет вклад без signing secrets, версионный tag создаёт один проверенный release artifact, а установленный Qipli может безопасно перейти на следующую подписанную версию.
+Результат: публичный репозиторий проверяет вклад без signing secrets, версионный tag создаёт проверенный DMG для ручной установки и immutable ZIP для Sparkle, а установленный Qipli может безопасно перейти на следующую подписанную версию.
 
 ## Milestone M5 — Публичный MVP
 

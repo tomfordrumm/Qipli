@@ -127,8 +127,12 @@ fi
 
 bundle_identifier=$(plutil -extract CFBundleIdentifier raw -o - "$app_path/Contents/Info.plist")
 minimum_system_version=$(plutil -extract LSMinimumSystemVersion raw -o - "$app_path/Contents/Info.plist")
+bundle_icon=$(plutil -extract CFBundleIconFile raw -o - "$app_path/Contents/Info.plist")
 [[ "$bundle_identifier" == "com.qipli.app" ]] || fail "unexpected bundle identifier: $bundle_identifier"
 [[ "$minimum_system_version" == "14.0" ]] || fail "unexpected minimum macOS version: $minimum_system_version"
+[[ "$bundle_icon" == "AppIcon" ]] || fail "unexpected app icon declaration: $bundle_icon"
+[[ -s "$app_path/Contents/Resources/AppIcon.icns" ]] || fail "compiled AppIcon.icns is missing"
+[[ -s "$app_path/Contents/Resources/Assets.car" ]] || fail "compiled asset catalog is missing"
 
 architectures=$(lipo -archs "$app_path/Contents/MacOS/Qipli")
 [[ " $architectures " == *" arm64 "* ]] || fail "arm64 architecture is missing"

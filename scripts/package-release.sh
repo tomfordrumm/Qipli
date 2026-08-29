@@ -99,21 +99,56 @@ xcrun stapler staple "$app_path"
 
 version=$(plutil -extract CFBundleShortVersionString raw -o - "$app_path/Contents/Info.plist")
 mkdir -p "$repository_root/dist"
-artifact_name="Qipli-$version.zip"
-artifact_path="$repository_root/dist/$artifact_name"
-[[ ! -e "$artifact_path" ]] || fail "output already exists: $artifact_path"
-[[ ! -e "$artifact_path.sha256" ]] || fail "output already exists: $artifact_path.sha256"
+zip_name="Qipli-$version.zip"
+dmg_name="Qipli-$version.dmg"
+zip_path="$work_dir/$zip_name"
+dmg_path="$work_dir/$dmg_name"
 
-ditto -c -k --keepParent --norsrc --noextattr --noqtn --noacl "$app_path" "$artifact_path"
+for output_name in "$zip_name" "$zip_name.sha256" "$dmg_name" "$dmg_name.sha256"; do
+    [[ ! -e "$repository_root/dist/$output_name" ]] \
+        || fail "output already exists: $repository_root/dist/$output_name"
+done
+
+ditto -c -k --keepParent --norsrc --noextattr --noqtn --noacl "$app_path" "$zip_path"
 
 extracted_dir="$work_dir/extracted"
 mkdir -p "$extracted_dir"
-ditto -x -k "$artifact_path" "$extracted_dir"
+ditto -x -k "$zip_path" "$extracted_dir"
 "$script_dir/verify-signed-app.sh" --mode release --team-id "$team_id" "$extracted_dir/Qipli.app"
 
+"$script_dir/create-dmg.sh" --app "$app_path" --output "$dmg_path"
+dmg_sign_arguments=(--force --timestamp --sign "$identity")
+if [[ -n "$signing_keychain" ]]; then
+    dmg_sign_arguments+=(--keychain "$signing_keychain")
+fi
+/usr/bin/codesign "${dmg_sign_arguments[@]}" "$dmg_path"
+"$script_dir/verify-dmg.sh" \
+    --mode release \
+    --team-id "$team_id" \
+    --pre-notarization \
+    "$dmg_path"
+
+dmg_notary_result="$work_dir/dmg-notary-result.plist"
+xcrun notarytool submit "$dmg_path" \
+    "${notary_arguments[@]}" \
+    --wait \
+    --timeout "$notary_timeout" \
+    --output-format plist > "$dmg_notary_result"
+"$script_dir/validate-notary-result.sh" "$dmg_notary_result"
+
+xcrun stapler staple "$dmg_path"
+"$script_dir/verify-dmg.sh" --mode release --team-id "$team_id" "$dmg_path"
+
 (
-    cd "$repository_root/dist"
-    shasum -a 256 "$artifact_name" > "$artifact_name.sha256"
+    cd "$work_dir"
+    shasum -a 256 "$zip_name" > "$zip_name.sha256"
+    shasum -a 256 "$dmg_name" > "$dmg_name.sha256"
 )
 
-echo "Created notarized release package: $artifact_path"
+for output_name in "$zip_name" "$zip_name.sha256" "$dmg_name" "$dmg_name.sha256"; do
+    /bin/mv "$work_dir/$output_name" "$repository_root/dist/$output_name"
+done
+
+echo "Created notarized release packages:"
+echo "  $repository_root/dist/$zip_name"
+echo "  $repository_root/dist/$dmg_name"
