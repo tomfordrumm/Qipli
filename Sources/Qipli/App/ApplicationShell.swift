@@ -48,8 +48,9 @@ final class ApplicationShell: NSObject {
         } else {
             store = RetryingHistoryStore { try CoreDataHistoryStore() }
         }
-        let historyService = HistoryService(store: store)
-        historyViewModel = HistoryViewModel(service: historyService)
+        let historyClock = SystemHistoryClock()
+        let historyService = HistoryService(store: store, clock: historyClock)
+        historyViewModel = HistoryViewModel(service: historyService, now: { historyClock.now })
         stackSessionController = StackSessionController()
         stackCaptureCoordinator = StackCollectionCaptureCoordinator(
             historyViewModel: historyViewModel,
