@@ -493,7 +493,6 @@ enum StackPreview {
 
     /// This affects only what the compact panel displays; occurrence.text remains exact.
     static func text(for fullText: String) -> String {
-        guard fullText.count > maximumCharacters else { return fullText }
-        return String(fullText.prefix(maximumCharacters)) + "…"
+        BoundedTextPreview.text(for: fullText, maximumCharacters: maximumCharacters)
     }
 }
