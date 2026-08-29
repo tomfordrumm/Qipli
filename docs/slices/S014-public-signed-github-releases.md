@@ -69,7 +69,7 @@ Hosted signing/notarization blocker снят: protected Environment содерж
 - [x] `notarytool` использует App Store Connect API credential, submission получает `Accepted`, ticket stapled, а `spctl`/verifier принимают app и повторно распакованный ZIP.
 - [x] Draft GitHub Release содержит versioned ZIP, SHA-256, requirements, changelog, onboarding/Accessibility/Settings/shortcuts/Launch at Login notes и privacy summary.
 - [x] Локальный unsigned layout smoke подтверждает AppIcon, branded background, `Qipli.app`, `/Applications`, сохранённый размер окна и читаемый drag-to-install path.
-- [ ] Protected release создаёт Developer ID-signed, notarized и stapled versioned DMG, checksum и identical `Qipli.dmg`; public latest URL скачивает тот же DMG.
+- [x] Protected release создаёт Developer ID-signed, notarized и stapled versioned DMG, checksum и identical `Qipli.dmg`; public latest URL скачивает тот же DMG.
 - [x] Workflow скачивает candidate asset через authenticated draft-asset API, проверяет checksum, archive contents, code signature, staple и Gatekeeper до stable publication.
 - [x] Logs и artifacts не содержат `.p12`, `.p8`, passwords, private Sparkle key или decoded Keychain data; cleanup выполняется и при failure/cancel.
 - [ ] Повторный run для того же tag не создаёт второй release и не заменяет уже опубликованный immutable asset.
@@ -80,7 +80,7 @@ Hosted signing/notarization blocker снят: protected Environment содерж
 - [x] Полный SwiftPM/Xcode test and build gate перед release job.
 - [x] Реальный protected tag run на GitHub-hosted macOS runner.
 - [x] До публикации ZIP, повторно скачанный из draft через API, проходит SHA-256, archive inventory, strict verifier, `stapler validate` и Gatekeeper; после публикации та же проверка повторяется через публичный URL без GitHub authentication.
-- [ ] До и после публикации DMG проходит SHA-256, inventory/layout, Developer ID signature, stapler и Gatekeeper; `releases/latest/download/Qipli.dmg` совпадает с versioned asset.
+- [x] До и после публикации DMG проходит SHA-256, inventory/layout, Developer ID signature, stapler и Gatekeeper; `releases/latest/download/Qipli.dmg` совпадает с versioned asset.
 - [ ] Clean-machine launch на минимальной поддерживаемой macOS 14 показывает ожидаемый Developer ID/Gatekeeper path.
 - [x] Repository public-view smoke подтверждает README/LICENSE/SECURITY, release notes и доступность ZIP без GitHub authentication.
 
@@ -99,7 +99,7 @@ Hosted signing/notarization blocker снят: protected Environment содерж
 ### Проверено
 
 - `scripts/tests/release-contract-tests.sh`: 13 positive/negative cases для workflow contract, missing/malformed secrets, accepted/rejected notarization, tag admission и DMG inputs прошли.
-- Локальный universal Release app успешно скомпилировал AppIcon; реальный DMG mount/layout smoke и визуальный Finder smoke прошли. Подпись/notarization финального DMG остаются protected release gate.
+- Локальный universal Release app успешно скомпилировал AppIcon; реальный DMG mount/layout smoke и визуальный Finder smoke прошли.
 - Shell syntax, release/CI static contracts, workflow YAML parse и `git diff --check` прошли.
 - Полный SwiftPM suite: 150 tests, 0 failures. Unsigned Xcode Debug и Release builds прошли; built metadata соответствует `1.0.0 (1)`, Release executable universal `x86_64 arm64` с deployment target macOS 14.
 - Public-readiness audit проверил 87 current paths и 43 revisions без вывода payload values; blocking paths и credential-shaped values не найдены. Пять старых ignored `dist/*` paths сохранены по D-028.
@@ -109,9 +109,12 @@ Hosted signing/notarization blocker снят: protected Environment содерж
 - Первый tag run `33164714425` fail closed остановился до notarization и publication: import `.p12` прошёл, но Xcode не видел временный Keychain вне user search list. PR `#4` добавил search-list setup, exact identity preflight и restoration; обязательный CI прошёл.
 - Protected tag run `33165198739` на commit `0681078f8a38154aca52981d2f5185bd4c69c58b` прошёл 150 SwiftPM tests, unsigned build gate, universal Developer ID archive, App Store Connect API notarization, stapling, cleanup, draft verification и stable publication.
 - Публичный release [`v1.0.0`](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.0) содержит `Qipli-1.0.0.zip` и checksum. Независимое unauthenticated скачивание подтвердило SHA-256 `b7edd1d56322de6487ea2563a2200185fa430dcca74355e1a052744725d9804e`, version `1.0.0 (1)`, Developer ID signature, stapled ticket и Gatekeeper `source=Notarized Developer ID`.
+- PR `#12` CI run `33245030796` прошёл обязательный clean checkout gate. Protected tag run `33245182226` на commit `26025a25f508f5490b6cffc407aaa3ef7fb4f004` выполнил 154 tests, universal build, app и DMG notarization, credential cleanup, draft/public verification и appcast deployment.
+- Публичный [`v1.0.4`](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.4) содержит versioned DMG/ZIP, оба checksums и identical `Qipli.dmg`. Независимый latest download подтвердил DMG SHA-256 `dbc6aa94ffa57b6abdc83d234df761b72790f36ee2c2e922ccb2a9ef89b5ffc9`, Developer ID Team `3N2R5K4J63`, stapled ticket, Gatekeeper `source=Notarized Developer ID`, nested Sparkle signatures и `x86_64 arm64` runtime linking.
+- Yhub site `12988` активен на `https://qipli.yhub.net`; production bundle содержит `releases/latest/download/Qipli.dmg`, страница и конечный DMG отвечают HTTP 200.
 
 ### Отклонения и остаточные риски
 
 - Реальный rerun опубликованного `v1.0.0` ещё не выполнен; contract fail closed запрещает второй release или замену immutable assets, но operational proof остаётся открытым.
 - Clean-machine launch на macOS 14 остаётся отдельным release gate S008 и незакрытым verification step S014.
-- Текущий публичный `v1.0.3` был выпущен до D-030 и содержит только ZIP. Stable latest DMG URL начнёт работать после следующего protected release; старые release assets не изменяются.
+- `v1.0.3` и более ранние releases остаются immutable и не получают DMG задним числом; latest install path начинается с `v1.0.4`.
