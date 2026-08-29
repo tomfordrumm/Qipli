@@ -70,12 +70,14 @@ Core Data work выполняется последовательно вне main
 - Pasteboard events ставятся в ordered capture queue. Каждая операция сначала сохраняет History, затем добавляет matching Stack occurrence; `drainPendingCaptures()` закрывает freshness window перед показом History.
 - Startup и hourly refresh остались явными lifecycle operations. `prepareForPresentation()` сбрасывает presentation state поверх загруженного snapshot и больше не делает unconditional fetch.
 - Retry, delete, promotion и Settings Clear History переведены на async UI actions без блокировки main actor.
+- Corrective fix 2026-08-29 возвращает обновлённый `activityAt` из serialized mark-used operation и сразу перестраивает immutable UI snapshot без fetch. Перед каждым presentation cached snapshot также применяет тот же строгий 30-day cutoff, поэтому recency и retention не зависят от следующего hourly reload.
 
 ### Проверено
 
 - Controlled store подтвердил off-main выполнение fetch/create/mark-used/delete/clear и доступность main actor, пока fetch удерживается test semaphore.
 - Ordered queue test подтвердил rapid duplicate captures, exact order, distinct occurrences и History-first failure contract; explicit poll + drain tests подтверждают свежесть перед presentation.
 - Repeated presentation test подтвердил неизменный fetch counter после initial load.
+- Corrective focused tests подтвердили promotion использованного occurrence на первое место и удаление истёкшего cached occurrence без увеличения fetch counter; Xcode `HistoryViewModelSearchTests`: 16 tests, 0 failures.
 - Полный SwiftPM suite из clean copy: 166 tests, 0 failures. Полный Xcode Debug suite: 166 tests, 0 failures. Targeted Thread Sanitizer run: пройден.
 - Unsigned universal Release build: пройден, executable содержит `arm64` и `x86_64`.
 

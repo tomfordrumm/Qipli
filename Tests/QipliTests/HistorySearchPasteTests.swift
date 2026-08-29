@@ -70,6 +70,53 @@ final class HistoryViewModelSearchTests: XCTestCase {
         XCTAssertEqual(store.entries, [entry])
     }
 
+    func testSuccessfulPromotionUpdatesCachedRecencyWithoutRefetchingStorage() async {
+        let initialNow = Date(timeIntervalSinceReferenceDate: 10_000)
+        let first = HistoryEntry(id: UUID(), text: "first", activityAt: initialNow.addingTimeInterval(-10))
+        let promoted = HistoryEntry(id: UUID(), text: "promoted", activityAt: initialNow.addingTimeInterval(-20))
+        let clock = TestHistoryClock(now: initialNow)
+        let store = InMemoryHistoryStore(entries: [first, promoted])
+        let viewModel = HistoryViewModel(
+            service: HistoryService(store: store, clock: clock),
+            now: { clock.now }
+        )
+        await viewModel.reload(selectFirstResult: true)
+        let fetchCountBeforePromotion = store.fetchCount
+
+        clock.now = initialNow.addingTimeInterval(5)
+        await viewModel.markUsedAfterSuccessfulPaste(id: promoted.id)
+        viewModel.prepareForPresentation()
+
+        XCTAssertEqual(store.fetchCount, fetchCountBeforePromotion)
+        XCTAssertEqual(viewModel.visibleEntries.map(\.id), [promoted.id, first.id])
+        XCTAssertEqual(viewModel.visibleEntries.first?.activityAt, clock.now)
+    }
+
+    func testPresentationPrunesExpiredCachedEntriesWithoutRefetchingStorage() async {
+        let initialNow = Date(timeIntervalSinceReferenceDate: HistoryService.retention + 10_000)
+        let soonExpired = HistoryEntry(
+            id: UUID(),
+            text: "expires from snapshot",
+            activityAt: initialNow.addingTimeInterval(-HistoryService.retention + 60)
+        )
+        let fresh = HistoryEntry(id: UUID(), text: "fresh", activityAt: initialNow.addingTimeInterval(-10))
+        let clock = TestHistoryClock(now: initialNow)
+        let store = InMemoryHistoryStore(entries: [fresh, soonExpired])
+        let viewModel = HistoryViewModel(
+            service: HistoryService(store: store, clock: clock),
+            now: { clock.now }
+        )
+        await viewModel.reload(selectFirstResult: true)
+        let fetchCountAfterReload = store.fetchCount
+
+        clock.now = initialNow.addingTimeInterval(61)
+        viewModel.prepareForPresentation()
+
+        XCTAssertEqual(store.fetchCount, fetchCountAfterReload)
+        XCTAssertEqual(viewModel.visibleEntries, [fresh])
+        XCTAssertEqual(viewModel.selectedEntryID, fresh.id)
+    }
+
     func testFreshPresentationViewportResetSignalIsIndependentFromSearchFocus() async {
         let first = makeEntry("first", offset: 2)
         let second = makeEntry("second", offset: 1)
@@ -1021,6 +1068,14 @@ private final class InMemoryHistoryStore: HistoryStoring {
     private func recordOperation(_ name: String) {
         operationNames.append(name)
         operationWasOnMainThread.append(Thread.isMainThread)
+    }
+}
+
+private final class TestHistoryClock: HistoryClock {
+    var now: Date
+
+    init(now: Date) {
+        self.now = now
     }
 }
 

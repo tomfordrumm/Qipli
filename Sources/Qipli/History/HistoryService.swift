@@ -38,8 +38,11 @@ final class HistoryService {
         return try store.create(text: text, activityAt: clock.now)
     }
 
-    func markUsed(id: UUID) throws {
-        try store.markUsed(id: id, activityAt: clock.now)
+    @discardableResult
+    func markUsed(id: UUID) throws -> Date {
+        let activityAt = clock.now
+        try store.markUsed(id: id, activityAt: activityAt)
+        return activityAt
     }
 
     func delete(id: UUID) throws {
@@ -72,7 +75,7 @@ actor SerializedHistoryService {
         try service.capture(text: text)
     }
 
-    func markUsed(id: UUID) throws {
+    func markUsed(id: UUID) throws -> Date {
         try service.markUsed(id: id)
     }
 

@@ -39,6 +39,7 @@ final class HistoryViewModel: ObservableObject {
     private let service: SerializedHistoryService
     private let searcher: any HistorySearching
     private let searchDebounceNanoseconds: UInt64
+    private let now: () -> Date
     private var allEntries: [HistoryEntry] = []
     private var hasLoadedSnapshot = false
     private var searchGeneration = 0
@@ -47,11 +48,13 @@ final class HistoryViewModel: ObservableObject {
     init(
         service: HistoryService,
         searcher: any HistorySearching = BackgroundHistorySearcher(),
-        searchDebounceNanoseconds: UInt64 = 100_000_000
+        searchDebounceNanoseconds: UInt64 = 100_000_000,
+        now: @escaping () -> Date = Date.init
     ) {
         self.service = SerializedHistoryService(service: service)
         self.searcher = searcher
         self.searchDebounceNanoseconds = searchDebounceNanoseconds
+        self.now = now
     }
 
     var selectedEntry: HistoryEntry? {
@@ -64,6 +67,7 @@ final class HistoryViewModel: ObservableObject {
     }
 
     func prepareForPresentation() {
+        discardExpiredSnapshotEntries()
         query = ""
         selectedEntryID = nil
         pasteFailure = nil
@@ -141,7 +145,20 @@ final class HistoryViewModel: ObservableObject {
     /// failure is intentionally non-fatal: it must not report a false paste failure
     /// or cause a second dispatch.
     func markUsedAfterSuccessfulPaste(id: UUID) async {
-        try? await service.markUsed(id: id)
+        do {
+            let activityAt = try await service.markUsed(id: id)
+            guard let index = allEntries.firstIndex(where: { $0.id == id }) else { return }
+            let previous = allEntries.remove(at: index)
+            allEntries.insert(
+                HistoryEntry(id: previous.id, text: previous.text, activityAt: activityAt),
+                at: 0
+            )
+            scheduleFilter(selectFirstResult: false, debounce: false)
+            await waitForPendingSearch()
+        } catch {
+            // Paste already succeeded. Keep the last durable snapshot and do not
+            // turn a recency-only persistence failure into a false paste failure.
+        }
     }
 
     /// Captures first so optional consumers, such as Paste Stack collection, can
@@ -264,5 +281,11 @@ final class HistoryViewModel: ObservableObject {
         searchTask?.cancel()
         searchTask = nil
         isSearchInProgress = false
+    }
+
+    private func discardExpiredSnapshotEntries() {
+        guard hasLoadedSnapshot else { return }
+        let cutoff = now().addingTimeInterval(-HistoryService.retention)
+        allEntries.removeAll { $0.activityAt <= cutoff }
     }
 }
