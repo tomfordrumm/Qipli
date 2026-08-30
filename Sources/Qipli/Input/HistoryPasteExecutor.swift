@@ -203,6 +203,7 @@ final class HistoryPasteExecutor {
     func paste(
         entry: HistoryEntry,
         target: HistoryPasteTarget?,
+        concealPanel: @escaping () -> Void,
         closePanel: @escaping () -> Void,
         completion: @escaping (Result<Void, HistoryPasteFailure>) -> Void
     ) -> Bool {
@@ -229,6 +230,9 @@ final class HistoryPasteExecutor {
             return true
         }
 
+        // Keep the ordered key window alive for macOS's cooperative activation
+        // handoff, but remove the waiting state from the user's screen.
+        concealPanel()
         let deadline = now().addingTimeInterval(activationWaitPolicy.timeout)
         activationObservation = observeTargetActivation { [weak self, weak target] in
             guard let self, let target else { return }
@@ -245,8 +249,8 @@ final class HistoryPasteExecutor {
             return true
         }
 
-        // Yield Qipli's active state while History remains visible. macOS 14's
-        // cooperative handoff requires the yielding app to still be active.
+        // Yield Qipli's active state while the transparent History panel stays
+        // ordered. macOS 14's cooperative handoff requires that window state.
         dispatchWhenTargetIsActive(
             operationID: operationID,
             target: target,

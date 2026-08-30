@@ -14,10 +14,10 @@ final class PanelController {
     private let openAccessibilitySettings: () -> Void
     private let activationPresenter: PanelActivationPresenter
     private let materialProvider: PanelMaterialProvider
+    private let historyTableInteractionBridge = HistoryTableInteractionBridge()
     private var historyPanel: NSPanel?
     private var stackPanel: NSPanel?
     private var historyPasteTarget: HistoryPasteTarget?
-    private var historyPasteIntentReserved = false
     private var historyPasteTransactionID: UUID?
     private var historyPanelDelegate: HistoryPanelDelegate?
     private var historyKeyboardMonitor: HistoryPanelKeyboardMonitor?
@@ -60,20 +60,24 @@ final class PanelController {
 
     func showHistory() {
         cancelHistoryPasteTransaction()
+        restoreHistoryPanelPresentation()
         _ = permissionService.refresh()
         let isFreshPresentation = historyPanel?.isVisible != true
         if isFreshPresentation {
             historyPasteTarget = frontmostApplicationCapture.capturePriorApplication()
         }
         historyViewModel.prepareForPresentation()
-        let panel = historyPanel ?? makePanel(kind: .history) {
-            HistoryPanelView(
-                viewModel: self.historyViewModel,
-                permissionService: self.permissionService,
-                openAccessibilitySettings: self.openAccessibilitySettings,
-                pasteEntry: { [weak self] entry in self?.pasteHistoryEntry(entry) },
-                close: { [weak self] in self?.cancelHistory() }
-            )
+        historyTableInteractionBridge.applySnapshot(
+            entries: historyViewModel.visibleEntries,
+            revision: historyViewModel.visibleSnapshotRevision,
+            selectedEntryID: historyViewModel.selectedEntryID,
+            resetViewport: false
+        )
+        let panel: NSPanel
+        if let historyPanel {
+            panel = historyPanel
+        } else {
+            panel = makeHistoryPanel()
         }
         historyPanel = panel
         present(
@@ -82,6 +86,13 @@ final class PanelController {
             requestHistoryViewportReset: isFreshPresentation,
             requiresStrongUserActivation: true
         )
+    }
+
+    /// Builds the reusable History surface after startup data has loaded so the
+    /// first user invocation does not pay SwiftUI/AppKit construction cost.
+    func prepareHistoryPanel() {
+        guard historyPanel == nil else { return }
+        historyPanel = makeHistoryPanel()
     }
 
     func showPasteStack() {
@@ -119,10 +130,10 @@ final class PanelController {
         guard historyPasteTransactionID == nil else { return }
         let transactionID = UUID()
         historyPasteTransactionID = transactionID
-        historyViewModel.beginPaste()
         let started = historyPasteExecutor.paste(
             entry: entry,
             target: historyPasteTarget,
+            concealPanel: { [weak self] in self?.concealHistoryForPaste() },
             closePanel: { [weak self] in self?.dismissHistoryForPaste() },
             completion: { [weak self] result in
                 guard let self, self.historyPasteTransactionID == transactionID else { return }
@@ -145,8 +156,14 @@ final class PanelController {
         }
     }
 
+    private func concealHistoryForPaste() {
+        historyPanel?.alphaValue = 0
+        historyPanel?.ignoresMouseEvents = true
+        historyViewModel.beginPaste()
+    }
+
     private func dismissHistoryForPaste() {
-        historyPanel?.orderOut(nil)
+        hideHistoryPanel()
     }
 
     private func cancelHistory() {
@@ -160,7 +177,7 @@ final class PanelController {
     private func dismissHistory(_ intent: HistoryPanelDismissalIntent) {
         HistoryPanelDismissalExecutor(
             cancelPaste: { [weak self] in self?.cancelHistoryPasteTransaction() },
-            hide: { [weak self] in self?.historyPanel?.orderOut(nil) },
+            hide: { [weak self] in self?.hideHistoryPanel() },
             restoreFocus: { [weak self] in
                 _ = HistoryFocusRestorer.returnToCapturedTarget(self?.historyPasteTarget)
             }
@@ -169,18 +186,36 @@ final class PanelController {
     }
 
     private func cancelHistoryPasteTransaction() {
-        guard historyPasteIntentReserved || historyPasteTransactionID != nil || historyPasteExecutor.hasActivePaste else {
+        guard historyPasteTransactionID != nil || historyPasteExecutor.hasActivePaste else {
             return
         }
-        historyPasteIntentReserved = false
         historyPasteExecutor.cancelActivePaste()
         historyPasteTransactionID = nil
         historyViewModel.endPaste()
+        restoreHistoryPanelPresentation()
     }
 
     private func reopenHistoryAfterPasteFailure() {
-        guard let historyPanel, !historyPanel.isVisible else { return }
+        restoreHistoryPanelPresentation()
+        guard let historyPanel else { return }
+        if historyPanel.isVisible {
+            if !historyPanel.isKeyWindow {
+                historyPanel.makeKeyAndOrderFront(nil)
+                historyViewModel.requestSearchFocus()
+            }
+            return
+        }
         present(historyPanel, requestSearchFocus: true, requiresStrongUserActivation: true)
+    }
+
+    private func hideHistoryPanel() {
+        historyPanel?.orderOut(nil)
+        restoreHistoryPanelPresentation()
+    }
+
+    private func restoreHistoryPanelPresentation() {
+        historyPanel?.alphaValue = 1
+        historyPanel?.ignoresMouseEvents = false
     }
 
     private func makePanel<Content: View>(
@@ -221,9 +256,22 @@ final class PanelController {
         return panel
     }
 
+    private func makeHistoryPanel() -> NSPanel {
+        makePanel(kind: .history) {
+            HistoryPanelView(
+                viewModel: self.historyViewModel,
+                permissionService: self.permissionService,
+                openAccessibilitySettings: self.openAccessibilitySettings,
+                pasteEntry: { [weak self] entry in self?.pasteHistoryEntry(entry) },
+                close: { [weak self] in self?.cancelHistory() },
+                tableInteractionBridge: self.historyTableInteractionBridge
+            )
+        }
+    }
+
     private func handleHistoryKeyAction(_ action: HistoryPanelKeyAction) -> Bool {
         if action == .pasteSelection {
-            if historyPasteIntentReserved || historyPasteTransactionID != nil || historyViewModel.isPasteInProgress {
+            if historyPasteTransactionID != nil || historyViewModel.isPasteInProgress {
                 return true
             }
             guard permissionService.state == .granted else {
@@ -232,18 +280,16 @@ final class PanelController {
         }
 
         return HistoryPanelKeyActionExecutor(
-            moveSelection: historyViewModel.moveSelection,
+            moveSelection: { [weak self] offset in
+                guard let self else { return }
+                self.historyViewModel.moveSelection(by: offset)
+                self.historyTableInteractionBridge.applySelection(
+                    id: self.historyViewModel.selectedEntryID
+                )
+            },
             selectedEntry: { [weak self] in self?.historyViewModel.selectedEntry },
             pasteEntry: { [weak self] entry in
-                guard let self else { return }
-                self.historyPasteIntentReserved = true
-                RunLoop.main.perform(inModes: [.common]) { [weak self] in
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        self.historyPasteIntentReserved = false
-                        self.pasteHistoryEntry(entry)
-                    }
-                }
+                self?.pasteHistoryEntry(entry)
             },
             close: { [weak self] in
                 RunLoop.main.perform(inModes: [.common]) { [weak self] in
@@ -308,6 +354,10 @@ final class PanelController {
                 panel?.makeKeyAndOrderFront(nil)
                 if requestHistoryViewportReset {
                     self?.historyViewModel.requestPresentationViewportReset()
+                    self?.historyTableInteractionBridge.applySelection(
+                        id: self?.historyViewModel.selectedEntryID,
+                        resetViewport: true
+                    )
                 }
             },
             whenActive: { [weak self, weak panel] in

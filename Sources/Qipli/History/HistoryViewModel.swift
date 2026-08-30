@@ -46,6 +46,7 @@ final class HistoryViewModel: ObservableObject {
     @Published private(set) var searchFocusRequestID = 0
     @Published private(set) var presentationViewportResetRequestID = 0
     @Published private(set) var isSearchInProgress = false
+    private(set) var visibleSnapshotRevision = 0
 
     private let service: SerializedHistoryService
     private let searcher: any HistorySearching
@@ -53,6 +54,7 @@ final class HistoryViewModel: ObservableObject {
     private let now: () -> Date
     private var allEntries: [HistoryEntry] = []
     private var hasLoadedSnapshot = false
+    private var hasUnpublishedSnapshotChanges = false
     private var searchGeneration = 0
     private var searchTask: Task<Void, Never>?
 
@@ -78,13 +80,26 @@ final class HistoryViewModel: ObservableObject {
     }
 
     func prepareForPresentation() {
-        discardExpiredSnapshotEntries()
-        query = ""
-        selectedEntryID = nil
-        pasteFailure = nil
-        isPasteInProgress = false
-        if hasLoadedSnapshot, state != .error {
+        let removedExpiredEntries = discardExpiredSnapshotEntries()
+        let wasFiltered = !query.isEmpty
+        if wasFiltered {
+            query = ""
+        }
+        if pasteFailure != nil {
+            pasteFailure = nil
+        }
+        if isPasteInProgress {
+            isPasteInProgress = false
+        }
+        guard hasLoadedSnapshot, state != .error else { return }
+
+        if removedExpiredEntries || wasFiltered || hasUnpublishedSnapshotChanges || !hasCurrentUnfilteredState {
             scheduleFilter(selectFirstResult: true, debounce: false)
+        } else {
+            let firstEntryID = allEntries.first?.id
+            if selectedEntryID != firstEntryID {
+                selectedEntryID = firstEntryID
+            }
         }
     }
 
@@ -122,11 +137,16 @@ final class HistoryViewModel: ObservableObject {
     func moveSelection(by offset: Int) {
         let entries = visibleEntries
         guard !entries.isEmpty else {
-            selectedEntryID = nil
+            if selectedEntryID != nil {
+                selectedEntryID = nil
+            }
             return
         }
         let currentIndex = selectedEntryID.flatMap { id in entries.firstIndex { $0.id == id } } ?? 0
-        selectedEntryID = entries[min(max(currentIndex + offset, 0), entries.count - 1)].id
+        let nextIndex = min(max(currentIndex + offset, 0), entries.count - 1)
+        let nextID = entries[nextIndex].id
+        guard selectedEntryID != nextID else { return }
+        selectedEntryID = nextID
     }
 
     func select(id: UUID) {
@@ -144,17 +164,21 @@ final class HistoryViewModel: ObservableObject {
     }
 
     func beginPaste() {
+        guard !isPasteInProgress else { return }
         pasteFailure = nil
         isPasteInProgress = true
     }
 
     func endPaste() {
+        guard isPasteInProgress else { return }
         isPasteInProgress = false
     }
 
     /// Paste dispatch already succeeded when this is called. A recency persistence
     /// failure is intentionally non-fatal: it must not report a false paste failure
-    /// or cause a second dispatch.
+    /// or cause a second dispatch. The durable snapshot is updated immediately,
+    /// but the visible snapshot is intentionally left untouched. Publishing recency
+    /// while a reusable panel is closing can visibly move the selected row to index zero.
     func markUsedAfterSuccessfulPaste(id: UUID) async {
         do {
             let activityAt = try await service.markUsed(id: id)
@@ -164,8 +188,7 @@ final class HistoryViewModel: ObservableObject {
                 HistoryEntry(id: previous.id, text: previous.text, activityAt: activityAt),
                 at: 0
             )
-            scheduleFilter(selectFirstResult: false, debounce: false)
-            await waitForPendingSearch()
+            hasUnpublishedSnapshotChanges = true
         } catch {
             // Paste already succeeded. Keep the last durable snapshot and do not
             // turn a recency-only persistence failure into a false paste failure.
@@ -262,6 +285,7 @@ final class HistoryViewModel: ObservableObject {
         let searcher = searcher
         let delay = debounce ? searchDebounceNanoseconds : 0
         isSearchInProgress = true
+        visibleSnapshotRevision &+= 1
         state = .list([])
         selectedEntryID = nil
         searchTask = Task { @MainActor [weak self] in
@@ -281,7 +305,11 @@ final class HistoryViewModel: ObservableObject {
     }
 
     private func publish(entries: [HistoryEntry], selectFirstResult: Bool) {
+        visibleSnapshotRevision &+= 1
         state = .list(entries)
+        if query.isEmpty {
+            hasUnpublishedSnapshotChanges = false
+        }
         if selectFirstResult || !entries.contains(where: { $0.id == selectedEntryID }) {
             selectedEntryID = entries.first?.id
         }
@@ -294,9 +322,24 @@ final class HistoryViewModel: ObservableObject {
         isSearchInProgress = false
     }
 
-    private func discardExpiredSnapshotEntries() {
-        guard hasLoadedSnapshot else { return }
+    private var hasCurrentUnfilteredState: Bool {
+        guard !hasUnpublishedSnapshotChanges else { return false }
+        return switch state {
+        case let .list(entries):
+            !allEntries.isEmpty && entries.count == allEntries.count
+        case .empty:
+            allEntries.isEmpty
+        case .loading, .error:
+            false
+        }
+    }
+
+    @discardableResult
+    private func discardExpiredSnapshotEntries() -> Bool {
+        guard hasLoadedSnapshot else { return false }
         let cutoff = now().addingTimeInterval(-HistoryService.retention)
+        let previousCount = allEntries.count
         allEntries.removeAll { $0.activityAt <= cutoff }
+        return allEntries.count != previousCount
     }
 }

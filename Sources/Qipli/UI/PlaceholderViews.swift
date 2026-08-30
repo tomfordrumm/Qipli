@@ -7,9 +7,8 @@ struct HistoryPanelView: View {
     let openAccessibilitySettings: () -> Void
     let pasteEntry: (HistoryEntry) -> Void
     let close: () -> Void
-    @State private var hoveredEntryID: UUID?
+    let tableInteractionBridge: HistoryTableInteractionBridge
     @FocusState private var searchIsFocused: Bool
-    @State private var handledPresentationViewportResetRequestID: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -91,80 +90,19 @@ struct HistoryPanelView: View {
                     )
                 }
             } else {
-                ScrollViewReader { proxy in
-                    List(entries) { entry in
-                        let isSelected = viewModel.selectedEntryID == entry.id
-                        let showsDelete = isSelected || hoveredEntryID == entry.id
-                        HStack(alignment: .top, spacing: 12) {
-                            Button {
-                                schedule(.select(entry.id))
-                            } label: {
-                                Text(HistoryPreview.text(for: entry.text))
-                                    .lineLimit(3)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityValue(isSelected ? "Selected" : "Not selected")
-                            .highPriorityGesture(
-                                TapGesture(count: 2).onEnded {
-                                    schedule(.selectAndPaste(entry))
-                                }
-                            )
-
-                            Button(role: .destructive) {
-                                schedule(.delete(entry))
-                            } label: {
-                                Image(systemName: "trash")
-                            }
-                            .buttonStyle(.borderless)
-                            .accessibilityLabel("Delete")
-                            .accessibilityHint("Removes this history entry.")
-                            .help("Delete")
-                            .opacity(showsDelete ? 1 : 0)
-                            .allowsHitTesting(showsDelete)
-                            .accessibilityHidden(false)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background {
-                            if isSelected {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(Color.accentColor.opacity(0.16))
-                                    .overlay {
-                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                            .stroke(Color.accentColor.opacity(0.45), lineWidth: 1)
-                                    }
-                            }
-                        }
-                        .id(entry.id)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
-                        .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
-                        .alignmentGuide(.listRowSeparatorTrailing) { $0[.trailing] }
-                        .contentShape(Rectangle())
-                        .onHover { isHovering in
-                            if isHovering {
-                                hoveredEntryID = entry.id
-                            } else if hoveredEntryID == entry.id {
-                                hoveredEntryID = nil
-                            }
-                        }
-                    }
-                    .listStyle(.plain)
-                    .contentMargins(.horizontal, 0, for: .scrollContent)
-                    .scrollContentBackground(.hidden)
-                    .onAppear {
-                        scrollSelectionIntoView(using: proxy)
-                        resetViewportForFreshPresentation(using: proxy)
-                    }
-                    .onChange(of: viewModel.selectedEntryID) { _, _ in
-                        scrollSelectionIntoView(using: proxy)
-                    }
-                    .onChange(of: viewModel.presentationViewportResetRequestID) { _, _ in
-                        resetViewportForFreshPresentation(using: proxy)
-                    }
-                }
+                HistoryTableView(
+                    entries: entries,
+                    snapshotRevision: viewModel.visibleSnapshotRevision,
+                    selectedEntryID: viewModel.selectedEntryID,
+                    viewportResetRequestID: viewModel.presentationViewportResetRequestID,
+                    interactionBridge: tableInteractionBridge,
+                    selectEntry: viewModel.select,
+                    pasteEntry: { entry in
+                        guard canPaste else { return }
+                        pasteEntry(entry)
+                    },
+                    deleteEntry: { entry in schedule(.delete(entry)) }
+                )
             }
         case .error:
             VStack(alignment: .leading, spacing: 12) {
@@ -185,18 +123,6 @@ struct HistoryPanelView: View {
     @ViewBuilder
     private var footer: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if viewModel.isPasteInProgress {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Pasting…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Pasting selected history entry")
-            }
-
             if let failure = viewModel.pasteFailure {
                 Text(failure.message)
                     .font(.caption)
@@ -278,32 +204,6 @@ struct HistoryPanelView: View {
         }
     }
 
-    private func scrollSelectionIntoView(using proxy: ScrollViewProxy) {
-        guard let selectedEntryID = viewModel.selectedEntryID else { return }
-        HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                proxy.scrollTo(selectedEntryID)
-            }
-        }
-    }
-
-    private func resetViewportForFreshPresentation(using proxy: ScrollViewProxy) {
-        let requestID = viewModel.presentationViewportResetRequestID
-        guard handledPresentationViewportResetRequestID != requestID,
-              let firstEntryID = viewModel.visibleEntries.first?.id
-        else { return }
-
-        handledPresentationViewportResetRequestID = requestID
-        HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                proxy.scrollTo(firstEntryID, anchor: .top)
-            }
-        }
-    }
 }
 
 struct HistoryKeyboardGuideItem: Equatable {
@@ -557,7 +457,6 @@ struct HistoryPanelIntentExecutor {
     }
 }
 
-/// Keeps keyboard-driven state and window changes outside SwiftUI's current view-update transaction.
 private enum HistoryKeyboardActionScheduler {
     static func deferToNextMainRunLoop(_ action: @escaping () -> Void) {
         RunLoop.main.perform(inModes: [.common]) {
