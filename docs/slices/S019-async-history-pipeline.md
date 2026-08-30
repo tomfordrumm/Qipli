@@ -67,18 +67,18 @@ Core Data work выполняется последовательно вне main
 
 - `SerializedHistoryService` изолирует synchronous policy/store API за последовательным actor boundary; `HistoryViewModel` получил async fetch/create/mark-used/delete/clear и публикует только value snapshots на main actor.
 - `CoreDataHistoryStore` использует private-queue context для всех fetch/save/delete/retention operations; managed objects не покидают store boundary.
-- Pasteboard events ставятся в ordered capture queue. Каждая операция сначала сохраняет History, затем добавляет matching Stack occurrence; `drainPendingCaptures()` закрывает freshness window перед показом History.
+- Pasteboard events ставятся в ordered capture queue. Каждая операция сначала сохраняет History, затем добавляет matching Stack occurrence. При вызове History pasteboard опрашивается первым, cached panel показывается синхронно, а `drainPendingCaptures()` заканчивается в фоне и публикует свежий occurrence уже в открытую panel.
 - Startup и hourly refresh остались явными lifecycle operations. `prepareForPresentation()` сбрасывает presentation state поверх загруженного snapshot и больше не делает unconditional fetch.
 - Retry, delete, promotion и Settings Clear History переведены на async UI actions без блокировки main actor.
-- Corrective fix 2026-08-29 возвращает обновлённый `activityAt` из serialized mark-used operation и сразу перестраивает immutable UI snapshot без fetch. Перед каждым presentation cached snapshot также применяет тот же строгий 30-day cutoff, поэтому recency и retention не зависят от следующего hourly reload.
+- Corrective fix 2026-08-29 возвращает обновлённый `activityAt` из serialized mark-used operation и сразу перестраивает cached order без fetch. Публикация происходит только после синхронного visual conceal, поэтому closing History не показывает reorder. Перед каждым presentation cached snapshot также применяет тот же строгий 30-day cutoff, поэтому recency и retention не зависят от следующего hourly reload.
 
 ### Проверено
 
 - Controlled store подтвердил off-main выполнение fetch/create/mark-used/delete/clear и доступность main actor, пока fetch удерживается test semaphore.
-- Ordered queue test подтвердил rapid duplicate captures, exact order, distinct occurrences и History-first failure contract; explicit poll + drain tests подтверждают свежесть перед presentation.
+- Ordered queue test подтвердил rapid duplicate captures, exact order, distinct occurrences и History-first failure contract; presentation-order test фиксирует `poll → cached panel → async drain start`.
 - Repeated presentation test подтвердил неизменный fetch counter после initial load.
-- Corrective focused tests подтвердили promotion использованного occurrence на первое место и удаление истёкшего cached occurrence без увеличения fetch counter; Xcode `HistoryViewModelSearchTests`: 16 tests, 0 failures.
-- Финальный corrective HEAD: полный Xcode и clean-copy SwiftPM suites по 179 tests, 0 failures; unsigned universal Release `x86_64 arm64`.
+- Corrective focused tests подтвердили promotion использованного occurrence на первое место, cached presentation без повторной list publication и удаление истёкшего cached occurrence без увеличения fetch counter. `HistoryViewModelSearchTests`: 17 tests, 0 failures.
+- Текущий corrective HEAD: полные Xcode и clean-copy SwiftPM suites по 189 tests, 0 failures; unsigned Xcode Release собран для `arm64` и `x86_64`.
 - Полный SwiftPM suite из clean copy: 166 tests, 0 failures. Полный Xcode Debug suite: 166 tests, 0 failures. Targeted Thread Sanitizer run: пройден.
 - Unsigned universal Release build: пройден, executable содержит `arm64` и `x86_64`.
 

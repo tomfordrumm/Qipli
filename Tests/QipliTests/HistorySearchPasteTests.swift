@@ -1,9 +1,62 @@
 import AppKit
+import Combine
 import XCTest
 @testable import Qipli
 
 @MainActor
 final class HistoryViewModelSearchTests: XCTestCase {
+    func testHistoryTableRowsStayCompactAndGrowForMultilinePreviews() {
+        let singleLineHeight = HistoryTableRowLayout.height(
+            for: "Short entry",
+            textWidth: 500
+        )
+        let twoLineHeight = HistoryTableRowLayout.height(
+            for: "First line\nSecond line",
+            textWidth: 500
+        )
+        let threeLineHeight = HistoryTableRowLayout.height(
+            for: "First line\nSecond line\nThird line",
+            textWidth: 500
+        )
+        let fourLineHeight = HistoryTableRowLayout.height(
+            for: "First line\nSecond line\nThird line\nFourth line",
+            textWidth: 500
+        )
+
+        XCTAssertEqual(singleLineHeight, HistoryTableRowLayout.minimumRowHeight)
+        XCTAssertGreaterThan(twoLineHeight, singleLineHeight)
+        XCTAssertGreaterThan(threeLineHeight, twoLineHeight)
+        XCTAssertEqual(fourLineHeight, threeLineHeight)
+    }
+
+    func testHistoryTableRowHeightCacheStaysBoundedAndEvictsOldestEntry() {
+        let firstID = UUID()
+        let secondID = UUID()
+        let thirdID = UUID()
+        var cache = HistoryTableRowHeightCache(capacity: 2)
+
+        cache.insert(height: 38, for: firstID, textWidth: 300)
+        cache.insert(height: 54, for: secondID, textWidth: 300)
+        cache.insert(height: 70, for: thirdID, textWidth: 300)
+
+        XCTAssertEqual(cache.count, 2)
+        XCTAssertNil(cache.height(for: firstID, textWidth: 300))
+        XCTAssertEqual(cache.height(for: secondID, textWidth: 300), 54)
+        XCTAssertEqual(cache.height(for: thirdID, textWidth: 300), 70)
+    }
+
+    func testHistoryTableRowHeightCacheReplacesWidthWithoutGrowing() {
+        let id = UUID()
+        var cache = HistoryTableRowHeightCache(capacity: 2)
+
+        cache.insert(height: 38, for: id, textWidth: 300)
+        cache.insert(height: 54, for: id, textWidth: 220)
+
+        XCTAssertEqual(cache.count, 1)
+        XCTAssertNil(cache.height(for: id, textWidth: 300))
+        XCTAssertEqual(cache.height(for: id, textWidth: 220), 54)
+    }
+
     func testLocalizedCaseInsensitiveSearchSelectsFirstResultAndKeepsStoredText() async throws {
         let first = makeEntry("first", offset: 1)
         let matching = makeEntry("Äpfel", offset: 2)
@@ -85,11 +138,46 @@ final class HistoryViewModelSearchTests: XCTestCase {
 
         clock.now = initialNow.addingTimeInterval(5)
         await viewModel.markUsedAfterSuccessfulPaste(id: promoted.id)
+
+        XCTAssertEqual(viewModel.visibleEntries.map(\.id), [first.id, promoted.id])
+
         viewModel.prepareForPresentation()
 
         XCTAssertEqual(store.fetchCount, fetchCountBeforePromotion)
         XCTAssertEqual(viewModel.visibleEntries.map(\.id), [promoted.id, first.id])
         XCTAssertEqual(viewModel.visibleEntries.first?.activityAt, clock.now)
+    }
+
+    func testCachedRecencyPublishesOnlyOnTheNextPresentation() async {
+        let initialNow = Date(timeIntervalSinceReferenceDate: 10_000)
+        let first = HistoryEntry(id: UUID(), text: "first", activityAt: initialNow.addingTimeInterval(-10))
+        let promoted = HistoryEntry(id: UUID(), text: "promoted", activityAt: initialNow.addingTimeInterval(-20))
+        let clock = TestHistoryClock(now: initialNow)
+        let store = InMemoryHistoryStore(entries: [first, promoted])
+        let viewModel = HistoryViewModel(
+            service: HistoryService(store: store, clock: clock),
+            now: { clock.now }
+        )
+        await viewModel.reload(selectFirstResult: true)
+        viewModel.select(id: promoted.id)
+
+        clock.now = initialNow.addingTimeInterval(5)
+        await viewModel.markUsedAfterSuccessfulPaste(id: promoted.id)
+        var statePublicationCount = 0
+        let observation = viewModel.$state
+            .dropFirst()
+            .sink { _ in statePublicationCount += 1 }
+
+        XCTAssertEqual(viewModel.visibleEntries.map(\.id), [first.id, promoted.id])
+        XCTAssertEqual(viewModel.selectedEntryID, promoted.id)
+
+        viewModel.prepareForPresentation()
+
+        XCTAssertEqual(viewModel.visibleEntries.map(\.id), [promoted.id, first.id])
+        XCTAssertEqual(viewModel.selectedEntryID, promoted.id)
+        XCTAssertEqual(viewModel.visibleEntries.first?.activityAt, clock.now)
+        XCTAssertEqual(statePublicationCount, 1)
+        withExtendedLifetime(observation) {}
     }
 
     func testPresentationPrunesExpiredCachedEntriesWithoutRefetchingStorage() async {
@@ -311,6 +399,7 @@ final class HistoryViewModelSearchTests: XCTestCase {
         executor.paste(
             entry: viewModel.selectedEntry!,
             target: FakeHistoryPasteTarget(trace: trace),
+            concealPanel: {},
             closePanel: {},
             completion: { result = $0 }
         )
@@ -387,11 +476,16 @@ final class HistoryPasteExecutorTests: XCTestCase {
         let entry = HistoryEntry(id: UUID(), text: "line α\nline β", activityAt: .now)
         var result: Result<Void, HistoryPasteFailure>?
 
-        executor.paste(entry: entry, target: target, closePanel: { trace.events.append("close") }) { result = $0 }
+        executor.paste(
+            entry: entry,
+            target: target,
+            concealPanel: { trace.events.append("conceal") },
+            closePanel: { trace.events.append("close") }
+        ) { result = $0 }
 
         XCTAssertEqual(writer.writtenTexts, [entry.text])
         XCTAssertEqual(registeredChanges, [41])
-        XCTAssertEqual(trace.events, ["write", "activate", "close", "dispatch"])
+        XCTAssertEqual(trace.events, ["write", "conceal", "activate", "close", "dispatch"])
         XCTAssertNoThrow(try result?.get())
     }
 
@@ -402,7 +496,12 @@ final class HistoryPasteExecutorTests: XCTestCase {
         let executor = makeExecutor(permission: .denied, writer: writer, dispatcher: dispatcher, register: { _ in })
         var result: Result<Void, HistoryPasteFailure>?
 
-        executor.paste(entry: sampleEntry, target: FakeHistoryPasteTarget(trace: trace), closePanel: { trace.events.append("close") }) {
+        executor.paste(
+            entry: sampleEntry,
+            target: FakeHistoryPasteTarget(trace: trace),
+            concealPanel: { trace.events.append("conceal") },
+            closePanel: { trace.events.append("close") }
+        ) {
             result = $0
         }
 
@@ -418,12 +517,37 @@ final class HistoryPasteExecutorTests: XCTestCase {
         let target = FakeHistoryPasteTarget(trace: trace, terminated: true)
         var result: Result<Void, HistoryPasteFailure>?
 
-        executor.paste(entry: sampleEntry, target: target, closePanel: { trace.events.append("close") }) {
+        executor.paste(
+            entry: sampleEntry,
+            target: target,
+            concealPanel: { trace.events.append("conceal") },
+            closePanel: { trace.events.append("close") }
+        ) {
             result = $0
         }
 
         XCTAssertEqual(result?.failureValue, .targetUnavailable)
         XCTAssertTrue(trace.events.isEmpty)
+    }
+
+    func testPasteboardWriteFailureDoesNotConcealOrClosePanel() {
+        let trace = Trace()
+        let writer = FakeHistoryPasteboardWriter(changeCount: 7, trace: trace, shouldFail: true)
+        let dispatcher = FakePasteCommandDispatcher(trace: trace, result: true)
+        let executor = makeExecutor(writer: writer, dispatcher: dispatcher, register: { _ in })
+        var result: Result<Void, HistoryPasteFailure>?
+
+        executor.paste(
+            entry: sampleEntry,
+            target: FakeHistoryPasteTarget(trace: trace),
+            concealPanel: { trace.events.append("conceal") },
+            closePanel: { trace.events.append("close") }
+        ) {
+            result = $0
+        }
+
+        XCTAssertEqual(result?.failureValue, .pasteboardWriteFailed)
+        XCTAssertEqual(trace.events, ["write"])
     }
 
     func testActivationFailureKeepsHistoryAvailableAndDoesNotDispatch() {
@@ -435,13 +559,18 @@ final class HistoryPasteExecutorTests: XCTestCase {
         var result: Result<Void, HistoryPasteFailure>?
         var completionCount = 0
 
-        executor.paste(entry: sampleEntry, target: target, closePanel: { trace.events.append("close") }) {
+        executor.paste(
+            entry: sampleEntry,
+            target: target,
+            concealPanel: { trace.events.append("conceal") },
+            closePanel: { trace.events.append("close") }
+        ) {
             result = $0
             completionCount += 1
         }
 
         XCTAssertEqual(result?.failureValue, .targetUnavailable)
-        XCTAssertEqual(trace.events, ["write", "activate"])
+        XCTAssertEqual(trace.events, ["write", "conceal", "activate"])
         XCTAssertEqual(writer.writtenTexts.count, 1)
         XCTAssertEqual(completionCount, 1)
     }
@@ -453,10 +582,15 @@ final class HistoryPasteExecutorTests: XCTestCase {
         let executor = makeExecutor(writer: writer, dispatcher: dispatcher, register: { _ in })
         var result: Result<Void, HistoryPasteFailure>?
 
-        executor.paste(entry: sampleEntry, target: FakeHistoryPasteTarget(trace: trace), closePanel: { trace.events.append("close") }) { result = $0 }
+        executor.paste(
+            entry: sampleEntry,
+            target: FakeHistoryPasteTarget(trace: trace),
+            concealPanel: { trace.events.append("conceal") },
+            closePanel: { trace.events.append("close") }
+        ) { result = $0 }
 
         XCTAssertEqual(result?.failureValue, .commandDispatchFailed)
-        XCTAssertEqual(trace.events, ["write", "activate", "close", "dispatch"])
+        XCTAssertEqual(trace.events, ["write", "conceal", "activate", "close", "dispatch"])
     }
 
     func testPasteWaitsForTargetToBecomeActiveBeforeDispatching() {
@@ -467,12 +601,17 @@ final class HistoryPasteExecutorTests: XCTestCase {
         let executor = makeExecutor(writer: writer, dispatcher: dispatcher, register: { _ in })
         var result: Result<Void, HistoryPasteFailure>?
 
-        executor.paste(entry: sampleEntry, target: target, closePanel: { trace.events.append("close") }) {
+        executor.paste(
+            entry: sampleEntry,
+            target: target,
+            concealPanel: { trace.events.append("conceal") },
+            closePanel: { trace.events.append("close") }
+        ) {
             result = $0
         }
 
         XCTAssertNoThrow(try result?.get())
-        XCTAssertEqual(trace.events, ["write", "activate", "close", "dispatch"])
+        XCTAssertEqual(trace.events, ["write", "conceal", "activate", "close", "dispatch"])
         XCTAssertEqual(target.activeCheckCount, 2)
     }
 
@@ -485,13 +624,18 @@ final class HistoryPasteExecutorTests: XCTestCase {
         var result: Result<Void, HistoryPasteFailure>?
         var completionCount = 0
 
-        executor.paste(entry: sampleEntry, target: target, closePanel: { trace.events.append("close") }) {
+        executor.paste(
+            entry: sampleEntry,
+            target: target,
+            concealPanel: { trace.events.append("conceal") },
+            closePanel: { trace.events.append("close") }
+        ) {
             result = $0
             completionCount += 1
         }
 
         XCTAssertEqual(result?.failureValue, .targetUnavailable)
-        XCTAssertEqual(trace.events, ["write", "activate"])
+        XCTAssertEqual(trace.events, ["write", "conceal", "activate"])
         XCTAssertEqual(target.activeCheckCount, 3)
         XCTAssertEqual(writer.writtenTexts.count, 1)
         XCTAssertEqual(completionCount, 1)
@@ -524,12 +668,14 @@ final class HistoryPasteExecutorTests: XCTestCase {
         let firstStarted = executor.paste(
             entry: sampleEntry,
             target: target,
+            concealPanel: { trace.events.append("conceal") },
             closePanel: { trace.events.append("close") },
             completion: { _ in }
         )
         let repeatedStarted = executor.paste(
             entry: sampleEntry,
             target: target,
+            concealPanel: { trace.events.append("conceal") },
             closePanel: { trace.events.append("close") },
             completion: { _ in }
         )
@@ -539,7 +685,7 @@ final class HistoryPasteExecutorTests: XCTestCase {
         XCTAssertTrue(executor.hasActivePaste)
         XCTAssertEqual(writer.writtenTexts.count, 1)
         XCTAssertEqual(scheduled.count, 1)
-        XCTAssertEqual(trace.events, ["write", "activate"])
+        XCTAssertEqual(trace.events, ["write", "conceal", "activate"])
 
         executor.cancelActivePaste()
         XCTAssertFalse(executor.hasActivePaste)
@@ -568,6 +714,7 @@ final class HistoryPasteExecutorTests: XCTestCase {
         executor.paste(
             entry: sampleEntry,
             target: target,
+            concealPanel: { trace.events.append("conceal") },
             closePanel: { trace.events.append("close") },
             completion: { result = $0 }
         )
@@ -577,7 +724,7 @@ final class HistoryPasteExecutorTests: XCTestCase {
         observation.fire()
 
         XCTAssertNoThrow(try result?.get())
-        XCTAssertEqual(trace.events, ["write", "activate", "close", "dispatch"])
+        XCTAssertEqual(trace.events, ["write", "conceal", "activate", "close", "dispatch"])
         XCTAssertFalse(executor.hasActivePaste)
     }
 
@@ -957,6 +1104,71 @@ final class HistoryPanelIntentTests: XCTestCase {
         ))
     }
 
+    func testHistoryPresentationOrdersCachedPanelBeforeCaptureDrain() {
+        var events: [String] = []
+        HistoryPresentationExecutor(
+            pollPasteboard: { events.append("poll") },
+            presentCachedHistory: { events.append("present") },
+            startCaptureDrain: { events.append("drain") }
+        )
+        .execute()
+
+        XCTAssertEqual(events, ["poll", "present", "drain"])
+    }
+
+    func testHistoryTableBridgeAppliesSelectionSynchronously() {
+        let id = UUID()
+        let target = HistoryTableSelectionTargetSpy()
+        let bridge = HistoryTableInteractionBridge()
+        bridge.attach(target)
+
+        bridge.applySelection(id: id)
+
+        XCTAssertEqual(target.calls, [.init(id: id, resetViewport: false)])
+    }
+
+    func testHistoryTableBridgeForwardsEveryRapidSelectionWithoutCoalescing() {
+        let ids = (0..<20).map { _ in UUID() }
+        let target = HistoryTableSelectionTargetSpy()
+        let bridge = HistoryTableInteractionBridge()
+        bridge.attach(target)
+
+        ids.forEach { bridge.applySelection(id: $0) }
+
+        XCTAssertEqual(target.calls.map(\.id), ids)
+        XCTAssertTrue(target.calls.allSatisfy { !$0.resetViewport })
+    }
+
+    func testHistoryTableBridgeResetsViewportInTheSameCall() {
+        let id = UUID()
+        let target = HistoryTableSelectionTargetSpy()
+        let bridge = HistoryTableInteractionBridge()
+        bridge.attach(target)
+
+        bridge.applySelection(id: id, resetViewport: true)
+
+        XCTAssertEqual(target.calls, [.init(id: id, resetViewport: true)])
+    }
+
+    func testHistoryTableBridgeAppliesFreshSnapshotBeforePresentation() {
+        let entries = [makeEntry("first", offset: 2), makeEntry("second", offset: 1)]
+        let target = HistoryTableSelectionTargetSpy()
+        let bridge = HistoryTableInteractionBridge()
+        bridge.attach(target)
+
+        bridge.applySnapshot(
+            entries: entries,
+            revision: 7,
+            selectedEntryID: entries[0].id,
+            resetViewport: true
+        )
+
+        XCTAssertEqual(
+            target.snapshotCalls,
+            [.init(entryIDs: entries.map(\.id), revision: 7, selectedEntryID: entries[0].id, resetViewport: true)]
+        )
+    }
+
     private func makeKeyEvent(
         keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags = [],
@@ -1124,15 +1336,20 @@ private final class FakeActivationObservation: HistoryTargetActivationObserving 
 private final class FakeHistoryPasteboardWriter: HistoryPasteboardWriting {
     let changeCount: Int
     let trace: Trace
+    let shouldFail: Bool
     private(set) var writtenTexts: [String] = []
 
-    init(changeCount: Int, trace: Trace) {
+    init(changeCount: Int, trace: Trace, shouldFail: Bool = false) {
         self.changeCount = changeCount
         self.trace = trace
+        self.shouldFail = shouldFail
     }
 
     func write(text: String) throws -> Int {
         trace.events.append("write")
+        if shouldFail {
+            throw HistoryPasteboardWriteError.unableToWriteText
+        }
         writtenTexts.append(text)
         return changeCount
     }
@@ -1211,6 +1428,41 @@ private final class FakeQipliApplication: QipliApplicationActivating {
 
     func requestUserInitiatedActivation() {
         strongActivationRequestCount += 1
+    }
+}
+
+@MainActor
+private final class HistoryTableSelectionTargetSpy: HistoryTableSelectionApplying {
+    struct Call: Equatable {
+        let id: UUID?
+        let resetViewport: Bool
+    }
+
+    private(set) var calls: [Call] = []
+    struct SnapshotCall: Equatable {
+        let entryIDs: [UUID]
+        let revision: Int
+        let selectedEntryID: UUID?
+        let resetViewport: Bool
+    }
+    private(set) var snapshotCalls: [SnapshotCall] = []
+
+    func applySelection(id: UUID?, resetViewport: Bool) {
+        calls.append(Call(id: id, resetViewport: resetViewport))
+    }
+
+    func applySnapshot(
+        entries: [HistoryEntry],
+        revision: Int,
+        selectedEntryID: UUID?,
+        resetViewport: Bool
+    ) {
+        snapshotCalls.append(SnapshotCall(
+            entryIDs: entries.map(\.id),
+            revision: revision,
+            selectedEntryID: selectedEntryID,
+            resetViewport: resetViewport
+        ))
     }
 }
 

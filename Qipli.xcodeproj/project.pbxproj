@@ -47,6 +47,7 @@
 		A00100000000000000000042 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000042 /* Assets.xcassets */; };
 		A00100000000000000000043 /* PerformanceInstrumentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000043 /* PerformanceInstrumentation.swift */; };
 		A00100000000000000000044 /* PerformanceBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000044 /* PerformanceBaselineTests.swift */; };
+		A00100000000000000000045 /* HistoryTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000045 /* HistoryTableView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -104,6 +105,7 @@
 		A00200000000000000000042 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A00200000000000000000043 /* PerformanceInstrumentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceInstrumentation.swift; sourceTree = "<group>"; };
 		A00200000000000000000044 /* PerformanceBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceBaselineTests.swift; sourceTree = "<group>"; };
+		A00200000000000000000045 /* HistoryTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryTableView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -180,6 +182,7 @@
 			children = (
 				A00200000000000000000006 /* PanelController.swift */,
 				A00200000000000000000007 /* PlaceholderViews.swift */,
+				A00200000000000000000045 /* HistoryTableView.swift */,
 				A00200000000000000000029 /* PanelMaterialProvider.swift */,
 				A00200000000000000000034 /* SettingsWindowController.swift */,
 				A00200000000000000000037 /* OnboardingWindowController.swift */,
@@ -410,6 +413,7 @@
 				A00100000000000000000018 /* HistoryPasteExecutor.swift in Sources */,
 				A00100000000000000000006 /* PanelController.swift in Sources */,
 				A00100000000000000000007 /* PlaceholderViews.swift in Sources */,
+				A00100000000000000000045 /* HistoryTableView.swift in Sources */,
 				A00100000000000000000029 /* PanelMaterialProvider.swift in Sources */,
 				A00100000000000000000031 /* ShortcutPreferences.swift in Sources */,
 				A00100000000000000000032 /* LaunchAtLoginService.swift in Sources */,

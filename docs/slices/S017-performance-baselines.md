@@ -58,6 +58,7 @@ covers:
 ### Реализовано
 
 - Добавлен `PerformanceProbe` с закрытым enum операций, `itemCount` и nanosecond duration без free-form metadata.
+- Для History UX-регрессии временно использовалась payload-free unified trace с закрытым enum событий, session ID, elapsed microseconds и integer aggregate. После принятого ручного smoke диагностический код и все call sites удалены из Debug и Release.
 - Добавлены deterministic synthetic History fixtures для 1 800, 10 000 и 50 000 entries, 50 000-character text и 10 000-element Stack.
 - Зафиксированы дооптимизационные search/preview/Stack workloads; full exact text отдельно проверяется от display preview.
 - Search baseline теперь использует production matcher seam и детерминированно требует ровно один inspection на entry для snapshots 1 800/10 000/50 000; wall-clock остаётся только наблюдением.
@@ -69,10 +70,13 @@ covers:
 - Focused SwiftPM: 7 tests, 0 failures. Полный SwiftPM suite из временной clean copy: 161 tests, 0 failures.
 - Full Xcode Debug tests: пройдены. Unsigned universal Release: `x86_64 arm64`.
 - Instrumentation API и test output проверены: clipboard/search/preview/UUID payload не записывается.
+- Runtime trace зафиксировал фактические интервалы открытия, стрелок и Enter без clipboard payload; после пользовательского принятия trace и её unit test удалены.
 - Corrective Xcode run 2026-08-29: `PerformanceBaselineTests` 9/9 и совместный History search run 25/25; linear inspection counts равны размерам fixtures.
 - После Stack append gate performance suite содержит 10 tests; финальный corrective HEAD прошёл полный Xcode и clean-copy SwiftPM suites по 179/179 и universal Release `x86_64 arm64`.
+- Native History rewrite прошёл финальные Xcode и clean-copy SwiftPM suites по 189/189; focused ViewModel/intent path — 35/35. Пользователь принял повторный Xcode smoke после runtime trace: средняя реакция стрелок `1.93 ms`, visual conceal на Enter `4.3–8.4 ms`.
 
 ### Отклонения и остаточные риски
 
 - Wall-clock observations зависят от hardware/build mode и не являются публичным SLA; стабильные CI assertions добавляются в S018–S022 на operation counts, thread и cancellation contracts.
 - Рабочая директория содержит пользовательские untracked duplicate-файлы с суффиксом ` 2`; Xcode их не включает, а SwiftPM verification выполнена из временной clean copy без изменения этих файлов.
+- Interaction trace удалена после принятого ручного smoke; production остаётся без дополнительного History logging hot path.

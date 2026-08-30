@@ -64,6 +64,7 @@ covers:
 - Непустой query получает debounce 100 ms, состояние `Searching…` и stale-result guard; empty query синхронно возвращает текущий ordered snapshot.
 - Async reload/capture/delete дожидаются актуального background filter перед возвратом, поэтому storage mutation не оставляет промежуточный пустой result.
 - Общий `BoundedTextPreview` для History и Paste Stack обходит максимум `limit + 1` Unicode grapheme clusters. Stored/search/paste text остаётся полным и точным.
+- View-based History table строит bounded preview только для запрошенных/reused native row views; selection publication не заставляет SwiftUI заново обходить весь `List`.
 
 ### Проверено
 

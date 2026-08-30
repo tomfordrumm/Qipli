@@ -224,6 +224,7 @@ final class ApplicationShell: NSObject {
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.historyViewModel.reload()
+            self.panels.prepareHistoryPanel()
             self.retentionTimer = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     await self?.historyViewModel.reload()
@@ -341,14 +342,21 @@ final class ApplicationShell: NSObject {
     }
 
     @objc private func showHistory() {
-        // Close the polling freshness window, then wait for the ordered durable
-        // capture pipeline before presenting its current in-memory snapshot.
-        pasteboardMonitor.poll()
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.stackCaptureCoordinator.drainPendingCaptures()
-            self.panels.showHistory()
-        }
+        HistoryPresentationExecutor(
+            pollPasteboard: { [weak self] in
+                self?.pasteboardMonitor.poll()
+            },
+            presentCachedHistory: { [weak self] in
+                self?.panels.showHistory()
+            },
+            startCaptureDrain: { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await self.stackCaptureCoordinator.drainPendingCaptures()
+                }
+            }
+        )
+        .execute()
     }
 
     @objc private func togglePasteStackFromMenu() {
@@ -427,6 +435,22 @@ final class ApplicationShell: NSObject {
     @objc private func quit() {
         stop()
         NSApp.terminate(nil)
+    }
+}
+
+/// Fresh pasteboard capture continues after the reusable cached panel is on
+/// screen. The capture pipeline still publishes the durable occurrence into the
+/// visible History when it completes.
+@MainActor
+struct HistoryPresentationExecutor {
+    let pollPasteboard: () -> Void
+    let presentCachedHistory: () -> Void
+    let startCaptureDrain: () -> Void
+
+    func execute() {
+        pollPasteboard()
+        presentCachedHistory()
+        startCaptureDrain()
     }
 }
 
