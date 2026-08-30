@@ -109,10 +109,11 @@ covers:
 - Публичный `Qipli-1.0.2.zip` имеет SHA-256 `46071a23522edec7e358653f91a006eac8779e0a26f79c68590b4c6d9e14d45b`. Независимое скачивание подтвердило checksum, version `1.0.2 (3)`, обе architecture, embedded Sparkle resolution, все nested signatures, stapler и Gatekeeper `source=Notarized Developer ID`; production appcast указывает на exact public asset.
 - Независимо скачанный public app успешно запущен из временного каталога: процесс оставался активен, исходный `dyld` crash не воспроизвёлся и новый crash report не появился. После smoke-test временный процесс завершён.
 - Пользователь заменил установленное приложение на public `v1.0.2` и подтвердил, что оно открывается и работает. History guide для `v1.0.3 (4)` прошёл focused presentation test, Light snapshot при неизменной панели 460×340, полный SwiftPM/Xcode suite 154/154 и clean universal Release с version/runtime-linking/privacy/release-contract gates.
+- Protected release run `33316831828` опубликовал `v1.0.5 (6)` только после 189 tests, universal runtime-linking gate, Developer ID nested signing, Apple notarization, stapling, Gatekeeper и immutable public verification. Независимо скачанный production appcast содержит ровно один item, exact build `6`, minimum macOS `14.0`, EdDSA signature и immutable `Qipli-1.0.5.zip` правильной длины.
 
 ### Отклонения и остаточные риски
 
-- Публичный `v1.0.0` выпущен без Sparkle, а `v1.0.1` падает до запуска updater. Оба требуют ручной установки `v1.0.2`; первый реальный updater proof возможен только между `v1.0.2` и `v1.0.3`.
+- Публичный `v1.0.0` выпущен без Sparkle, а `v1.0.1` падает до запуска updater. Оба требуют ручной установки поддерживаемой версии; реальный updater proof теперь возможен между установленным `v1.0.2+` и опубликованным `v1.0.5`.
 - Первый submission `f0b52e36-f273-4dd5-9b63-5a306c53074f` ожидаемо отклонён до публикации artifact/feed из-за nested Sparkle signing gap; исправленный protected run прошёл и заменил этот release candidate.
-- `v1.0.1` и его исторический release остаются immutable. `v1.0.2` установлен и запускается; остаётся реальный signed/notarized update `v1.0.2 → v1.0.3` с UI/accessibility/failure/data-preservation matrix.
+- `v1.0.1` и его исторический release остаются immutable. `v1.0.2` установлен и запускается; production feed публикует `v1.0.5`, но реальный signed/notarized update до `v1.0.5` с UI/accessibility/failure/data-preservation matrix ещё не зафиксирован.
 - Standard checking/up-to-date/available/download/install/relaunch/error presentation и version admission принадлежат Sparkle; Qipli unit tests покрывают только собственный adapter/settings contract. Tampered/offline/interrupted path остаётся обязательной manual integration проверкой.
