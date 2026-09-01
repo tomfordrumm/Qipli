@@ -1,6 +1,32 @@
 import AppKit
 import Foundation
 
+struct PasteboardRepresentationInventory: Equatable, Sendable {
+    let itemCount: Int
+    let representationCounts: [String: Int]
+}
+
+/// A payload-free probe for deciding the future typed allowlist. It reads only
+/// item/type shape; it never asks NSPasteboard for a value or emits one.
+enum PasteboardPlatformProbe {
+    static func inventory(for pasteboard: NSPasteboard) -> PasteboardRepresentationInventory {
+        inventory(for: pasteboard.pasteboardItems ?? [])
+    }
+
+    static func inventory(for items: [NSPasteboardItem]) -> PasteboardRepresentationInventory {
+        var counts: [String: Int] = [:]
+        for item in items {
+            for type in item.types {
+                counts[type.rawValue, default: 0] += 1
+            }
+        }
+        return PasteboardRepresentationInventory(
+            itemCount: items.count,
+            representationCounts: counts
+        )
+    }
+}
+
 protocol PasteboardReading: AnyObject {
     var changeCount: Int { get }
     func textValue() -> String?
@@ -22,6 +48,12 @@ final class SystemPasteboardReader: PasteboardReading {
 
     func textValue() -> String? {
         pasteboard.string(forType: .string)
+    }
+
+    /// Used by the controlled S023 probe; normal polling remains text-only
+    /// until a later slice changes the capture allowlist.
+    func representationInventory() -> PasteboardRepresentationInventory {
+        PasteboardPlatformProbe.inventory(for: pasteboard)
     }
 }
 

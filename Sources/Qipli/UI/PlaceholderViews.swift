@@ -96,6 +96,11 @@ struct HistoryPanelView: View {
                     selectedEntryID: viewModel.selectedEntryID,
                     viewportResetRequestID: viewModel.presentationViewportResetRequestID,
                     interactionBridge: tableInteractionBridge,
+                    loadMore: {
+                        Task { @MainActor in
+                            await viewModel.loadMore()
+                        }
+                    },
                     selectEntry: viewModel.select,
                     pasteEntry: { entry in
                         guard canPaste else { return }

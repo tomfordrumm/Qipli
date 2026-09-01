@@ -1,8 +1,31 @@
+import AppKit
 import XCTest
 @testable import Qipli
 
 @MainActor
 final class PasteboardMonitorTests: XCTestCase {
+    func testPayloadFreeProbeReportsOnlyItemAndRepresentationShape() throws {
+        let textItem = NSPasteboardItem()
+        XCTAssertTrue(textItem.setData(Data("safe fixture".utf8), forType: .string))
+        XCTAssertTrue(textItem.setData(Data("<p>safe fixture</p>".utf8), forType: .html))
+        let urlItem = NSPasteboardItem()
+        XCTAssertTrue(urlItem.setData(Data(), forType: .URL))
+        let imageItem = NSPasteboardItem()
+        XCTAssertTrue(imageItem.setData(Data(), forType: .tiff))
+        let finderItem = NSPasteboardItem()
+        XCTAssertTrue(finderItem.setData(Data(), forType: .fileURL))
+
+        let inventory = PasteboardPlatformProbe.inventory(for: [textItem, urlItem, imageItem, finderItem])
+
+        XCTAssertEqual(inventory.itemCount, 4)
+        XCTAssertEqual(inventory.representationCounts[NSPasteboard.PasteboardType.string.rawValue], 1)
+        XCTAssertEqual(inventory.representationCounts[NSPasteboard.PasteboardType.html.rawValue], 1)
+        XCTAssertEqual(inventory.representationCounts[NSPasteboard.PasteboardType.URL.rawValue], 1)
+        XCTAssertEqual(inventory.representationCounts[NSPasteboard.PasteboardType.tiff.rawValue], 1)
+        XCTAssertEqual(inventory.representationCounts[NSPasteboard.PasteboardType.fileURL.rawValue], 1)
+        XCTAssertEqual(inventory.representationCounts.values.reduce(0, +), 5)
+    }
+
     func testInitializationDoesNotReadPasteboardBeforeStartupGateOpens() {
         let pasteboard = FakePasteboard(changeCount: 1)
 

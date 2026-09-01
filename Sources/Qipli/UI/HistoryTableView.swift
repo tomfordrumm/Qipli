@@ -53,6 +53,7 @@ struct HistoryTableView: NSViewRepresentable {
     let selectedEntryID: UUID?
     let viewportResetRequestID: Int
     let interactionBridge: HistoryTableInteractionBridge
+    let loadMore: () -> Void
     let selectEntry: (UUID) -> Void
     let pasteEntry: (HistoryEntry) -> Void
     let deleteEntry: (HistoryEntry) -> Void
@@ -88,6 +89,7 @@ struct HistoryTableView: NSViewRepresentable {
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
         scrollView.documentView = tableView
+        scrollView.contentView.postsBoundsChangedNotifications = true
 
         context.coordinator.install(tableView: tableView, scrollView: scrollView)
         interactionBridge.attach(context.coordinator)
@@ -115,8 +117,10 @@ struct HistoryTableView: NSViewRepresentable {
         private var selectEntry: (UUID) -> Void
         private var pasteEntry: (HistoryEntry) -> Void
         private var deleteEntry: (HistoryEntry) -> Void
+        private var loadMore: () -> Void = {}
         private weak var tableView: NSTableView?
         private weak var scrollView: NSScrollView?
+        private var scrollObserver: NSObjectProtocol?
         private var isApplyingProgrammaticSelection = false
         private var rowHeightCache = HistoryTableRowHeightCache(capacity: 4_096)
 
@@ -125,11 +129,21 @@ struct HistoryTableView: NSViewRepresentable {
             selectEntry = parent.selectEntry
             pasteEntry = parent.pasteEntry
             deleteEntry = parent.deleteEntry
+            loadMore = parent.loadMore
         }
 
         func install(tableView: NSTableView, scrollView: NSScrollView) {
             self.tableView = tableView
             self.scrollView = scrollView
+            scrollObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.requestMoreIfNeeded()
+                }
+            }
         }
 
         func update(from parent: HistoryTableView) {
@@ -141,6 +155,7 @@ struct HistoryTableView: NSViewRepresentable {
             selectEntry = parent.selectEntry
             pasteEntry = parent.pasteEntry
             deleteEntry = parent.deleteEntry
+            loadMore = parent.loadMore
 
             let mustResetViewport = handledViewportResetRequestID != parent.viewportResetRequestID
             handledViewportResetRequestID = parent.viewportResetRequestID
@@ -283,6 +298,10 @@ struct HistoryTableView: NSViewRepresentable {
         }
 
         func invalidate() {
+            if let scrollObserver {
+                NotificationCenter.default.removeObserver(scrollObserver)
+                self.scrollObserver = nil
+            }
             tableView?.delegate = nil
             tableView?.dataSource = nil
             tableView?.target = nil
@@ -311,6 +330,14 @@ struct HistoryTableView: NSViewRepresentable {
                 let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? HistoryTableCellView
                 cell?.setSelected(entries[row].id == selectedEntryID)
             }
+        }
+
+        private func requestMoreIfNeeded() {
+            guard let scrollView else { return }
+            let visibleBottom = scrollView.contentView.bounds.maxY
+            let documentHeight = scrollView.documentView?.bounds.height ?? 0
+            guard documentHeight > 0, visibleBottom >= documentHeight - 120 else { return }
+            loadMore()
         }
 
         fileprivate static let columnIdentifier = NSUserInterfaceItemIdentifier("HistoryEntryColumn")

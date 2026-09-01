@@ -46,17 +46,26 @@ final class HistoryViewModel: ObservableObject {
     @Published private(set) var searchFocusRequestID = 0
     @Published private(set) var presentationViewportResetRequestID = 0
     @Published private(set) var isSearchInProgress = false
+    @Published private(set) var isLoadingMore = false
     private(set) var visibleSnapshotRevision = 0
 
     private let service: SerializedHistoryService
+    private let usesPaging: Bool
     private let searcher: any HistorySearching
     private let searchDebounceNanoseconds: UInt64
     private let now: () -> Date
-    private var allEntries: [HistoryEntry] = []
+    /// Only the pages requested by the user live here. Production Core Data
+    /// search never loads the retained catalogue into this array.
+    private var loadedEntries: [HistoryEntry] = []
+    private var pageCursor: HistoryPageCursor?
+    private var hasMorePages = false
     private var hasLoadedSnapshot = false
     private var hasUnpublishedSnapshotChanges = false
     private var searchGeneration = 0
+    private var pagingGeneration = 0
     private var searchTask: Task<Void, Never>?
+    private var pageTask: Task<Void, Never>?
+    private var pageTaskToken: UUID?
 
     init(
         service: HistoryService,
@@ -65,6 +74,7 @@ final class HistoryViewModel: ObservableObject {
         now: @escaping () -> Date = Date.init
     ) {
         self.service = SerializedHistoryService(service: service)
+        usesPaging = service.supportsPaging
         self.searcher = searcher
         self.searchDebounceNanoseconds = searchDebounceNanoseconds
         self.now = now
@@ -94,9 +104,15 @@ final class HistoryViewModel: ObservableObject {
         guard hasLoadedSnapshot, state != .error else { return }
 
         if removedExpiredEntries || wasFiltered || hasUnpublishedSnapshotChanges || !hasCurrentUnfilteredState {
-            scheduleFilter(selectFirstResult: true, debounce: false)
+            if usesPaging, wasFiltered {
+                schedulePagedSearch(selectFirstResult: true, debounce: false)
+            } else if usesPaging {
+                publish(entries: loadedEntries, selectFirstResult: true)
+            } else {
+                scheduleLegacyFilter(selectFirstResult: true, debounce: false)
+            }
         } else {
-            let firstEntryID = allEntries.first?.id
+            let firstEntryID = loadedEntries.first?.id
             if selectedEntryID != firstEntryID {
                 selectedEntryID = firstEntryID
             }
@@ -115,11 +131,32 @@ final class HistoryViewModel: ObservableObject {
     }
 
     func reload(selectFirstResult: Bool = false) async {
+        cancelSearch()
+        pagingGeneration &+= 1
+        pageTask?.cancel()
         state = .loading
         do {
-            allEntries = try await service.entries()
+            loadedEntries = []
+            pageCursor = nil
+            hasMorePages = false
+            let entries: [HistoryEntry]
+            if usesPaging {
+                let page = query.isEmpty
+                    ? try await service.page()
+                    : try await service.searchPage(query: query)
+                entries = Self.entries(from: page)
+                pageCursor = page.nextCursor
+                hasMorePages = page.hasMore
+            } else {
+                entries = try await service.entries()
+            }
+            loadedEntries = entries
             hasLoadedSnapshot = true
-            scheduleFilter(selectFirstResult: selectFirstResult, debounce: false)
+            if usesPaging {
+                publish(entries: entries, selectFirstResult: selectFirstResult)
+            } else {
+                scheduleLegacyFilter(selectFirstResult: selectFirstResult, debounce: false)
+            }
             await waitForPendingSearch()
         } catch {
             cancelSearch()
@@ -131,7 +168,75 @@ final class HistoryViewModel: ObservableObject {
     func updateQuery(_ query: String) {
         self.query = query
         pasteFailure = nil
-        scheduleFilter(selectFirstResult: true, debounce: true)
+        if usesPaging {
+            schedulePagedSearch(selectFirstResult: true, debounce: true)
+        } else {
+            scheduleLegacyFilter(selectFirstResult: true, debounce: true)
+        }
+    }
+
+    /// Requests exactly one next page. The table calls this when its viewport
+    /// reaches the end; the generation/cursor guards make repeated scroll
+    /// notifications harmless.
+    func loadMore() async {
+        if isLoadingMore {
+            await pageTask?.value
+            return
+        }
+        guard usesPaging,
+              hasLoadedSnapshot,
+              hasMorePages,
+              !isLoadingMore,
+              let cursor = pageCursor
+        else { return }
+
+        let generation = pagingGeneration
+        let requestedQuery = query
+        let pageTaskToken = UUID()
+        isLoadingMore = true
+        self.pageTaskToken = pageTaskToken
+        let task = Task { @MainActor [weak self] in
+            defer { self?.finishPageTask(pageTaskToken) }
+            await self?.performLoadMore(
+                after: cursor,
+                query: requestedQuery,
+                generation: generation
+            )
+        }
+        pageTask = task
+        await task.value
+    }
+
+    private func performLoadMore(
+        after cursor: HistoryPageCursor,
+        query requestedQuery: String,
+        generation: Int
+    ) async {
+        guard !Task.isCancelled else { return }
+        do {
+            let page = requestedQuery.isEmpty
+                ? try await service.page(after: cursor)
+                : try await service.searchPage(query: requestedQuery, after: cursor)
+            guard !Task.isCancelled,
+                  generation == pagingGeneration,
+                  requestedQuery == query
+            else { return }
+            let nextEntries = Self.entries(from: page)
+            loadedEntries.append(contentsOf: nextEntries)
+            pageCursor = page.nextCursor
+            hasMorePages = page.hasMore && !nextEntries.isEmpty
+            publish(entries: loadedEntries, selectFirstResult: false)
+        } catch {
+            // Keep the already visible page. A later scroll can retry the same
+            // cursor without claiming that existing History disappeared.
+        }
+    }
+
+    private func finishPageTask(_ token: UUID) {
+        guard pageTaskToken == token else { return }
+        pageTaskToken = nil
+        pageTask = nil
+        isLoadingMore = false
     }
 
     func moveSelection(by offset: Int) {
@@ -180,14 +285,19 @@ final class HistoryViewModel: ObservableObject {
     /// but the visible snapshot is intentionally left untouched. Publishing recency
     /// while a reusable panel is closing can visibly move the selected row to index zero.
     func markUsedAfterSuccessfulPaste(id: UUID) async {
+        pagingGeneration &+= 1
         do {
             let activityAt = try await service.markUsed(id: id)
-            guard let index = allEntries.firstIndex(where: { $0.id == id }) else { return }
-            let previous = allEntries.remove(at: index)
-            allEntries.insert(
-                HistoryEntry(id: previous.id, text: previous.text, activityAt: activityAt),
-                at: 0
-            )
+            guard let index = loadedEntries.firstIndex(where: { $0.id == id }) else { return }
+            let previous = loadedEntries.remove(at: index)
+            let updated = HistoryEntry(id: previous.id, text: previous.text, activityAt: activityAt)
+            let insertionIndex = loadedEntries.firstIndex(where: { Self.isNewer(updated, than: $0) }) ?? loadedEntries.endIndex
+            loadedEntries.insert(updated, at: insertionIndex)
+            if usesPaging, hasMorePages {
+                pageCursor = loadedEntries.last.map {
+                    HistoryPageCursor(activityAt: $0.activityAt, id: $0.id)
+                }
+            }
             hasUnpublishedSnapshotChanges = true
         } catch {
             // Paste already succeeded. Keep the last durable snapshot and do not
@@ -200,11 +310,31 @@ final class HistoryViewModel: ObservableObject {
     /// separate in-memory-only value.
     @discardableResult
     func recordExternalText(_ text: String) async -> HistoryEntry? {
+        pagingGeneration &+= 1
         do {
             guard let entry = try await service.capture(text: text) else { return nil }
-            allEntries.insert(entry, at: 0)
+            loadedEntries.removeAll { $0.id == entry.id }
+            let insertionIndex = usesPaging
+                ? loadedEntries.firstIndex(where: { Self.isNewer(entry, than: $0) }) ?? loadedEntries.endIndex
+                : loadedEntries.startIndex
+            loadedEntries.insert(entry, at: insertionIndex)
+            if usesPaging, loadedEntries.count > HistoryService.pageSize {
+                loadedEntries.removeLast()
+                hasMorePages = true
+                pageCursor = loadedEntries.last.map {
+                    HistoryPageCursor(activityAt: $0.activityAt, id: $0.id)
+                }
+            }
             hasLoadedSnapshot = true
-            scheduleFilter(selectFirstResult: false, debounce: false)
+            if usesPaging {
+                if query.isEmpty {
+                    publish(entries: loadedEntries, selectFirstResult: false)
+                } else {
+                    schedulePagedSearch(selectFirstResult: true, debounce: false)
+                }
+            } else {
+                scheduleLegacyFilter(selectFirstResult: false, debounce: false)
+            }
             await waitForPendingSearch()
             return entry
         } catch {
@@ -215,13 +345,29 @@ final class HistoryViewModel: ObservableObject {
     }
 
     func delete(_ entry: HistoryEntry) async {
+        pagingGeneration &+= 1
         let previousEntries = visibleEntries
         let deletedIndex = previousEntries.firstIndex { $0.id == entry.id }
         let selectedBeforeDelete = selectedEntryID
         do {
             try await service.delete(id: entry.id)
-            allEntries.removeAll { $0.id == entry.id }
-            scheduleFilter(selectFirstResult: false, debounce: false)
+            loadedEntries.removeAll { $0.id == entry.id }
+            if usesPaging {
+                if hasMorePages {
+                    pageCursor = loadedEntries.last.map {
+                        HistoryPageCursor(activityAt: $0.activityAt, id: $0.id)
+                    }
+                }
+                publish(entries: loadedEntries, selectFirstResult: false)
+                if hasMorePages {
+                    if isLoadingMore {
+                        await pageTask?.value
+                    }
+                    await loadMore()
+                }
+            } else {
+                scheduleLegacyFilter(selectFirstResult: false, debounce: false)
+            }
             await waitForPendingSearch()
 
             if selectedBeforeDelete == entry.id, let deletedIndex {
@@ -239,9 +385,12 @@ final class HistoryViewModel: ObservableObject {
 
     @discardableResult
     func clearAll() async -> Bool {
+        pagingGeneration &+= 1
         do {
             try await service.clearAll()
-            allEntries = []
+            loadedEntries = []
+            pageCursor = nil
+            hasMorePages = false
             hasLoadedSnapshot = true
             cancelSearch()
             query = ""
@@ -262,12 +411,12 @@ final class HistoryViewModel: ObservableObject {
         await searchTask?.value
     }
 
-    private func scheduleFilter(selectFirstResult: Bool, debounce: Bool) {
+    private func scheduleLegacyFilter(selectFirstResult: Bool, debounce: Bool) {
         searchGeneration &+= 1
         let generation = searchGeneration
         searchTask?.cancel()
 
-        if allEntries.isEmpty {
+        if loadedEntries.isEmpty {
             isSearchInProgress = false
             state = .empty
             selectedEntryID = nil
@@ -276,11 +425,11 @@ final class HistoryViewModel: ObservableObject {
 
         guard !query.isEmpty else {
             isSearchInProgress = false
-            publish(entries: allEntries, selectFirstResult: selectFirstResult)
+            publish(entries: loadedEntries, selectFirstResult: selectFirstResult)
             return
         }
 
-        let snapshot = allEntries
+        let snapshot = loadedEntries
         let requestedQuery = query
         let searcher = searcher
         let delay = debounce ? searchDebounceNanoseconds : 0
@@ -304,9 +453,57 @@ final class HistoryViewModel: ObservableObject {
         }
     }
 
+    private func schedulePagedSearch(selectFirstResult: Bool, debounce: Bool) {
+        searchGeneration &+= 1
+        pagingGeneration &+= 1
+        let generation = searchGeneration
+        searchTask?.cancel()
+        pageTask?.cancel()
+        let requestedQuery = query
+        let delay = debounce ? searchDebounceNanoseconds : 0
+
+        isSearchInProgress = true
+        isLoadingMore = false
+        loadedEntries = []
+        pageCursor = nil
+        hasMorePages = false
+        visibleSnapshotRevision &+= 1
+        state = .list([])
+        selectedEntryID = nil
+        searchTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled else { return }
+            }
+            do {
+                let page = requestedQuery.isEmpty
+                    ? try await self.service.page()
+                    : try await self.service.searchPage(query: requestedQuery)
+                guard !Task.isCancelled,
+                      generation == self.searchGeneration,
+                      requestedQuery == self.query,
+                      !Task.isCancelled
+                else { return }
+                self.loadedEntries = Self.entries(from: page)
+                self.pageCursor = page.nextCursor
+                self.hasMorePages = page.hasMore
+                self.isSearchInProgress = false
+                self.publish(entries: self.loadedEntries, selectFirstResult: selectFirstResult)
+            } catch {
+                guard generation == self.searchGeneration,
+                      requestedQuery == self.query
+                else { return }
+                self.isSearchInProgress = false
+                self.state = .error
+                self.selectedEntryID = nil
+            }
+        }
+    }
+
     private func publish(entries: [HistoryEntry], selectFirstResult: Bool) {
         visibleSnapshotRevision &+= 1
-        state = .list(entries)
+        state = entries.isEmpty && query.isEmpty ? .empty : .list(entries)
         if query.isEmpty {
             hasUnpublishedSnapshotChanges = false
         }
@@ -326,9 +523,9 @@ final class HistoryViewModel: ObservableObject {
         guard !hasUnpublishedSnapshotChanges else { return false }
         return switch state {
         case let .list(entries):
-            !allEntries.isEmpty && entries.count == allEntries.count
+            !loadedEntries.isEmpty && entries.count == loadedEntries.count
         case .empty:
-            allEntries.isEmpty
+            loadedEntries.isEmpty
         case .loading, .error:
             false
         }
@@ -338,8 +535,30 @@ final class HistoryViewModel: ObservableObject {
     private func discardExpiredSnapshotEntries() -> Bool {
         guard hasLoadedSnapshot else { return false }
         let cutoff = now().addingTimeInterval(-HistoryService.retention)
-        let previousCount = allEntries.count
-        allEntries.removeAll { $0.activityAt <= cutoff }
-        return allEntries.count != previousCount
+        let previousCount = loadedEntries.count
+        loadedEntries.removeAll { $0.activityAt <= cutoff }
+        if usesPaging, loadedEntries.count != previousCount, hasMorePages {
+            pageCursor = loadedEntries.last.map {
+                HistoryPageCursor(activityAt: $0.activityAt, id: $0.id)
+            }
+        }
+        return loadedEntries.count != previousCount
+    }
+
+    private static func entries(from page: HistoryPage) -> [HistoryEntry] {
+        if !page.textEntries.isEmpty || page.descriptors.isEmpty {
+            return page.textEntries
+        }
+        return page.descriptors.compactMap { (descriptor: HistoryOccurrenceDescriptor) -> HistoryEntry? in
+            guard let text = descriptor.textPreview else { return nil }
+            return HistoryEntry(id: descriptor.id, text: text, activityAt: descriptor.activityAt)
+        }
+    }
+
+    private static func isNewer(_ lhs: HistoryEntry, than rhs: HistoryEntry) -> Bool {
+        if lhs.activityAt != rhs.activityAt {
+            return lhs.activityAt > rhs.activityAt
+        }
+        return lhs.id.uuidString > rhs.id.uuidString
     }
 }
