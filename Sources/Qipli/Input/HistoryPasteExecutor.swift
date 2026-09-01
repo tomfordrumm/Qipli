@@ -101,6 +101,7 @@ enum HistoryPasteFailure: Error, Equatable {
     case accessibilityRequired
     case targetUnavailable
     case pasteboardWriteFailed
+    case referenceUnavailable
     case commandDispatchFailed
 
     var message: String {
@@ -111,6 +112,8 @@ enum HistoryPasteFailure: Error, Equatable {
             "The app you were using is no longer available. Return to it, reopen History, and try again."
         case .pasteboardWriteFailed:
             "Qipli could not prepare the system clipboard. Try again."
+        case .referenceUnavailable:
+            "The original file is no longer available. The History entry was kept."
         case .commandDispatchFailed:
             "Qipli could not send the paste command. The history entry was kept; try again."
         }
@@ -246,7 +249,7 @@ final class HistoryPasteExecutor {
         }
 
         // Copy the immutable value before any UI or activation side effect can change the selected row.
-        if entry.isImageEntry {
+        if entry.isTypedEntry {
             guard let payloadProvider,
                   let typedWriter = pasteboardWriter as? TypedHistoryPasteboardWriting
             else {
@@ -269,9 +272,15 @@ final class HistoryPasteExecutor {
                         completion: completion
                     )
                 } catch {
+                    let failure: HistoryPasteFailure = {
+                        if case HistoryStoreError.referenceUnavailable = error {
+                            return .referenceUnavailable
+                        }
+                        return .pasteboardWriteFailed
+                    }()
                     self?.finish(
                         operationID: operationID,
-                        result: .failure(.pasteboardWriteFailed),
+                        result: .failure(failure),
                         completion: completion
                     )
                 }

@@ -10,6 +10,17 @@ struct PasteboardRepresentationInventory: Equatable, Sendable {
 struct PasteboardTypedChange: Equatable, Sendable {
     let changeCount: Int
     let imageItems: [ManagedImageCaptureItem]
+    let referenceItems: [HistoryReferenceCaptureItem]
+
+    init(
+        changeCount: Int,
+        imageItems: [ManagedImageCaptureItem] = [],
+        referenceItems: [HistoryReferenceCaptureItem] = []
+    ) {
+        self.changeCount = changeCount
+        self.imageItems = imageItems
+        self.referenceItems = referenceItems
+    }
 }
 
 /// A payload-free probe for deciding the future typed allowlist. It reads only
@@ -60,15 +71,17 @@ final class SystemPasteboardReader: TypedPasteboardReading, @unchecked Sendable 
         pasteboard.string(forType: .string)
     }
 
-    /// Used by the controlled S023 probe; normal polling remains text-only
-    /// until a later slice changes the capture allowlist.
+    /// Used by the controlled typed-capture probe. Normal polling still falls
+    /// back to text only when no supported typed representation is present.
     func representationInventory() -> PasteboardRepresentationInventory {
         PasteboardPlatformProbe.inventory(for: pasteboard)
     }
 
     func typedImageChange(changeCount: Int) -> PasteboardTypedChange? {
         guard let items = pasteboard.pasteboardItems else { return nil }
-        let imageItems = items.enumerated().compactMap { index, item -> ManagedImageCaptureItem? in
+        var imageItems: [ManagedImageCaptureItem] = []
+        var referenceItems: [HistoryReferenceCaptureItem] = []
+        for (index, item) in items.enumerated() {
             let representations = item.types.compactMap { type -> ManagedImageCaptureRepresentation? in
                 let typeIdentifier = type.rawValue
                 guard HistoryImageTypePolicy.isSupported(typeIdentifier),
@@ -77,11 +90,99 @@ final class SystemPasteboardReader: TypedPasteboardReading, @unchecked Sendable 
                 else { return nil }
                 return ManagedImageCaptureRepresentation(typeIdentifier: typeIdentifier, data: data)
             }
-            guard !representations.isEmpty else { return nil }
-            return ManagedImageCaptureItem(order: index, representations: representations)
+            if !representations.isEmpty {
+                imageItems.append(ManagedImageCaptureItem(order: index, representations: representations))
+            }
+            if let reference = referenceItem(for: item, order: index) {
+                referenceItems.append(reference)
+            }
         }
-        guard !imageItems.isEmpty else { return nil }
-        return PasteboardTypedChange(changeCount: changeCount, imageItems: imageItems)
+        guard !imageItems.isEmpty || !referenceItems.isEmpty else { return nil }
+        return PasteboardTypedChange(
+            changeCount: changeCount,
+            imageItems: imageItems,
+            referenceItems: referenceItems
+        )
+    }
+
+    private func referenceItem(for item: NSPasteboardItem, order: Int) -> HistoryReferenceCaptureItem? {
+        if let fileURL = pasteboardURL(for: item, type: .fileURL) {
+            return HistoryReferenceCaptureItem(
+                order: order,
+                kind: Self.fileKind(for: fileURL),
+                typeIdentifier: Self.fileTypeIdentifier(for: fileURL),
+                url: fileURL,
+                metadata: Self.fileMetadata(for: fileURL)
+            )
+        }
+
+        guard let value = item.string(forType: .URL),
+              let url = URL(string: value),
+              Self.isSupportedWebURL(url)
+        else { return nil }
+        let host = url.host ?? ""
+        return HistoryReferenceCaptureItem(
+            order: order,
+            kind: .url,
+            typeIdentifier: NSPasteboard.PasteboardType.URL.rawValue,
+            urlString: value,
+            metadata: HistoryReferenceMetadata(
+                displayName: host.isEmpty ? value : host,
+                typeIdentifier: NSPasteboard.PasteboardType.URL.rawValue,
+                domain: host.isEmpty ? nil : host,
+                searchText: value
+            )
+        )
+    }
+
+    private func pasteboardURL(for item: NSPasteboardItem, type: NSPasteboard.PasteboardType) -> URL? {
+        if let url = item.propertyList(forType: type) as? URL, url.isFileURL { return url }
+        if let url = item.propertyList(forType: type) as? NSURL, (url as URL).isFileURL { return url as URL }
+        if let string = item.propertyList(forType: type) as? String,
+           let url = URL(string: string), url.isFileURL { return url }
+        if let string = item.string(forType: type),
+           let url = URL(string: string), url.isFileURL { return url }
+        if let data = item.data(forType: type),
+           let string = String(data: data, encoding: .utf8),
+           let url = URL(string: string), url.isFileURL { return url }
+        return nil
+    }
+
+    private static func isSupportedWebURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
+    }
+
+    private static func fileKind(for url: URL) -> HistoryRepresentationKind {
+        let contentType = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType
+        let videoExtensions = Set(["mov", "mp4", "m4v", "avi", "mkv", "webm", "mpeg", "mpg", "wmv", "flv", "3gp"])
+        return contentType?.conforms(to: .movie) == true || videoExtensions.contains(url.pathExtension.lowercased())
+            ? .videoReference
+            : .fileReference
+    }
+
+    private static func fileTypeIdentifier(for url: URL) -> String {
+        let contentType = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType
+        return contentType?.identifier ?? (fileKind(for: url) == .videoReference ? UTType.movie.identifier : UTType.data.identifier)
+    }
+
+    private static func fileMetadata(for url: URL) -> HistoryReferenceMetadata {
+        let values = try? url.resourceValues(forKeys: [.nameKey, .fileSizeKey, .contentTypeKey])
+        let name = values?.name ?? url.lastPathComponent
+        let ext = url.pathExtension.lowercased()
+        let typeIdentifier = values?.contentType?.identifier ?? fileTypeIdentifier(for: url)
+        let byteCount = values?.fileSize.map(Int64.init)
+        let availability: HistoryReferenceAvailability = FileManager.default.isReadableFile(atPath: url.path)
+            ? .available
+            : .unavailable
+        return HistoryReferenceMetadata(
+            displayName: name,
+            fileExtension: ext,
+            typeIdentifier: typeIdentifier,
+            byteCount: byteCount,
+            searchText: [name, ext, typeIdentifier].joined(separator: " "),
+            availability: availability
+        )
     }
 }
 

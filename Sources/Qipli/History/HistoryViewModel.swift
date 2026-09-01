@@ -304,7 +304,9 @@ final class HistoryViewModel: ObservableObject {
                 representations: previous.representations,
                 imageMetadata: previous.imageMetadata,
                 managedImages: previous.managedImages,
-                managedImageItems: previous.managedImageItems
+                managedImageItems: previous.managedImageItems,
+                managedImageName: previous.managedImageName,
+                referenceMetadata: previous.referenceMetadata
             )
             let insertionIndex = loadedEntries.firstIndex(where: { Self.isNewer(updated, than: $0) }) ?? loadedEntries.endIndex
             loadedEntries.insert(updated, at: insertionIndex)
@@ -385,6 +387,70 @@ final class HistoryViewModel: ObservableObject {
         } catch {
             imageCaptureNotice = (error as? LocalizedError)?.errorDescription
                 ?? "Qipli could not save the copied image."
+            return nil
+        }
+    }
+
+    @discardableResult
+    func recordExternalReference(_ items: [HistoryReferenceCaptureItem]) async -> HistoryEntry? {
+        pagingGeneration &+= 1
+        do {
+            guard let entry = try await service.capture(referenceItems: items) else { return nil }
+            imageCaptureNotice = nil
+            loadedEntries.removeAll { $0.id == entry.id }
+            loadedEntries.insert(entry, at: 0)
+            if usesPaging, loadedEntries.count > HistoryService.pageSize {
+                loadedEntries.removeLast()
+                hasMorePages = true
+                pageCursor = loadedEntries.last.map {
+                    HistoryPageCursor(activityAt: $0.activityAt, id: $0.id)
+                }
+            }
+            hasLoadedSnapshot = true
+            if query.isEmpty {
+                publish(entries: loadedEntries, selectFirstResult: false)
+            } else {
+                schedulePagedSearch(selectFirstResult: true, debounce: false)
+            }
+            return entry
+        } catch {
+            imageCaptureNotice = (error as? LocalizedError)?.errorDescription
+                ?? "Qipli could not save the copied file reference."
+            return nil
+        }
+    }
+
+    @discardableResult
+    func recordExternalMixed(
+        imageItems: [ManagedImageCaptureItem],
+        referenceItems: [HistoryReferenceCaptureItem]
+    ) async -> HistoryEntry? {
+        pagingGeneration &+= 1
+        do {
+            guard let entry = try await service.capture(
+                imageItems: imageItems,
+                referenceItems: referenceItems
+            ) else { return nil }
+            imageCaptureNotice = nil
+            loadedEntries.removeAll { $0.id == entry.id }
+            loadedEntries.insert(entry, at: 0)
+            if usesPaging, loadedEntries.count > HistoryService.pageSize {
+                loadedEntries.removeLast()
+                hasMorePages = true
+                pageCursor = loadedEntries.last.map {
+                    HistoryPageCursor(activityAt: $0.activityAt, id: $0.id)
+                }
+            }
+            hasLoadedSnapshot = true
+            if query.isEmpty {
+                publish(entries: loadedEntries, selectFirstResult: false)
+            } else {
+                schedulePagedSearch(selectFirstResult: true, debounce: false)
+            }
+            return entry
+        } catch {
+            imageCaptureNotice = (error as? LocalizedError)?.errorDescription
+                ?? "Qipli could not save the copied item."
             return nil
         }
     }
@@ -657,7 +723,8 @@ final class HistoryViewModel: ObservableObject {
                 text: descriptor.textPreview ?? "",
                 activityAt: descriptor.activityAt,
                 representations: descriptor.representations,
-                imageMetadata: descriptor.imageMetadata
+                imageMetadata: descriptor.imageMetadata,
+                referenceMetadata: descriptor.referenceMetadata
             )
         }
     }

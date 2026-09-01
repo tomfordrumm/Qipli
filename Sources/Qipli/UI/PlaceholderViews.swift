@@ -573,7 +573,7 @@ struct PasteStackPanelView: View {
         } else if sessionController.hasCaptureError {
             "Qipli could not save the last copied text. Copy it again to retry."
         } else if sessionController.hasNonTextCaptureNotice {
-            "Image saved to History. Paste Stack currently accepts text only."
+            "Non-text item saved to History. Paste Stack currently accepts text only."
         } else {
             nil
         }

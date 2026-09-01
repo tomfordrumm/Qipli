@@ -81,6 +81,42 @@ final class HistoryStoreTests: XCTestCase {
         store.close()
     }
 
+    func testMixedImageAndReferenceRemainOneOccurrenceAndOnePasteboardItem() throws {
+        let clock = MutableClock(now: Date(timeIntervalSinceReferenceDate: 8_325_000))
+        let store = try makeStore()
+        let service = HistoryService(store: store, clock: clock)
+        let sourceURL = directory.appendingPathComponent("mixed.txt")
+        let sourceBytes = Data("mixed source remains outside Qipli".utf8)
+        try sourceBytes.write(to: sourceURL)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+        let imageData = try makePNGData()
+
+        let entry = try XCTUnwrap(service.capture(
+            imageItems: [ManagedImageCaptureItem(
+                order: 0,
+                representations: [ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: imageData)]
+            )],
+            referenceItems: [makeReferenceItem(url: sourceURL, kind: .fileReference, order: 0)]
+        ))
+
+        XCTAssertEqual(try service.entries().map(\.id), [entry.id])
+        XCTAssertEqual(entry.representations.map(\.kind), [.inlineImage, .fileReference])
+        let occurrence = try XCTUnwrap(service.occurrence(id: entry.id))
+        XCTAssertEqual(occurrence.items.flatMap(\.representations).map(\.kind), [.inlineImage, .fileReference])
+        let payload = try XCTUnwrap(service.pastePayload(id: entry.id))
+        XCTAssertEqual(payload.items.count, 1)
+        XCTAssertEqual(payload.items[0].representations.map(\.typeIdentifier), ["public.png", "public.file-url"])
+        XCTAssertEqual(payload.items[0].representations[0].data, imageData)
+        let pastedURL = try XCTUnwrap(URL(string: String(
+            data: payload.items[0].representations[1].data,
+            encoding: .utf8
+        ) ?? ""))
+        XCTAssertEqual(pastedURL.lastPathComponent, sourceURL.lastPathComponent)
+        XCTAssertEqual(try Data(contentsOf: pastedURL), sourceBytes)
+        XCTAssertEqual(try Data(contentsOf: sourceURL), sourceBytes)
+        store.close()
+    }
+
     func testManagedImageNameUsesFirstCaptureTimeAndSurvivesReuse() throws {
         let firstCapture = Date(timeIntervalSinceReferenceDate: 8_350_000)
         let clock = MutableClock(now: firstCapture)
@@ -101,6 +137,130 @@ final class HistoryStoreTests: XCTestCase {
         let restarted = try CoreDataHistoryStore(storeURL: directory.appendingPathComponent("History.sqlite"))
         XCTAssertEqual(try restarted.fetchEntry(id: entry.id)?.displayText, expectedName)
         restarted.close()
+        store.close()
+    }
+
+    func testWebURLStoresExactStringSearchMetadataAndPastePayloadWithoutNetwork() throws {
+        let clock = MutableClock(now: Date(timeIntervalSinceReferenceDate: 8_360_000))
+        let store = try makeStore()
+        let service = HistoryService(store: store, clock: clock)
+        let exactURL = "https://example.com/a%2Fb?q=one%20two"
+        let entry = try XCTUnwrap(service.capture(referenceItems: [
+            HistoryReferenceCaptureItem(
+                order: 0,
+                kind: .url,
+                typeIdentifier: NSPasteboard.PasteboardType.URL.rawValue,
+                urlString: exactURL,
+                metadata: HistoryReferenceMetadata(
+                    displayName: "example.com",
+                    typeIdentifier: NSPasteboard.PasteboardType.URL.rawValue,
+                    domain: "example.com",
+                    searchText: exactURL
+                )
+            )
+        ]))
+
+        XCTAssertEqual(entry.displayText, "example.com")
+        XCTAssertEqual(entry.referenceMetadata.first?.domain, "example.com")
+        let page = try store.searchPage(
+            query: "a%2Fb",
+            since: clock.now.addingTimeInterval(-1),
+            after: nil,
+            limit: 10
+        )
+        XCTAssertEqual(page.descriptors.map(\.id), [entry.id])
+        let payload = try XCTUnwrap(service.pastePayload(id: entry.id))
+        XCTAssertEqual(payload.items.first?.representations.first?.typeIdentifier, "public.url")
+        XCTAssertEqual(payload.items.first?.representations.first?.data, Data(exactURL.utf8))
+        store.close()
+    }
+
+    func testFileAndVideoReferencesKeepOrderAndPasteOnlyFileURLs() throws {
+        let store = try makeStore()
+        let service = HistoryService(store: store)
+        let textURL = directory.appendingPathComponent("notes.txt")
+        let videoURL = directory.appendingPathComponent("clip.mov")
+        let sourceBytes = Data("source bytes remain owned by the user".utf8)
+        try sourceBytes.write(to: textURL)
+        try Data(repeating: 4, count: 12).write(to: videoURL)
+        let entry = try XCTUnwrap(service.capture(referenceItems: [
+            makeReferenceItem(url: videoURL, kind: .videoReference, order: 4),
+            makeReferenceItem(url: textURL, kind: .fileReference, order: 2)
+        ]))
+
+        XCTAssertEqual(entry.representations.map(\.kind), [.fileReference, .videoReference])
+        XCTAssertEqual(entry.referenceMetadata.map(\.displayName), ["notes.txt", "clip.mov"])
+        let occurrence = try XCTUnwrap(store.fetchOccurrence(id: entry.id))
+        XCTAssertEqual(occurrence.items.map(\.order), [2, 4])
+        XCTAssertEqual(occurrence.items.map { $0.representations.first?.kind }, [.fileReference, .videoReference])
+
+        let payload = try XCTUnwrap(service.pastePayload(id: entry.id))
+        XCTAssertEqual(payload.items.count, 2)
+        XCTAssertEqual(payload.items.map { $0.representations.first?.typeIdentifier }, ["public.file-url", "public.file-url"])
+        XCTAssertEqual(
+            payload.items.map { URL(string: String(decoding: $0.representations[0].data, as: UTF8.self))?.standardizedFileURL },
+            [textURL, videoURL].map(\.standardizedFileURL)
+        )
+        XCTAssertEqual(try Data(contentsOf: textURL), sourceBytes)
+        store.close()
+    }
+
+    func testMovedReferenceRefreshesStaleBookmarkWithoutDuplicateOccurrence() throws {
+        let store = try makeStore()
+        let service = HistoryService(store: store)
+        let originalURL = directory.appendingPathComponent("original.txt")
+        let movedURL = directory.appendingPathComponent("renamed.txt")
+        try Data("bookmark source".utf8).write(to: originalURL)
+        let entry = try XCTUnwrap(service.capture(referenceItems: [
+            makeReferenceItem(url: originalURL, kind: .fileReference, order: 0)
+        ]))
+        try FileManager.default.moveItem(at: originalURL, to: movedURL)
+
+        let payload = try XCTUnwrap(service.pastePayload(id: entry.id))
+        XCTAssertEqual(
+            URL(string: String(decoding: payload.items[0].representations[0].data, as: UTF8.self))?.standardizedFileURL,
+            movedURL.standardizedFileURL
+        )
+        XCTAssertEqual(try store.fetchCurrent(since: .distantPast).map(\.id), [entry.id])
+        XCTAssertEqual(try store.fetchEntry(id: entry.id)?.referenceMetadata.first?.displayName, "renamed.txt")
+        store.close()
+    }
+
+    func testUnavailableReferenceRemainsVisibleAndHistoryDeletionDoesNotDeleteSource() throws {
+        let store = try makeStore()
+        let service = HistoryService(store: store)
+        let sourceURL = directory.appendingPathComponent("keep.txt")
+        let sourceBytes = Data("do not delete this".utf8)
+        try sourceBytes.write(to: sourceURL)
+        let entry = try XCTUnwrap(service.capture(referenceItems: [
+            makeReferenceItem(url: sourceURL, kind: .fileReference, order: 0)
+        ]))
+        try FileManager.default.removeItem(at: sourceURL)
+
+        XCTAssertThrowsError(try service.pastePayload(id: entry.id)) { error in
+            XCTAssertEqual(error as? HistoryStoreError, .referenceUnavailable)
+        }
+        XCTAssertEqual(try store.fetchEntry(id: entry.id)?.referenceMetadata.first?.availability, .unavailable)
+        try service.delete(id: entry.id)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sourceURL.path))
+
+        let protectedURL = directory.appendingPathComponent("protected.txt")
+        let protectedBytes = Data("source survives History deletion".utf8)
+        try protectedBytes.write(to: protectedURL)
+        let protectedEntry = try XCTUnwrap(service.capture(referenceItems: [
+            makeReferenceItem(url: protectedURL, kind: .fileReference, order: 0)
+        ]))
+        try service.delete(id: protectedEntry.id)
+        XCTAssertEqual(try Data(contentsOf: protectedURL), protectedBytes)
+
+        let clearURL = directory.appendingPathComponent("clear-keeps-source.txt")
+        let clearBytes = Data("clear all must not touch this".utf8)
+        try clearBytes.write(to: clearURL)
+        _ = try service.capture(referenceItems: [
+            makeReferenceItem(url: clearURL, kind: .fileReference, order: 0)
+        ])
+        try service.clearAll()
+        XCTAssertEqual(try Data(contentsOf: clearURL), clearBytes)
         store.close()
     }
 
@@ -554,6 +714,28 @@ final class HistoryStoreTests: XCTestCase {
 
     private func makePNGData() throws -> Data {
         try makeImageData(width: 2, height: 2, format: .png)
+    }
+
+    private func makeReferenceItem(
+        url: URL,
+        kind: HistoryRepresentationKind,
+        order: Int
+    ) -> HistoryReferenceCaptureItem {
+        let name = url.lastPathComponent
+        let typeIdentifier = kind == .videoReference ? "public.movie" : "public.data"
+        return HistoryReferenceCaptureItem(
+            order: order,
+            kind: kind,
+            typeIdentifier: typeIdentifier,
+            url: url,
+            metadata: HistoryReferenceMetadata(
+                displayName: name,
+                fileExtension: url.pathExtension,
+                typeIdentifier: typeIdentifier,
+                byteCount: nil,
+                searchText: [name, url.pathExtension, typeIdentifier].joined(separator: " ")
+            )
+        )
     }
 
     private func makeImageData(

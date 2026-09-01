@@ -84,6 +84,30 @@ final class HistoryService {
         return try imageStore.createImage(items: imageItems, activityAt: clock.now)
     }
 
+    @discardableResult
+    func capture(referenceItems: [HistoryReferenceCaptureItem]) throws -> HistoryEntry? {
+        guard !referenceItems.isEmpty,
+              let referenceStore = store as? ManagedImageHistoryStoring
+        else { return nil }
+        return try referenceStore.createReference(items: referenceItems, activityAt: clock.now)
+    }
+
+    @discardableResult
+    func capture(
+        imageItems: [ManagedImageCaptureItem],
+        referenceItems: [HistoryReferenceCaptureItem]
+    ) throws -> HistoryEntry? {
+        guard !imageItems.isEmpty,
+              !referenceItems.isEmpty,
+              let typedStore = store as? ManagedImageHistoryStoring
+        else { return nil }
+        return try typedStore.createImageAndReference(
+            imageItems: imageItems,
+            referenceItems: referenceItems,
+            activityAt: clock.now
+        )
+    }
+
     func pastePayload(id: UUID) throws -> HistoryPastePayload? {
         try (store as? ManagedImageHistoryStoring)?.pastePayload(id: id)
     }
@@ -112,7 +136,7 @@ final class HistoryService {
     }
 
     private static func isRenderable(_ entry: HistoryEntry) -> Bool {
-        entry.isImageEntry || HistoryTextPolicy.shouldCapture(entry.text)
+        entry.isTypedEntry || HistoryTextPolicy.shouldCapture(entry.text)
     }
 
     private func fallbackPage(after cursor: HistoryPageCursor?, query: String?) throws -> HistoryPage {
@@ -131,13 +155,10 @@ final class HistoryService {
             HistoryOccurrenceDescriptor(
                 id: entry.id,
                 activityAt: entry.activityAt,
-                textPreview: HistoryPreview.text(for: entry.text),
-                representations: [
-                    HistoryRepresentationDescriptor(
-                        kind: .text,
-                        typeIdentifier: "public.utf8-plain-text"
-                    )
-                ]
+                textPreview: entry.isTextOnly ? HistoryPreview.text(for: entry.text) : nil,
+                representations: entry.representations,
+                imageMetadata: entry.imageMetadata,
+                referenceMetadata: entry.referenceMetadata
             )
         }
         return HistoryPage(
@@ -191,6 +212,18 @@ actor SerializedHistoryService {
 
     func capture(imageItems: [ManagedImageCaptureItem]) throws -> HistoryEntry? {
         try service.capture(imageItems: imageItems)
+    }
+
+    @discardableResult
+    func capture(referenceItems: [HistoryReferenceCaptureItem]) throws -> HistoryEntry? {
+        try service.capture(referenceItems: referenceItems)
+    }
+
+    func capture(
+        imageItems: [ManagedImageCaptureItem],
+        referenceItems: [HistoryReferenceCaptureItem]
+    ) throws -> HistoryEntry? {
+        try service.capture(imageItems: imageItems, referenceItems: referenceItems)
     }
 
     func pastePayload(id: UUID) throws -> HistoryPastePayload? {

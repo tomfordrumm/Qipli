@@ -23,15 +23,27 @@ protocol HistoryPagingStoring: AnyObject {
 
 protocol ManagedImageHistoryStoring: AnyObject {
     func createImage(items: [ManagedImageCaptureItem], activityAt: Date) throws -> HistoryEntry
+    func createReference(items: [HistoryReferenceCaptureItem], activityAt: Date) throws -> HistoryEntry
+    func createImageAndReference(
+        imageItems: [ManagedImageCaptureItem],
+        referenceItems: [HistoryReferenceCaptureItem],
+        activityAt: Date
+    ) throws -> HistoryEntry
     func pastePayload(id: UUID) throws -> HistoryPastePayload?
     func thumbnailData(id: UUID) throws -> Data?
 }
 
-enum HistoryStoreError: LocalizedError {
+enum HistoryStoreError: LocalizedError, Equatable {
     case unavailable
+    case referenceUnavailable
 
     var errorDescription: String? {
-        "History storage is unavailable."
+        switch self {
+        case .unavailable:
+            return "History storage is unavailable."
+        case .referenceUnavailable:
+            return "The original file is no longer available. The History entry was kept."
+        }
     }
 }
 
@@ -120,7 +132,40 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
             guard let object = try context.fetch(request).first,
                   let entry = Self.entry(from: object)
             else { return nil }
-            if let manifest = Self.manifest(from: object) {
+            let imageManifest = Self.manifest(from: object)
+            let referenceManifest = Self.referenceManifest(from: object)
+            if let imageManifest, let referenceManifest {
+                let imageItemsByOrder = Dictionary(grouping: imageManifest.items, by: \.order)
+                let referenceItemsByOrder = Dictionary(grouping: referenceManifest.items, by: \.order)
+                let orders = Set(imageItemsByOrder.keys).union(referenceItemsByOrder.keys).sorted()
+                return HistoryOccurrence(
+                    id: entry.id,
+                    items: orders.flatMap { order in
+                        imageItemsByOrder[order, default: []].map { item in
+                            HistoryPayloadItem(
+                                id: item.id,
+                                order: item.order,
+                                representations: item.representations.map {
+                                    HistoryRepresentationDescriptor(kind: .inlineImage, typeIdentifier: $0.typeIdentifier)
+                                }
+                            )
+                        } + referenceItemsByOrder[order, default: []].map { item in
+                            HistoryPayloadItem(
+                                id: item.id,
+                                order: item.order,
+                                representations: [HistoryRepresentationDescriptor(
+                                    kind: item.kind,
+                                    typeIdentifier: item.typeIdentifier
+                                )]
+                            )
+                        }
+                    },
+                    activityAt: entry.activityAt,
+                    managedImages: imageManifest.representations,
+                    referenceMetadata: referenceManifest.items.map(\.metadata)
+                )
+            }
+            if let manifest = imageManifest {
                 return HistoryOccurrence(
                     id: entry.id,
                     items: manifest.items.map { item in
@@ -134,6 +179,23 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
                     },
                     activityAt: entry.activityAt,
                     managedImages: manifest.representations
+                )
+            }
+            if let manifest = referenceManifest {
+                return HistoryOccurrence(
+                    id: entry.id,
+                    items: manifest.items.map { item in
+                        HistoryPayloadItem(
+                            id: item.id,
+                            order: item.order,
+                            representations: [HistoryRepresentationDescriptor(
+                                kind: item.kind,
+                                typeIdentifier: item.typeIdentifier
+                            )]
+                        )
+                    },
+                    activityAt: entry.activityAt,
+                    referenceMetadata: manifest.items.map(\.metadata)
                 )
             }
             let kind = HistoryRepresentationKind(
@@ -211,19 +273,269 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         }
     }
 
-    func pastePayload(id: UUID) throws -> HistoryPastePayload? {
-        guard let manifest = try imageManifest(id: id) else { return nil }
-        guard manifest.occurrenceID == id else { throw ManagedImageStoreError.invalidManagedPath }
-        try imageStore.validate(manifest)
-        let items = manifest.items
-        return HistoryPastePayload(items: try items.map { item in
-            HistoryPasteboardItemPayload(representations: try item.representations.map {
-                HistoryPasteboardRepresentationPayload(
-                    typeIdentifier: $0.typeIdentifier,
-                    data: try imageStore.read($0)
+    func createReference(items: [HistoryReferenceCaptureItem], activityAt: Date) throws -> HistoryEntry {
+        guard !items.isEmpty else { throw HistoryStoreError.unavailable }
+        let occurrenceID = UUID()
+        let manifest = HistoryReferenceManifest(
+            occurrenceID: occurrenceID,
+            items: try items.sorted { $0.order < $1.order }.map { item in
+                let bookmarkData: Data?
+                if item.kind == .url {
+                    bookmarkData = nil
+                } else {
+                    guard let url = item.url else { throw HistoryStoreError.referenceUnavailable }
+                    bookmarkData = try url.bookmarkData(options: [])
+                }
+                return HistoryReferenceItemManifest(
+                    id: UUID(),
+                    order: item.order,
+                    kind: item.kind,
+                    typeIdentifier: item.typeIdentifier,
+                    bookmarkData: bookmarkData,
+                    urlString: item.urlString,
+                    metadata: item.metadata
                 )
-            })
-        })
+            },
+            capturedAt: activityAt
+        )
+        let encoded = try JSONEncoder().encode(manifest)
+        guard let encodedManifest = String(data: encoded, encoding: .utf8) else {
+            throw HistoryStoreError.unavailable
+        }
+        return try contextSync { context in
+            let object = NSEntityDescription.insertNewObject(forEntityName: Self.entityName, into: context)
+            object.setValue(occurrenceID, forKey: "id")
+            object.setValue("", forKey: "text")
+            object.setValue(activityAt, forKey: "capturedAt")
+            object.setValue(items.count == 1 ? items[0].kind.rawValue : HistoryRepresentationKind.fileReference.rawValue, forKey: "itemKind")
+            object.setValue(items.map(\.order).min() ?? 0, forKey: "itemOrder")
+            object.setValue(items.first?.typeIdentifier, forKey: "itemTypeIdentifier")
+            object.setValue(encodedManifest, forKey: "referenceManifest")
+            do {
+                try context.save()
+            } catch {
+                throw HistoryStoreError.unavailable
+            }
+            return Self.entry(from: object) ?? HistoryEntry(
+                id: occurrenceID,
+                text: "",
+                activityAt: activityAt,
+                representations: manifest.items.map {
+                    HistoryRepresentationDescriptor(kind: $0.kind, typeIdentifier: $0.typeIdentifier)
+                },
+                referenceMetadata: manifest.items.map(\.metadata)
+            )
+        }
+    }
+
+    func createImageAndReference(
+        imageItems: [ManagedImageCaptureItem],
+        referenceItems: [HistoryReferenceCaptureItem],
+        activityAt: Date
+    ) throws -> HistoryEntry {
+        guard !imageItems.isEmpty, !referenceItems.isEmpty else {
+            throw HistoryStoreError.unavailable
+        }
+        let occurrenceID = UUID()
+        let imageManifest: ManagedImageAssetManifest
+        do {
+            imageManifest = try imageStore.commit(
+                occurrenceID: occurrenceID,
+                items: imageItems,
+                capturedAt: activityAt
+            )
+        } catch {
+            throw error
+        }
+        do {
+            let referenceManifest = try makeReferenceManifest(
+                occurrenceID: occurrenceID,
+                items: referenceItems,
+                capturedAt: activityAt
+            )
+            return try createTyped(
+                imageManifest: imageManifest,
+                referenceManifest: referenceManifest,
+                activityAt: activityAt
+            )
+        } catch {
+            try? imageStore.remove(manifest: imageManifest)
+            throw error
+        }
+    }
+
+    private func createTyped(
+        imageManifest: ManagedImageAssetManifest,
+        referenceManifest: HistoryReferenceManifest,
+        activityAt: Date
+    ) throws -> HistoryEntry {
+        let imageEncoded = try JSONEncoder().encode(imageManifest)
+        let referenceEncoded = try JSONEncoder().encode(referenceManifest)
+        guard let imageString = String(data: imageEncoded, encoding: .utf8),
+              let referenceString = String(data: referenceEncoded, encoding: .utf8)
+        else { throw HistoryStoreError.unavailable }
+        return try contextSync { context in
+            let object = NSEntityDescription.insertNewObject(forEntityName: Self.entityName, into: context)
+            object.setValue(imageManifest.occurrenceID, forKey: "id")
+            object.setValue("", forKey: "text")
+            object.setValue(activityAt, forKey: "capturedAt")
+            object.setValue(HistoryRepresentationKind.inlineImage.rawValue, forKey: "itemKind")
+            object.setValue(min(imageManifest.items.first?.order ?? .max, referenceManifest.items.first?.order ?? .max), forKey: "itemOrder")
+            object.setValue(imageManifest.representations.first?.typeIdentifier, forKey: "itemTypeIdentifier")
+            object.setValue(imageString, forKey: "managedImageManifest")
+            object.setValue(referenceString, forKey: "referenceManifest")
+            try context.save()
+            return Self.entry(from: object) ?? HistoryEntry(
+                id: imageManifest.occurrenceID,
+                text: "",
+                activityAt: activityAt,
+                representations: [],
+                imageMetadata: imageManifest.representations.map(\.metadata),
+                managedImages: imageManifest.representations,
+                managedImageItems: imageManifest.items,
+                managedImageName: imageManifest.displayName,
+                referenceMetadata: referenceManifest.items.map(\.metadata)
+            )
+        }
+    }
+
+    private func makeReferenceManifest(
+        occurrenceID: UUID,
+        items: [HistoryReferenceCaptureItem],
+        capturedAt: Date
+    ) throws -> HistoryReferenceManifest {
+        HistoryReferenceManifest(
+            occurrenceID: occurrenceID,
+            items: try items.sorted { $0.order < $1.order }.map { item in
+                let bookmarkData: Data?
+                if item.kind == .url {
+                    bookmarkData = nil
+                } else {
+                    guard let url = item.url else { throw HistoryStoreError.referenceUnavailable }
+                    bookmarkData = try url.bookmarkData(options: [])
+                }
+                return HistoryReferenceItemManifest(
+                    id: UUID(),
+                    order: item.order,
+                    kind: item.kind,
+                    typeIdentifier: item.typeIdentifier,
+                    bookmarkData: bookmarkData,
+                    urlString: item.urlString,
+                    metadata: item.metadata
+                )
+            },
+            capturedAt: capturedAt
+        )
+    }
+
+    func pastePayload(id: UUID) throws -> HistoryPastePayload? {
+        let imageManifest = try imageManifest(id: id)
+        let referenceManifest = try referenceManifest(id: id)
+        guard imageManifest?.occurrenceID == id || referenceManifest?.occurrenceID == id else { return nil }
+
+        let imagePayloadItems: [(order: Int, payload: [HistoryPasteboardRepresentationPayload])]
+        if let imageManifest {
+            try imageStore.validate(imageManifest)
+            imagePayloadItems = try imageManifest.items.sorted { $0.order < $1.order }.map { item in
+                (item.order, try item.representations.map {
+                    HistoryPasteboardRepresentationPayload(
+                        typeIdentifier: $0.typeIdentifier,
+                        data: try imageStore.read($0)
+                    )
+                })
+            }
+        } else {
+            imagePayloadItems = []
+        }
+
+        let referencePayloadItems: [(order: Int, payload: [HistoryPasteboardRepresentationPayload])]
+        if let referenceManifest {
+            referencePayloadItems = try resolvedReferencePayloadItems(for: referenceManifest)
+        } else {
+            referencePayloadItems = []
+        }
+        let payloadByOrder = Dictionary(grouping: imagePayloadItems + referencePayloadItems, by: \.order)
+        let payloadItems = payloadByOrder.keys.sorted().map { order in
+            HistoryPasteboardItemPayload(representations: payloadByOrder[order, default: []].flatMap(\.payload))
+        }
+        return HistoryPastePayload(items: payloadItems)
+    }
+
+    private func resolvedReferencePayloadItems(
+        for manifest: HistoryReferenceManifest
+    ) throws -> [(order: Int, payload: [HistoryPasteboardRepresentationPayload])] {
+        var updatedItems: [HistoryReferenceItemManifest] = []
+        var payloadItems: [(order: Int, payload: [HistoryPasteboardRepresentationPayload])] = []
+        var referenceUnavailable = false
+        for item in manifest.items.sorted(by: { $0.order < $1.order }) {
+            if item.kind == .url {
+                guard let urlString = item.urlString,
+                      let url = URL(string: urlString),
+                      Self.isSupportedWebURL(url)
+                else {
+                    referenceUnavailable = true
+                    updatedItems.append(Self.unavailableReferenceItem(item))
+                    continue
+                }
+                payloadItems.append((item.order, [
+                    HistoryPasteboardRepresentationPayload(
+                        typeIdentifier: item.typeIdentifier,
+                        data: Data(urlString.utf8)
+                    )
+                ]))
+                updatedItems.append(item)
+                continue
+            }
+            guard let bookmarkData = item.bookmarkData else {
+                referenceUnavailable = true
+                updatedItems.append(Self.unavailableReferenceItem(item))
+                continue
+            }
+            var stale = false
+            guard let resolvedURL = try? URL(
+                resolvingBookmarkData: bookmarkData,
+                options: [],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            ),
+            FileManager.default.isReadableFile(atPath: resolvedURL.path)
+            else {
+                referenceUnavailable = true
+                updatedItems.append(Self.unavailableReferenceItem(item))
+                continue
+            }
+            let refreshedBookmark = stale
+                ? ((try? resolvedURL.bookmarkData(options: [])) ?? item.bookmarkData)
+                : item.bookmarkData
+            let refreshedMetadata = Self.referenceMetadata(
+                existing: item.metadata,
+                resolvedURL: resolvedURL
+            )
+            updatedItems.append(HistoryReferenceItemManifest(
+                id: item.id,
+                order: item.order,
+                kind: item.kind,
+                typeIdentifier: item.typeIdentifier,
+                bookmarkData: refreshedBookmark,
+                urlString: item.urlString,
+                metadata: refreshedMetadata
+            ))
+            payloadItems.append((item.order, [
+                HistoryPasteboardRepresentationPayload(
+                    typeIdentifier: "public.file-url",
+                    data: Data(resolvedURL.absoluteString.utf8)
+                )
+            ]))
+        }
+        if updatedItems != manifest.items {
+            try saveReferenceManifest(HistoryReferenceManifest(
+                occurrenceID: manifest.occurrenceID,
+                items: updatedItems,
+                capturedAt: manifest.capturedAt
+            ))
+        }
+        if referenceUnavailable { throw HistoryStoreError.referenceUnavailable }
+        return payloadItems
     }
 
     func thumbnailData(id: UUID) throws -> Data? {
@@ -476,17 +788,33 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
               let activityAt = object.value(forKey: "capturedAt") as? Date
         else { return nil }
         let manifest = Self.manifest(from: object)
+        let referenceManifest = Self.referenceManifest(from: object)
         let representations: [HistoryRepresentationDescriptor]
         let imageMetadata: [HistoryImageMetadata]
         let managedImages: [HistoryManagedImageRepresentation]
         let managedImageItems: [ManagedImageAssetItemManifest]
-        if let manifest {
-            representations = manifest.representations.map {
-                HistoryRepresentationDescriptor(kind: .inlineImage, typeIdentifier: $0.typeIdentifier)
+        if manifest != nil || referenceManifest != nil {
+            let imageItemsByOrder = Dictionary(
+                grouping: manifest?.items ?? [],
+                by: \.order
+            )
+            let referenceItemsByOrder = Dictionary(
+                grouping: referenceManifest?.items ?? [],
+                by: \.order
+            )
+            let orders = Set(imageItemsByOrder.keys).union(referenceItemsByOrder.keys).sorted()
+            representations = orders.flatMap { order in
+                imageItemsByOrder[order, default: []].flatMap { item in
+                    item.representations.map {
+                        HistoryRepresentationDescriptor(kind: .inlineImage, typeIdentifier: $0.typeIdentifier)
+                    }
+                } + referenceItemsByOrder[order, default: []].map {
+                    HistoryRepresentationDescriptor(kind: $0.kind, typeIdentifier: $0.typeIdentifier)
+                }
             }
-            imageMetadata = manifest.representations.map(\.metadata)
-            managedImages = manifest.representations
-            managedImageItems = manifest.items
+            imageMetadata = manifest?.representations.map(\.metadata) ?? []
+            managedImages = manifest?.representations ?? []
+            managedImageItems = manifest?.items ?? []
         } else {
             let kind = HistoryRepresentationKind(
                 rawValue: object.value(forKey: "itemKind") as? String ?? HistoryRepresentationKind.text.rawValue
@@ -508,7 +836,8 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
             imageMetadata: imageMetadata,
             managedImages: managedImages,
             managedImageItems: managedImageItems,
-            managedImageName: managedImageName
+            managedImageName: managedImageName,
+            referenceMetadata: referenceManifest?.items.map(\.metadata) ?? []
         )
     }
 
@@ -575,12 +904,57 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
             activityAt: entry.activityAt,
             textPreview: entry.isTextOnly ? HistoryPreview.text(for: entry.text) : nil,
             representations: entry.representations,
-            imageMetadata: entry.imageMetadata
+            imageMetadata: entry.imageMetadata,
+            referenceMetadata: entry.referenceMetadata
         )
     }
 
     private static func isRenderable(_ entry: HistoryEntry) -> Bool {
-        entry.isImageEntry || HistoryTextPolicy.shouldCapture(entry.text)
+        entry.isTypedEntry || HistoryTextPolicy.shouldCapture(entry.text)
+    }
+
+    private static func isSupportedWebURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
+    }
+
+    private static func unavailableReferenceItem(_ item: HistoryReferenceItemManifest) -> HistoryReferenceItemManifest {
+        HistoryReferenceItemManifest(
+            id: item.id,
+            order: item.order,
+            kind: item.kind,
+            typeIdentifier: item.typeIdentifier,
+            bookmarkData: item.bookmarkData,
+            urlString: item.urlString,
+            metadata: HistoryReferenceMetadata(
+                displayName: item.metadata.displayName,
+                fileExtension: item.metadata.fileExtension,
+                typeIdentifier: item.metadata.typeIdentifier,
+                byteCount: item.metadata.byteCount,
+                domain: item.metadata.domain,
+                searchText: item.metadata.searchText,
+                availability: .unavailable
+            )
+        )
+    }
+
+    private static func referenceMetadata(
+        existing: HistoryReferenceMetadata,
+        resolvedURL: URL
+    ) -> HistoryReferenceMetadata {
+        let values = try? resolvedURL.resourceValues(forKeys: [.nameKey, .fileSizeKey, .contentTypeKey])
+        let name = values?.name ?? existing.displayName
+        let fileExtension = resolvedURL.pathExtension.lowercased()
+        let typeIdentifier = values?.contentType?.identifier ?? existing.typeIdentifier
+        let byteCount = values?.fileSize.map(Int64.init) ?? existing.byteCount
+        return HistoryReferenceMetadata(
+            displayName: name,
+            fileExtension: fileExtension,
+            typeIdentifier: typeIdentifier,
+            byteCount: byteCount,
+            searchText: [name, fileExtension, typeIdentifier].joined(separator: " "),
+            availability: .available
+        )
     }
 
     private static func manifest(from object: NSManagedObject) -> ManagedImageAssetManifest? {
@@ -588,6 +962,13 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
               let data = encoded.data(using: .utf8)
         else { return nil }
         return try? JSONDecoder().decode(ManagedImageAssetManifest.self, from: data)
+    }
+
+    private static func referenceManifest(from object: NSManagedObject) -> HistoryReferenceManifest? {
+        guard let encoded = object.value(forKey: "referenceManifest") as? String,
+              let data = encoded.data(using: .utf8)
+        else { return nil }
+        return try? JSONDecoder().decode(HistoryReferenceManifest.self, from: data)
     }
 
     private func imageManifest(id: UUID) throws -> ManagedImageAssetManifest? {
@@ -600,6 +981,31 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         }
     }
 
+    private func referenceManifest(id: UUID) throws -> HistoryReferenceManifest? {
+        try contextSync { context in
+            let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
+            request.fetchLimit = 1
+            request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+            guard let object = try context.fetch(request).first else { return nil }
+            return Self.referenceManifest(from: object)
+        }
+    }
+
+    private func saveReferenceManifest(_ manifest: HistoryReferenceManifest) throws {
+        let data = try JSONEncoder().encode(manifest)
+        guard let encoded = String(data: data, encoding: .utf8) else {
+            throw HistoryStoreError.unavailable
+        }
+        try contextSync { context in
+            let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
+            request.fetchLimit = 1
+            request.predicate = NSPredicate(format: "id == %@", manifest.occurrenceID as CVarArg)
+            guard let object = try context.fetch(request).first else { return }
+            object.setValue(encoded, forKey: "referenceManifest")
+            if context.hasChanges { try context.save() }
+        }
+    }
+
     private static func makeContainer() -> NSPersistentContainer {
         let model = NSManagedObjectModel()
         let entry = NSEntityDescription()
@@ -608,7 +1014,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         // Fetch indexes are not part of Core Data's compatibility hash by default.
         // Bump the entity hash so existing stores perform a lightweight migration
         // and receive the S018 index layout instead of keeping their legacy index.
-        entry.versionHashModifier = "performance-indexes-v1-managed-image-delete-v1"
+        entry.versionHashModifier = "performance-indexes-v1-managed-image-delete-v1-reference-v1"
 
         let id = NSAttributeDescription()
         id.name = "id"
@@ -650,7 +1056,12 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         managedImageDeletionPending.attributeType = .booleanAttributeType
         managedImageDeletionPending.isOptional = true
 
-        entry.properties = [id, text, capturedAt, itemKind, itemOrder, itemTypeIdentifier, managedImageManifest, managedImageDeletionPending]
+        let referenceManifest = NSAttributeDescription()
+        referenceManifest.name = "referenceManifest"
+        referenceManifest.attributeType = .stringAttributeType
+        referenceManifest.isOptional = true
+
+        entry.properties = [id, text, capturedAt, itemKind, itemOrder, itemTypeIdentifier, managedImageManifest, managedImageDeletionPending, referenceManifest]
         let idIndex = NSFetchIndexDescription(
             name: "idIndex",
             elements: [NSFetchIndexElementDescription(property: id, collationType: .binary)]
@@ -731,6 +1142,24 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
     func createImage(items: [ManagedImageCaptureItem], activityAt: Date) throws -> HistoryEntry {
         guard let store = try store() as? ManagedImageHistoryStoring else { throw HistoryStoreError.unavailable }
         return try store.createImage(items: items, activityAt: activityAt)
+    }
+
+    func createReference(items: [HistoryReferenceCaptureItem], activityAt: Date) throws -> HistoryEntry {
+        guard let store = try store() as? ManagedImageHistoryStoring else { throw HistoryStoreError.unavailable }
+        return try store.createReference(items: items, activityAt: activityAt)
+    }
+
+    func createImageAndReference(
+        imageItems: [ManagedImageCaptureItem],
+        referenceItems: [HistoryReferenceCaptureItem],
+        activityAt: Date
+    ) throws -> HistoryEntry {
+        guard let store = try store() as? ManagedImageHistoryStoring else { throw HistoryStoreError.unavailable }
+        return try store.createImageAndReference(
+            imageItems: imageItems,
+            referenceItems: referenceItems,
+            activityAt: activityAt
+        )
     }
 
     func pastePayload(id: UUID) throws -> HistoryPastePayload? {

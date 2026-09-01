@@ -70,11 +70,26 @@ final class ApplicationShell: NSObject {
             },
             onExternalChange: { [weak stackCaptureCoordinator, weak stackSessionController] change in
                 let captureContext = stackSessionController?.captureContext
-                stackCaptureCoordinator?.enqueueExternalImage(
-                    change.imageItems,
-                    observedChangeCount: change.changeCount,
-                    stackCaptureContext: captureContext
-                )
+                if !change.imageItems.isEmpty, !change.referenceItems.isEmpty {
+                    stackCaptureCoordinator?.enqueueExternalMixed(
+                        imageItems: change.imageItems,
+                        referenceItems: change.referenceItems,
+                        observedChangeCount: change.changeCount,
+                        stackCaptureContext: captureContext
+                    )
+                } else if !change.imageItems.isEmpty {
+                    stackCaptureCoordinator?.enqueueExternalImage(
+                        change.imageItems,
+                        observedChangeCount: change.changeCount,
+                        stackCaptureContext: captureContext
+                    )
+                } else if !change.referenceItems.isEmpty {
+                    stackCaptureCoordinator?.enqueueExternalReference(
+                        change.referenceItems,
+                        observedChangeCount: change.changeCount,
+                        stackCaptureContext: captureContext
+                    )
+                }
             }
         )
         pasteboardMonitor = monitor
@@ -94,7 +109,7 @@ final class ApplicationShell: NSObject {
             },
             commandDispatcher: commandDispatcher,
             payloadProvider: { [historyPasteService] entry async throws in
-                if entry.isImageEntry {
+                if entry.isTypedEntry {
                     return try await historyPasteService.pastePayload(id: entry.id)
                 }
                 return HistoryPastePayload(items: [HistoryPasteboardItemPayload(representations: [
