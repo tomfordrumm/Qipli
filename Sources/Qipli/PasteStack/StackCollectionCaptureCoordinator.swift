@@ -29,6 +29,22 @@ final class StackCollectionCaptureCoordinator {
         }
     }
 
+    func enqueueExternalImage(
+        _ items: [ManagedImageCaptureItem],
+        observedChangeCount: Int,
+        stackCaptureContext: StackCaptureContext?
+    ) {
+        let previousCapture = pendingCapture
+        pendingCapture = Task { @MainActor [weak self] in
+            await previousCapture?.value
+            await self?.recordExternalImage(
+                items,
+                observedChangeCount: observedChangeCount,
+                stackCaptureContext: stackCaptureContext
+            )
+        }
+    }
+
     func drainPendingCaptures() async {
         await pendingCapture?.value
     }
@@ -48,6 +64,27 @@ final class StackCollectionCaptureCoordinator {
         }
         stackSessionController.appendPersistedHistoryEntry(
             entry,
+            observedChangeCount: observedChangeCount,
+            for: stackCaptureContext
+        )
+    }
+
+    private func recordExternalImage(
+        _ items: [ManagedImageCaptureItem],
+        observedChangeCount: Int,
+        stackCaptureContext: StackCaptureContext?
+    ) async {
+        guard await historyViewModel.recordExternalImage(items) != nil else {
+            let message = historyViewModel.imageCaptureNotice
+                ?? "Qipli could not save the copied image."
+            stackSessionController.recordNonTextCaptureFailure(
+                message: message,
+                observedChangeCount: observedChangeCount,
+                for: stackCaptureContext
+            )
+            return
+        }
+        stackSessionController.recordNonTextCapture(
             observedChangeCount: observedChangeCount,
             for: stackCaptureContext
         )

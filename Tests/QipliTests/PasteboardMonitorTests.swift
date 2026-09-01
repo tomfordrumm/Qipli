@@ -200,6 +200,32 @@ final class PasteboardMonitorTests: XCTestCase {
 
         XCTAssertEqual(captured, ["duplicate", "duplicate"])
     }
+
+    func testTypedImageChangeUsesTheObservedChangeCountAndSkipsTextFallback() async {
+        let pasteboard = FakeTypedPasteboard(changeCount: 70)
+        var typedChanges: [PasteboardTypedChange] = []
+        var textChanges: [PasteboardTextChange] = []
+        let typedExpectation = expectation(description: "typed image change")
+        let monitor = PasteboardMonitor(
+            pasteboard: pasteboard,
+            onExternalText: { textChanges.append($0) },
+            onExternalChange: {
+                typedChanges.append($0)
+                typedExpectation.fulfill()
+            }
+        )
+        monitor.start(interval: 3_600)
+        defer { monitor.stop() }
+
+        pasteboard.publishImageChange()
+        monitor.poll()
+        await fulfillment(of: [typedExpectation], timeout: 1)
+
+        XCTAssertEqual(typedChanges.map(\.changeCount), [71])
+        XCTAssertEqual(typedChanges.first?.imageItems.count, 1)
+        XCTAssertTrue(textChanges.isEmpty)
+        XCTAssertEqual(pasteboard.textValueReadCount, 0)
+    }
 }
 
 private final class FakePasteboard: PasteboardReading {
@@ -230,6 +256,43 @@ private final class FakePasteboard: PasteboardReading {
     func setUnsupportedValue() {
         text = nil
         storedChangeCount += 1
+    }
+}
+
+private final class FakeTypedPasteboard: PasteboardReading, TypedPasteboardReading {
+    private var storedChangeCount: Int
+    private(set) var textValueReadCount = 0
+    private var pendingChange: PasteboardTypedChange?
+
+    init(changeCount: Int) {
+        storedChangeCount = changeCount
+    }
+
+    var changeCount: Int { storedChangeCount }
+
+    func textValue() -> String? {
+        textValueReadCount += 1
+        return "text fallback"
+    }
+
+    func publishImageChange() {
+        storedChangeCount += 1
+        pendingChange = PasteboardTypedChange(
+            changeCount: -1,
+            imageItems: [ManagedImageCaptureItem(
+                order: 0,
+                representations: [ManagedImageCaptureRepresentation(
+                    typeIdentifier: "public.png",
+                    data: Data([1, 2, 3])
+                )]
+            )]
+        )
+    }
+
+    func typedImageChange(changeCount: Int) -> PasteboardTypedChange? {
+        guard let pendingChange else { return nil }
+        self.pendingChange = nil
+        return PasteboardTypedChange(changeCount: changeCount, imageItems: pendingChange.imageItems)
     }
 }
 

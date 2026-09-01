@@ -22,7 +22,7 @@ enum HistorySearchMatcher {
         for entry in entries {
             guard !Task.isCancelled else { return [] }
             didInspect?()
-            if entry.text.localizedCaseInsensitiveContains(query) {
+            if entry.searchableMetadata.localizedCaseInsensitiveContains(query) {
                 matches.append(entry)
             }
         }
@@ -47,7 +47,13 @@ final class HistoryViewModel: ObservableObject {
     @Published private(set) var presentationViewportResetRequestID = 0
     @Published private(set) var isSearchInProgress = false
     @Published private(set) var isLoadingMore = false
+    @Published private(set) var thumbnailDataByEntryID: [UUID: Data] = [:]
+    @Published private(set) var imageCaptureNotice: String?
     private(set) var visibleSnapshotRevision = 0
+    private let thumbnailCacheBytes = HistoryImageStoragePolicy.production.thumbnailCacheBytes
+    private var thumbnailCacheByteCount = 0
+    private var thumbnailTasks: [UUID: Task<Void, Never>] = [:]
+    private var thumbnailGeneration = 0
 
     private let service: SerializedHistoryService
     private let usesPaging: Bool
@@ -132,6 +138,7 @@ final class HistoryViewModel: ObservableObject {
 
     func reload(selectFirstResult: Bool = false) async {
         cancelSearch()
+        invalidateThumbnailTasks()
         pagingGeneration &+= 1
         pageTask?.cancel()
         state = .loading
@@ -290,7 +297,15 @@ final class HistoryViewModel: ObservableObject {
             let activityAt = try await service.markUsed(id: id)
             guard let index = loadedEntries.firstIndex(where: { $0.id == id }) else { return }
             let previous = loadedEntries.remove(at: index)
-            let updated = HistoryEntry(id: previous.id, text: previous.text, activityAt: activityAt)
+            let updated = HistoryEntry(
+                id: previous.id,
+                text: previous.text,
+                activityAt: activityAt,
+                representations: previous.representations,
+                imageMetadata: previous.imageMetadata,
+                managedImages: previous.managedImages,
+                managedImageItems: previous.managedImageItems
+            )
             let insertionIndex = loadedEntries.firstIndex(where: { Self.isNewer(updated, than: $0) }) ?? loadedEntries.endIndex
             loadedEntries.insert(updated, at: insertionIndex)
             if usesPaging, hasMorePages {
@@ -313,6 +328,7 @@ final class HistoryViewModel: ObservableObject {
         pagingGeneration &+= 1
         do {
             guard let entry = try await service.capture(text: text) else { return nil }
+            imageCaptureNotice = nil
             loadedEntries.removeAll { $0.id == entry.id }
             let insertionIndex = usesPaging
                 ? loadedEntries.firstIndex(where: { Self.isNewer(entry, than: $0) }) ?? loadedEntries.endIndex
@@ -344,6 +360,73 @@ final class HistoryViewModel: ObservableObject {
         }
     }
 
+    @discardableResult
+    func recordExternalImage(_ items: [ManagedImageCaptureItem]) async -> HistoryEntry? {
+        pagingGeneration &+= 1
+        do {
+            guard let entry = try await service.capture(imageItems: items) else { return nil }
+            imageCaptureNotice = nil
+            loadedEntries.removeAll { $0.id == entry.id }
+            loadedEntries.insert(entry, at: 0)
+            if usesPaging, loadedEntries.count > HistoryService.pageSize {
+                loadedEntries.removeLast()
+                hasMorePages = true
+                pageCursor = loadedEntries.last.map {
+                    HistoryPageCursor(activityAt: $0.activityAt, id: $0.id)
+                }
+            }
+            hasLoadedSnapshot = true
+            if query.isEmpty {
+                publish(entries: loadedEntries, selectFirstResult: false)
+            } else {
+                schedulePagedSearch(selectFirstResult: true, debounce: false)
+            }
+            return entry
+        } catch {
+            imageCaptureNotice = (error as? LocalizedError)?.errorDescription
+                ?? "Qipli could not save the copied image."
+            return nil
+        }
+    }
+
+    func requestThumbnail(for entry: HistoryEntry) {
+        guard entry.isImageEntry,
+              thumbnailDataByEntryID[entry.id] == nil,
+              thumbnailTasks[entry.id] == nil
+        else { return }
+        let entryID = entry.id
+        let generation = thumbnailGeneration
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.thumbnailGeneration == generation {
+                    self.thumbnailTasks[entryID] = nil
+                }
+            }
+            do {
+                guard let data = try await self.service.thumbnailData(id: entryID), !Task.isCancelled else { return }
+                guard generation == self.thumbnailGeneration,
+                      self.loadedEntries.contains(where: { $0.id == entryID })
+                else { return }
+                if let previous = self.thumbnailDataByEntryID.updateValue(data, forKey: entryID) {
+                    self.thumbnailCacheByteCount -= previous.count
+                }
+                self.thumbnailCacheByteCount += data.count
+                while self.thumbnailCacheByteCount > self.thumbnailCacheBytes,
+                      let oldestID = self.thumbnailDataByEntryID.keys.first,
+                      oldestID != entryID || self.thumbnailDataByEntryID.count > 1 {
+                    if let removed = self.thumbnailDataByEntryID.removeValue(forKey: oldestID) {
+                        self.thumbnailCacheByteCount -= removed.count
+                    }
+                }
+                self.visibleSnapshotRevision &+= 1
+            } catch {
+                // Keep the row available with its image placeholder.
+            }
+        }
+        thumbnailTasks[entryID] = task
+    }
+
     func delete(_ entry: HistoryEntry) async {
         pagingGeneration &+= 1
         let previousEntries = visibleEntries
@@ -351,6 +434,7 @@ final class HistoryViewModel: ObservableObject {
         let selectedBeforeDelete = selectedEntryID
         do {
             try await service.delete(id: entry.id)
+            removeThumbnail(for: entry.id)
             loadedEntries.removeAll { $0.id == entry.id }
             if usesPaging {
                 if hasMorePages {
@@ -388,6 +472,9 @@ final class HistoryViewModel: ObservableObject {
         pagingGeneration &+= 1
         do {
             try await service.clearAll()
+            invalidateThumbnailTasks()
+            thumbnailDataByEntryID.removeAll()
+            thumbnailCacheByteCount = 0
             loadedEntries = []
             pageCursor = nil
             hasMorePages = false
@@ -535,8 +622,10 @@ final class HistoryViewModel: ObservableObject {
     private func discardExpiredSnapshotEntries() -> Bool {
         guard hasLoadedSnapshot else { return false }
         let cutoff = now().addingTimeInterval(-HistoryService.retention)
+        let expiredIDs = loadedEntries.filter { $0.activityAt <= cutoff }.map(\.id)
         let previousCount = loadedEntries.count
         loadedEntries.removeAll { $0.activityAt <= cutoff }
+        for id in expiredIDs { removeThumbnail(for: id) }
         if usesPaging, loadedEntries.count != previousCount, hasMorePages {
             pageCursor = loadedEntries.last.map {
                 HistoryPageCursor(activityAt: $0.activityAt, id: $0.id)
@@ -545,13 +634,31 @@ final class HistoryViewModel: ObservableObject {
         return loadedEntries.count != previousCount
     }
 
+    private func removeThumbnail(for entryID: UUID) {
+        thumbnailTasks.removeValue(forKey: entryID)?.cancel()
+        if let data = thumbnailDataByEntryID.removeValue(forKey: entryID) {
+            thumbnailCacheByteCount -= data.count
+        }
+    }
+
+    private func invalidateThumbnailTasks() {
+        thumbnailGeneration &+= 1
+        for task in thumbnailTasks.values { task.cancel() }
+        thumbnailTasks.removeAll()
+    }
+
     private static func entries(from page: HistoryPage) -> [HistoryEntry] {
-        if !page.textEntries.isEmpty || page.descriptors.isEmpty {
-            return page.textEntries
+        if !page.entries.isEmpty || page.descriptors.isEmpty {
+            return page.entries
         }
         return page.descriptors.compactMap { (descriptor: HistoryOccurrenceDescriptor) -> HistoryEntry? in
-            guard let text = descriptor.textPreview else { return nil }
-            return HistoryEntry(id: descriptor.id, text: text, activityAt: descriptor.activityAt)
+            HistoryEntry(
+                id: descriptor.id,
+                text: descriptor.textPreview ?? "",
+                activityAt: descriptor.activityAt,
+                representations: descriptor.representations,
+                imageMetadata: descriptor.imageMetadata
+            )
         }
     }
 

@@ -1,9 +1,15 @@
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 struct PasteboardRepresentationInventory: Equatable, Sendable {
     let itemCount: Int
     let representationCounts: [String: Int]
+}
+
+struct PasteboardTypedChange: Equatable, Sendable {
+    let changeCount: Int
+    let imageItems: [ManagedImageCaptureItem]
 }
 
 /// A payload-free probe for deciding the future typed allowlist. It reads only
@@ -32,12 +38,16 @@ protocol PasteboardReading: AnyObject {
     func textValue() -> String?
 }
 
+protocol TypedPasteboardReading: PasteboardReading {
+    func typedImageChange(changeCount: Int) -> PasteboardTypedChange?
+}
+
 struct PasteboardTextChange: Equatable {
     let changeCount: Int
     let text: String
 }
 
-final class SystemPasteboardReader: PasteboardReading {
+final class SystemPasteboardReader: TypedPasteboardReading, @unchecked Sendable {
     private let pasteboard: NSPasteboard
 
     init(pasteboard: NSPasteboard = .general) {
@@ -54,6 +64,24 @@ final class SystemPasteboardReader: PasteboardReading {
     /// until a later slice changes the capture allowlist.
     func representationInventory() -> PasteboardRepresentationInventory {
         PasteboardPlatformProbe.inventory(for: pasteboard)
+    }
+
+    func typedImageChange(changeCount: Int) -> PasteboardTypedChange? {
+        guard let items = pasteboard.pasteboardItems else { return nil }
+        let imageItems = items.enumerated().compactMap { index, item -> ManagedImageCaptureItem? in
+            let representations = item.types.compactMap { type -> ManagedImageCaptureRepresentation? in
+                let typeIdentifier = type.rawValue
+                guard HistoryImageTypePolicy.isSupported(typeIdentifier),
+                      let data = item.data(forType: type),
+                      !data.isEmpty
+                else { return nil }
+                return ManagedImageCaptureRepresentation(typeIdentifier: typeIdentifier, data: data)
+            }
+            guard !representations.isEmpty else { return nil }
+            return ManagedImageCaptureItem(order: index, representations: representations)
+        }
+        guard !imageItems.isEmpty else { return nil }
+        return PasteboardTypedChange(changeCount: changeCount, imageItems: imageItems)
     }
 }
 
@@ -116,6 +144,7 @@ final class PasteboardMonitor {
     private let pasteboard: PasteboardReading
     private let scheduler: PasteboardPollScheduling
     private let onExternalText: (PasteboardTextChange) -> Void
+    private let onExternalChange: ((PasteboardTypedChange) -> Void)?
     private var lastChangeCount: Int?
     private var ignoredChanges = Set<Int>()
     private var scheduledPoll: PasteboardPollCancellation?
@@ -123,11 +152,13 @@ final class PasteboardMonitor {
     init(
         pasteboard: PasteboardReading = SystemPasteboardReader(),
         scheduler: PasteboardPollScheduling? = nil,
-        onExternalText: @escaping (PasteboardTextChange) -> Void
+        onExternalText: @escaping (PasteboardTextChange) -> Void,
+        onExternalChange: ((PasteboardTypedChange) -> Void)? = nil
     ) {
         self.pasteboard = pasteboard
         self.scheduler = scheduler ?? RunLoopPasteboardPollScheduler()
         self.onExternalText = onExternalText
+        self.onExternalChange = onExternalChange
     }
 
     var currentChangeCount: Int { pasteboard.changeCount }
@@ -165,6 +196,25 @@ final class PasteboardMonitor {
         // A newer external change makes every older expected self-write irrelevant.
         ignoredChanges = ignoredChanges.filter { $0 >= currentChangeCount }
         guard ignoredChanges.remove(currentChangeCount) == nil else { return }
+        if let typedReader = pasteboard as? TypedPasteboardReading,
+           let onExternalChange {
+            Task { @MainActor [weak self] in
+                let typedChange = await Task.detached(priority: .userInitiated) {
+                    typedReader.typedImageChange(changeCount: currentChangeCount)
+                }.value
+                guard let self else { return }
+                if let typedChange {
+                    onExternalChange(typedChange)
+                    return
+                }
+                guard let text = self.pasteboard.textValue() else { return }
+                self.onExternalText(PasteboardTextChange(
+                    changeCount: currentChangeCount,
+                    text: text
+                ))
+            }
+            return
+        }
         guard let text = pasteboard.textValue() else { return }
         onExternalText(PasteboardTextChange(changeCount: currentChangeCount, text: text))
     }

@@ -54,6 +54,8 @@ struct HistoryTableView: NSViewRepresentable {
     let viewportResetRequestID: Int
     let interactionBridge: HistoryTableInteractionBridge
     let loadMore: () -> Void
+    let thumbnailData: (HistoryEntry) -> Data?
+    let requestThumbnail: (HistoryEntry) -> Void
     let selectEntry: (UUID) -> Void
     let pasteEntry: (HistoryEntry) -> Void
     let deleteEntry: (HistoryEntry) -> Void
@@ -118,6 +120,8 @@ struct HistoryTableView: NSViewRepresentable {
         private var pasteEntry: (HistoryEntry) -> Void
         private var deleteEntry: (HistoryEntry) -> Void
         private var loadMore: () -> Void = {}
+        private var thumbnailData: (HistoryEntry) -> Data? = { _ in nil }
+        private var requestThumbnail: (HistoryEntry) -> Void = { _ in }
         private weak var tableView: NSTableView?
         private weak var scrollView: NSScrollView?
         private var scrollObserver: NSObjectProtocol?
@@ -130,6 +134,8 @@ struct HistoryTableView: NSViewRepresentable {
             pasteEntry = parent.pasteEntry
             deleteEntry = parent.deleteEntry
             loadMore = parent.loadMore
+            thumbnailData = parent.thumbnailData
+            requestThumbnail = parent.requestThumbnail
         }
 
         func install(tableView: NSTableView, scrollView: NSScrollView) {
@@ -156,6 +162,8 @@ struct HistoryTableView: NSViewRepresentable {
             pasteEntry = parent.pasteEntry
             deleteEntry = parent.deleteEntry
             loadMore = parent.loadMore
+            thumbnailData = parent.thumbnailData
+            requestThumbnail = parent.requestThumbnail
 
             let mustResetViewport = handledViewportResetRequestID != parent.viewportResetRequestID
             handledViewportResetRequestID = parent.viewportResetRequestID
@@ -234,7 +242,7 @@ struct HistoryTableView: NSViewRepresentable {
             }
 
             let height = HistoryTableRowLayout.height(
-                for: HistoryPreview.text(for: entry.text),
+                for: HistoryPreview.text(for: entry.displayText),
                 textWidth: textWidth
             )
             rowHeightCache.insert(height: height, for: entry.id, textWidth: textWidth)
@@ -256,8 +264,11 @@ struct HistoryTableView: NSViewRepresentable {
                 owner: self
             ) as? HistoryTableCellView ?? makeCell()
             let entry = entries[row]
+            requestThumbnail(entry)
             cell.configure(
-                preview: HistoryPreview.text(for: entry.text),
+                preview: HistoryPreview.text(for: entry.displayText),
+                thumbnailData: thumbnailData(entry),
+                showsImage: entry.isImageEntry,
                 isSelected: entry.id == selectedEntryID,
                 deleteTarget: self,
                 deleteAction: #selector(deleteEntryFromButton(_:))
@@ -397,7 +408,7 @@ struct HistoryTableRowHeightCache {
 @MainActor
 enum HistoryTableRowLayout {
     static let minimumRowHeight: CGFloat = 38
-    static let horizontalChromeWidth: CGFloat = 52
+    static let horizontalChromeWidth: CGFloat = 88
 
     private static let maximumLines = 3
     private static let verticalPadding: CGFloat = 8
@@ -429,6 +440,7 @@ enum HistoryTableRowLayout {
 }
 
 private final class HistoryTableCellView: NSTableCellView {
+    private let thumbnailView = NSImageView()
     private let previewField = NSTextField(labelWithString: "")
     private let deleteButton: NSButton
     private var isSelectedEntry = false
@@ -451,6 +463,11 @@ private final class HistoryTableCellView: NSTableCellView {
         previewField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         previewField.setAccessibilityRole(.staticText)
 
+        thumbnailView.translatesAutoresizingMaskIntoConstraints = false
+        thumbnailView.imageScaling = .scaleProportionallyUpOrDown
+        thumbnailView.contentTintColor = .secondaryLabelColor
+        thumbnailView.setAccessibilityRole(.image)
+
         deleteButton.translatesAutoresizingMaskIntoConstraints = false
         deleteButton.isBordered = false
         deleteButton.bezelStyle = .accessoryBarAction
@@ -459,10 +476,15 @@ private final class HistoryTableCellView: NSTableCellView {
         deleteButton.setAccessibilityLabel("Delete")
         deleteButton.setAccessibilityHelp("Removes this history entry.")
 
+        addSubview(thumbnailView)
         addSubview(previewField)
         addSubview(deleteButton)
         NSLayoutConstraint.activate([
-            previewField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            thumbnailView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            thumbnailView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            thumbnailView.widthAnchor.constraint(equalToConstant: 28),
+            thumbnailView.heightAnchor.constraint(equalToConstant: 28),
+            previewField.leadingAnchor.constraint(equalTo: thumbnailView.trailingAnchor, constant: 8),
             previewField.centerYAnchor.constraint(equalTo: centerYAnchor),
             previewField.trailingAnchor.constraint(equalTo: deleteButton.leadingAnchor, constant: -10),
             deleteButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
@@ -504,12 +526,22 @@ private final class HistoryTableCellView: NSTableCellView {
 
     func configure(
         preview: String,
+        thumbnailData: Data?,
+        showsImage: Bool,
         isSelected: Bool,
         deleteTarget: AnyObject,
         deleteAction: Selector
     ) {
         previewField.stringValue = preview
         previewField.setAccessibilityLabel(preview)
+        if showsImage {
+            thumbnailView.image = thumbnailData.flatMap(NSImage.init(data:))
+                ?? NSImage(systemSymbolName: "photo", accessibilityDescription: "Image")
+            thumbnailView.setAccessibilityLabel("Image preview")
+        } else {
+            thumbnailView.image = nil
+            thumbnailView.setAccessibilityLabel(nil)
+        }
         deleteButton.target = deleteTarget
         deleteButton.action = deleteAction
         setSelected(isSelected)

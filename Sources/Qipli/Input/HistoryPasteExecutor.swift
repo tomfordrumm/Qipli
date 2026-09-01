@@ -15,11 +15,15 @@ protocol HistoryPasteboardWriting: AnyObject {
     func write(text: String) throws -> Int
 }
 
+protocol TypedHistoryPasteboardWriting: AnyObject {
+    func write(payload: HistoryPastePayload) throws -> Int
+}
+
 enum HistoryPasteboardWriteError: Error {
     case unableToWriteText
 }
 
-final class SystemHistoryPasteboardWriter: HistoryPasteboardWriting {
+final class SystemHistoryPasteboardWriter: HistoryPasteboardWriting, TypedHistoryPasteboardWriting {
     private let pasteboard: NSPasteboard
 
     init(pasteboard: NSPasteboard = .general) {
@@ -29,6 +33,24 @@ final class SystemHistoryPasteboardWriter: HistoryPasteboardWriting {
     func write(text: String) throws -> Int {
         pasteboard.clearContents()
         guard pasteboard.setString(text, forType: .string) else {
+            throw HistoryPasteboardWriteError.unableToWriteText
+        }
+        return pasteboard.changeCount
+    }
+
+    func write(payload: HistoryPastePayload) throws -> Int {
+        pasteboard.clearContents()
+        let items = payload.items.map { payloadItem in
+            let item = NSPasteboardItem()
+            for representation in payloadItem.representations {
+                item.setData(
+                    representation.data,
+                    forType: NSPasteboard.PasteboardType(rawValue: representation.typeIdentifier)
+                )
+            }
+            return item
+        }
+        guard !items.isEmpty, pasteboard.writeObjects(items) else {
             throw HistoryPasteboardWriteError.unableToWriteText
         }
         return pasteboard.changeCount
@@ -167,6 +189,7 @@ final class HistoryPasteExecutor {
     private let observeTargetActivation: (@escaping () -> Void) -> HistoryTargetActivationObserving
     private let now: () -> Date
     private let activationWaitPolicy: HistoryTargetActivationWaitPolicy
+    private let payloadProvider: ((HistoryEntry) async throws -> HistoryPastePayload?)?
     private var activeOperationID: UUID?
     private var activationObservation: HistoryTargetActivationObserving?
 
@@ -175,6 +198,7 @@ final class HistoryPasteExecutor {
         pasteboardWriter: HistoryPasteboardWriting,
         registerSelfWrite: @escaping (Int) -> Void,
         commandDispatcher: TaggedPasteCommandDispatching,
+        payloadProvider: ((HistoryEntry) async throws -> HistoryPastePayload?)? = nil,
         activationWaitPolicy: HistoryTargetActivationWaitPolicy = .userInitiated,
         scheduleAfterActivation: @escaping (TimeInterval, @escaping () -> Void) -> Void = { interval, work in
             let timer = Timer(timeInterval: interval, repeats: false) { _ in
@@ -192,6 +216,7 @@ final class HistoryPasteExecutor {
         self.registerSelfWrite = registerSelfWrite
         self.commandDispatcher = commandDispatcher
         self.activationWaitPolicy = activationWaitPolicy
+        self.payloadProvider = payloadProvider
         self.scheduleAfterActivation = scheduleAfterActivation
         self.observeTargetActivation = observeTargetActivation
         self.now = now
@@ -221,15 +246,64 @@ final class HistoryPasteExecutor {
         }
 
         // Copy the immutable value before any UI or activation side effect can change the selected row.
-        let textSnapshot = entry.text
+        if entry.isImageEntry {
+            guard let payloadProvider,
+                  let typedWriter = pasteboardWriter as? TypedHistoryPasteboardWriting
+            else {
+                finish(operationID: operationID, result: .failure(.pasteboardWriteFailed), completion: completion)
+                return true
+            }
+            Task { @MainActor [weak self] in
+                do {
+                    guard let payload = try await payloadProvider(entry) else {
+                        throw HistoryPasteboardWriteError.unableToWriteText
+                    }
+                    guard let self, self.activeOperationID == operationID else { return }
+                    let changeCount = try typedWriter.write(payload: payload)
+                    self.registerSelfWrite(changeCount)
+                    self.beginActivation(
+                        operationID: operationID,
+                        target: target,
+                        concealPanel: concealPanel,
+                        closePanel: closePanel,
+                        completion: completion
+                    )
+                } catch {
+                    self?.finish(
+                        operationID: operationID,
+                        result: .failure(.pasteboardWriteFailed),
+                        completion: completion
+                    )
+                }
+            }
+            return true
+        }
+
         do {
-            let changeCount = try pasteboardWriter.write(text: textSnapshot)
+            let changeCount = try pasteboardWriter.write(text: entry.text)
             registerSelfWrite(changeCount)
         } catch {
             finish(operationID: operationID, result: .failure(.pasteboardWriteFailed), completion: completion)
             return true
         }
 
+        beginActivation(
+            operationID: operationID,
+            target: target,
+            concealPanel: concealPanel,
+            closePanel: closePanel,
+            completion: completion
+        )
+        return true
+    }
+
+    private func beginActivation(
+        operationID: UUID,
+        target: HistoryPasteTarget,
+        concealPanel: @escaping () -> Void,
+        closePanel: @escaping () -> Void,
+        completion: @escaping (Result<Void, HistoryPasteFailure>) -> Void
+    ) {
         // Keep the ordered key window alive for macOS's cooperative activation
         // handoff, but remove the waiting state from the user's screen.
         concealPanel()
@@ -246,7 +320,7 @@ final class HistoryPasteExecutor {
         }
         guard !target.isTerminated, target.activate() else {
             finish(operationID: operationID, result: .failure(.targetUnavailable), completion: completion)
-            return true
+            return
         }
 
         // Yield Qipli's active state while the transparent History panel stays
@@ -258,7 +332,6 @@ final class HistoryPasteExecutor {
             closePanel: closePanel,
             completion: completion
         )
-        return true
     }
 
     func cancelActivePaste() {

@@ -335,6 +335,8 @@ final class StackSessionController: ObservableObject {
     private(set) var traversalDirection: StackTraversalDirection = .direct
     private(set) var traversalHasStarted = false
     @Published private(set) var hasCaptureError = false
+    @Published private(set) var hasNonTextCaptureNotice = false
+    @Published private(set) var nonTextCaptureFailureMessage: String?
     @Published private(set) var hasCopyCommandDispatchFailure = false
     @Published private(set) var pasteFailure: StackPasteFailure?
     private(set) var reactivationPriorityID: UUID?
@@ -386,6 +388,8 @@ final class StackSessionController: ObservableObject {
         )
         publishSessionState()
         setCaptureError(false)
+        setNonTextCaptureNotice(false)
+        setNonTextCaptureFailureMessage(nil)
         setCopyCommandDispatchFailure(false)
         setPasteFailure(nil)
         return true
@@ -405,6 +409,35 @@ final class StackSessionController: ObservableObject {
         _ = session.append(historyEntry: entry)
         publishSessionState()
         setCaptureError(false)
+        setNonTextCaptureNotice(false)
+        setNonTextCaptureFailureMessage(nil)
+    }
+
+    /// Media is durable History content, but the first typed Stack remains
+    /// text-only. This notice must not mutate the active stack session.
+    func recordNonTextCapture(
+        observedChangeCount: Int,
+        for captureContext: StackCaptureContext?
+    ) {
+        guard let captureContext,
+              session?.captureContext == captureContext,
+              observedChangeCount > captureContext.captureAfterChangeCount
+        else { return }
+        setNonTextCaptureFailureMessage(nil)
+        setNonTextCaptureNotice(true)
+    }
+
+    func recordNonTextCaptureFailure(
+        message: String,
+        observedChangeCount: Int,
+        for captureContext: StackCaptureContext?
+    ) {
+        guard let captureContext,
+              session?.captureContext == captureContext,
+              observedChangeCount > captureContext.captureAfterChangeCount
+        else { return }
+        setNonTextCaptureFailureMessage(message)
+        setNonTextCaptureNotice(false)
     }
 
     /// Storage failures must be visible, but never create an in-memory orphan.
@@ -534,6 +567,8 @@ final class StackSessionController: ObservableObject {
         session = nil
         publishSessionState()
         setCaptureError(false)
+        setNonTextCaptureNotice(false)
+        setNonTextCaptureFailureMessage(nil)
         setCopyCommandDispatchFailure(false)
         setPasteFailure(nil)
     }
@@ -571,6 +606,16 @@ final class StackSessionController: ObservableObject {
     private func setCaptureError(_ newValue: Bool) {
         guard hasCaptureError != newValue else { return }
         hasCaptureError = newValue
+    }
+
+    private func setNonTextCaptureNotice(_ newValue: Bool) {
+        guard hasNonTextCaptureNotice != newValue else { return }
+        hasNonTextCaptureNotice = newValue
+    }
+
+    private func setNonTextCaptureFailureMessage(_ newValue: String?) {
+        guard nonTextCaptureFailureMessage != newValue else { return }
+        nonTextCaptureFailureMessage = newValue
     }
 
     private func setCopyCommandDispatchFailure(_ newValue: Bool) {

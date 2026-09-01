@@ -48,6 +48,7 @@
 		A00100000000000000000043 /* PerformanceInstrumentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000043 /* PerformanceInstrumentation.swift */; };
 		A00100000000000000000044 /* PerformanceBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000044 /* PerformanceBaselineTests.swift */; };
 		A00100000000000000000045 /* HistoryTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000045 /* HistoryTableView.swift */; };
+		A00100000000000000000046 /* ManagedImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000046 /* ManagedImageStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -106,6 +107,7 @@
 		A00200000000000000000043 /* PerformanceInstrumentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceInstrumentation.swift; sourceTree = "<group>"; };
 		A00200000000000000000044 /* PerformanceBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceBaselineTests.swift; sourceTree = "<group>"; };
 		A00200000000000000000045 /* HistoryTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryTableView.swift; sourceTree = "<group>"; };
+		A00200000000000000000046 /* ManagedImageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedImageStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -238,6 +240,7 @@
 			isa = PBXGroup;
 			children = (
 				A00200000000000000000016 /* HistoryEntry.swift */,
+				A00200000000000000000046 /* ManagedImageStore.swift */,
 				A00200000000000000000017 /* HistoryStore.swift */,
 				A00200000000000000000018 /* HistoryService.swift */,
 				A00200000000000000000019 /* HistoryViewModel.swift */,
@@ -403,6 +406,7 @@
 				A00100000000000000000010 /* SyntheticEventMarker.swift in Sources */,
 				A00100000000000000000011 /* PasteboardMonitor.swift in Sources */,
 				A00100000000000000000012 /* HistoryEntry.swift in Sources */,
+				A00100000000000000000046 /* ManagedImageStore.swift in Sources */,
 				A00100000000000000000013 /* HistoryStore.swift in Sources */,
 				A00100000000000000000014 /* HistoryService.swift in Sources */,
 				A00100000000000000000015 /* HistoryViewModel.swift in Sources */,

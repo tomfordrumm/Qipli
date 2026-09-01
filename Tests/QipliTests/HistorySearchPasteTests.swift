@@ -489,6 +489,57 @@ final class HistoryPasteExecutorTests: XCTestCase {
         XCTAssertNoThrow(try result?.get())
     }
 
+    func testImagePasteWritesTheExactTypedPayloadBeforeActivation() async {
+        let trace = Trace()
+        let writer = FakeHistoryPasteboardWriter(changeCount: 42, trace: trace)
+        let dispatcher = FakePasteCommandDispatcher(trace: trace, result: true)
+        let payload = HistoryPastePayload(items: [
+            HistoryPasteboardItemPayload(representations: [
+                HistoryPasteboardRepresentationPayload(typeIdentifier: "public.png", data: Data([4, 5, 6])),
+                HistoryPasteboardRepresentationPayload(typeIdentifier: "public.tiff", data: Data([7, 8]))
+            ])
+        ])
+        let image = HistoryEntry(
+            id: UUID(),
+            text: "",
+            activityAt: .now,
+            representations: [HistoryRepresentationDescriptor(kind: .inlineImage, typeIdentifier: "public.png")],
+            imageMetadata: [HistoryImageMetadata(pixelWidth: 2, pixelHeight: 2, byteCount: 3)],
+            managedImages: [HistoryManagedImageRepresentation(
+                typeIdentifier: "public.png",
+                relativePath: "images/managed.asset",
+                metadata: HistoryImageMetadata(pixelWidth: 2, pixelHeight: 2, byteCount: 3),
+                sha256: "fixture"
+            )]
+        )
+        let executor = HistoryPasteExecutor(
+            permissionService: FakeHistoryPermissionService(state: .granted),
+            pasteboardWriter: writer,
+            registerSelfWrite: { _ in },
+            commandDispatcher: dispatcher,
+            payloadProvider: { _ in payload }
+        )
+        let completionExpectation = expectation(description: "image paste completion")
+        var result: Result<Void, HistoryPasteFailure>?
+
+        executor.paste(
+            entry: image,
+            target: FakeHistoryPasteTarget(trace: trace),
+            concealPanel: { trace.events.append("conceal") },
+            closePanel: { trace.events.append("close") },
+            completion: {
+                result = $0
+                completionExpectation.fulfill()
+            }
+        )
+        await fulfillment(of: [completionExpectation], timeout: 1)
+
+        XCTAssertEqual(writer.writtenPayloads, [payload])
+        XCTAssertTrue(writer.writtenTexts.isEmpty)
+        XCTAssertEqual(trace.events, ["write", "conceal", "activate", "close", "dispatch"])
+        XCTAssertNoThrow(try result?.get())
+    }
+
     func testMissingPermissionDoesNotWriteClipboardOrClaimSuccess() {
         let trace = Trace()
         let writer = FakeHistoryPasteboardWriter(changeCount: 6, trace: trace)
@@ -1333,11 +1384,12 @@ private final class FakeActivationObservation: HistoryTargetActivationObserving 
     }
 }
 
-private final class FakeHistoryPasteboardWriter: HistoryPasteboardWriting {
+private final class FakeHistoryPasteboardWriter: HistoryPasteboardWriting, TypedHistoryPasteboardWriting {
     let changeCount: Int
     let trace: Trace
     let shouldFail: Bool
     private(set) var writtenTexts: [String] = []
+    private(set) var writtenPayloads: [HistoryPastePayload] = []
 
     init(changeCount: Int, trace: Trace, shouldFail: Bool = false) {
         self.changeCount = changeCount
@@ -1351,6 +1403,15 @@ private final class FakeHistoryPasteboardWriter: HistoryPasteboardWriting {
             throw HistoryPasteboardWriteError.unableToWriteText
         }
         writtenTexts.append(text)
+        return changeCount
+    }
+
+    func write(payload: HistoryPastePayload) throws -> Int {
+        trace.events.append("write")
+        if shouldFail {
+            throw HistoryPasteboardWriteError.unableToWriteText
+        }
+        writtenPayloads.append(payload)
         return changeCount
     }
 }

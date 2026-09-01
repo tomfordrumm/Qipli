@@ -1,4 +1,5 @@
 import CoreData
+import AppKit
 import Foundation
 import XCTest
 @testable import Qipli
@@ -50,6 +51,185 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertEqual(meaningfulEntry.text, meaningfulText)
         XCTAssertEqual(try service.entries(), [meaningfulEntry])
         store.close()
+    }
+
+    func testManagedImageCaptureSurvivesRestartAndPastesExactRepresentations() throws {
+        let clock = MutableClock(now: Date(timeIntervalSinceReferenceDate: 8_300_000))
+        let store = try makeStore()
+        let service = HistoryService(store: store, clock: clock)
+        let imageData = try makePNGData()
+        let entry = try XCTUnwrap(try service.capture(imageItems: [
+            ManagedImageCaptureItem(order: 0, representations: [
+                ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: imageData)
+            ])
+        ]))
+
+        XCTAssertTrue(entry.isImageEntry)
+        XCTAssertTrue(entry.text.isEmpty)
+        XCTAssertEqual(entry.imageMetadata.first?.pixelWidth, 2)
+        XCTAssertEqual(try service.entries().map(\.id), [entry.id])
+        XCTAssertNotNil(try service.thumbnailData(id: entry.id))
+
+        let restarted = try CoreDataHistoryStore(storeURL: directory.appendingPathComponent("History.sqlite"))
+        let restored = try XCTUnwrap(restarted.fetchEntry(id: entry.id))
+        XCTAssertEqual(restored.managedImages, entry.managedImages)
+        let payload = try XCTUnwrap(restarted.pastePayload(id: entry.id))
+        XCTAssertEqual(payload.items.count, 1)
+        XCTAssertEqual(payload.items[0].representations.map(\.typeIdentifier), ["public.png"])
+        XCTAssertEqual(payload.items[0].representations[0].data, imageData)
+        restarted.close()
+        store.close()
+    }
+
+    func testManagedImageOccurrencePreservesItemAndRepresentationOrderAcrossRestart() throws {
+        let store = try makeStore()
+        let service = HistoryService(store: store)
+        let firstPNG = try makeImageData(width: 4, height: 2, format: .png)
+        let firstTIFF = try makeImageData(width: 4, height: 2, format: .tiff)
+        let secondPNG = try makeImageData(width: 2, height: 4, format: .png)
+        let entry = try XCTUnwrap(try service.capture(imageItems: [
+            ManagedImageCaptureItem(order: 9, representations: [
+                ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: firstPNG),
+                ManagedImageCaptureRepresentation(typeIdentifier: "public.tiff", data: firstTIFF)
+            ]),
+            ManagedImageCaptureItem(order: 3, representations: [
+                ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: secondPNG)
+            ])
+        ]))
+
+        let restarted = try CoreDataHistoryStore(storeURL: directory.appendingPathComponent("History.sqlite"))
+        let payload = try XCTUnwrap(restarted.pastePayload(id: entry.id))
+        XCTAssertEqual(payload.items.count, 2)
+        XCTAssertEqual(payload.items.map(\.representations.count), [1, 2])
+        XCTAssertEqual(payload.items[0].representations[0].data, secondPNG)
+        XCTAssertEqual(payload.items[1].representations.map(\.typeIdentifier), ["public.png", "public.tiff"])
+        XCTAssertEqual(payload.items[1].representations.map(\.data), [firstPNG, firstTIFF])
+        restarted.close()
+        store.close()
+    }
+
+    func testManagedImageThumbnailRespectsConfiguredLongEdge() throws {
+        let policy = HistoryImageStoragePolicy(
+            maxImageItemBytes: 2 * 1024 * 1024,
+            maxOccurrenceBytes: 2 * 1024 * 1024,
+            maxTotalOriginalBytes: 2 * 1024 * 1024,
+            thumbnailCacheBytes: 1024,
+            thumbnailLongEdge: 32
+        )
+        let assetStore = try ManagedImageAssetStore(
+            rootURL: directory.appendingPathComponent("ManagedImages", isDirectory: true),
+            policy: policy
+        )
+        let source = try makeImageData(width: 128, height: 64, format: .png)
+        let manifest = try assetStore.commit(
+            occurrenceID: UUID(),
+            items: [ManagedImageCaptureItem(order: 0, representations: [
+                ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: source)
+            ])]
+        )
+
+        let thumbnail = try XCTUnwrap(assetStore.makeThumbnail(for: manifest))
+        let dimensions = HistoryImageDimensions.read(from: thumbnail)
+        XCTAssertEqual(max(dimensions.width, dimensions.height), 32)
+    }
+
+    func testTypedImagePageExcludesPayloadFromTextEntries() throws {
+        let store = try makeStore()
+        let service = HistoryService(store: store)
+        _ = try service.capture(text: "text row")
+        let image = try XCTUnwrap(try service.capture(imageItems: [
+            ManagedImageCaptureItem(order: 0, representations: [
+                ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: try makePNGData())
+            ])
+        ]))
+
+        let page = try store.fetchPage(since: .distantPast, after: nil, limit: 500)
+        XCTAssertTrue(page.entries.contains(where: { $0.id == image.id }))
+        XCTAssertFalse(page.textEntries.contains(where: { $0.id == image.id }))
+        store.close()
+    }
+
+    func testManagedImageDeleteRemovesOwnedAssetAndClearAllRemovesTheRoot() throws {
+        let store = try makeStore()
+        let service = HistoryService(store: store)
+        let entry = try XCTUnwrap(try service.capture(imageItems: [
+            ManagedImageCaptureItem(order: 0, representations: [
+                ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: try makePNGData())
+            ])
+        ]))
+        let imagesRoot = directory.appendingPathComponent("ManagedImages/images", isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: imagesRoot.path))
+
+        try service.delete(id: entry.id)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: imagesRoot.appendingPathComponent(entry.id.uuidString).path
+        ))
+
+        _ = try service.capture(imageItems: [
+            ManagedImageCaptureItem(order: 0, representations: [
+                ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: try makePNGData())
+            ])
+        ])
+        try service.clearAll()
+        XCTAssertTrue(try service.entries().isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: imagesRoot.path))
+        store.close()
+    }
+
+    func testManagedImageCapacityRejectsNewCaptureWithoutRemovingExistingAssets() throws {
+        let policy = HistoryImageStoragePolicy(
+            maxImageItemBytes: 100,
+            maxOccurrenceBytes: 100,
+            maxTotalOriginalBytes: 100,
+            thumbnailCacheBytes: 100,
+            thumbnailLongEdge: 32
+        )
+        let assetStore = try ManagedImageAssetStore(
+            rootURL: directory.appendingPathComponent("ManagedImages", isDirectory: true),
+            policy: policy
+        )
+        let first = try assetStore.commit(
+            occurrenceID: UUID(),
+            items: [ManagedImageCaptureItem(order: 0, representations: [
+                ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: Data(repeating: 7, count: 60))
+            ])]
+        )
+
+        XCTAssertThrowsError(try assetStore.commit(
+            occurrenceID: UUID(),
+            items: [ManagedImageCaptureItem(order: 0, representations: [
+                ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: Data(repeating: 8, count: 60))
+            ])]
+        )) { error in
+            XCTAssertEqual(error as? ManagedImageStoreError, .storageLimitReached)
+        }
+        XCTAssertEqual(try assetStore.read(first.representations[0]).count, 60)
+    }
+
+    func testManagedImagePathsAndIntegrityFailClosed() throws {
+        let assetStore = try ManagedImageAssetStore(
+            rootURL: directory.appendingPathComponent("ManagedImages", isDirectory: true),
+            policy: .production
+        )
+        let manifest = try assetStore.commit(
+            occurrenceID: UUID(),
+            items: [ManagedImageCaptureItem(order: 0, representations: [
+                ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: Data(repeating: 3, count: 4))
+            ])]
+        )
+        XCTAssertThrowsError(try assetStore.read(HistoryManagedImageRepresentation(
+            typeIdentifier: "public.png",
+            relativePath: "images/../outside",
+            metadata: HistoryImageMetadata(byteCount: 4),
+            sha256: manifest.representations[0].sha256
+        ))) { error in
+            XCTAssertEqual(error as? ManagedImageStoreError, .invalidManagedPath)
+        }
+        let url = directory.appendingPathComponent("ManagedImages").appendingPathComponent(manifest.representations[0].relativePath)
+        try Data(repeating: 9, count: 4).write(to: url)
+        XCTAssertThrowsError(try assetStore.read(manifest.representations[0])) { error in
+            XCTAssertEqual(error as? ManagedImageStoreError, .corruptAsset)
+        }
     }
 
     func testExistingCapturedAtSchemaStoreMigratesWithoutDataLossAndCreatesQueryIndexes() throws {
@@ -347,6 +527,31 @@ final class HistoryStoreTests: XCTestCase {
 
     private func makeStore() throws -> CoreDataHistoryStore {
         try CoreDataHistoryStore(storeURL: directory.appendingPathComponent("History.sqlite"))
+    }
+
+    private func makePNGData() throws -> Data {
+        try makeImageData(width: 2, height: 2, format: .png)
+    }
+
+    private func makeImageData(
+        width: Int,
+        height: Int,
+        format: NSBitmapImageRep.FileType
+    ) throws -> Data {
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width,
+            pixelsHigh: height,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bitmapFormat: [],
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+        return try XCTUnwrap(bitmap.representation(using: format, properties: [:]))
     }
 
     private func sqliteOutput(database: URL, sql: String) throws -> String {

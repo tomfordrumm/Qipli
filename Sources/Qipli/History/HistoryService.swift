@@ -28,9 +28,7 @@ final class HistoryService {
     }
 
     func entries() throws -> [HistoryEntry] {
-        try store.fetchCurrent(since: retentionCutoff).filter {
-            HistoryTextPolicy.shouldCapture($0.text)
-        }
+        try store.fetchCurrent(since: retentionCutoff).filter(Self.isRenderable)
     }
 
     var supportsPaging: Bool {
@@ -79,6 +77,22 @@ final class HistoryService {
     }
 
     @discardableResult
+    func capture(imageItems: [ManagedImageCaptureItem]) throws -> HistoryEntry? {
+        guard !imageItems.isEmpty,
+              let imageStore = store as? ManagedImageHistoryStoring
+        else { return nil }
+        return try imageStore.createImage(items: imageItems, activityAt: clock.now)
+    }
+
+    func pastePayload(id: UUID) throws -> HistoryPastePayload? {
+        try (store as? ManagedImageHistoryStoring)?.pastePayload(id: id)
+    }
+
+    func thumbnailData(id: UUID) throws -> Data? {
+        try (store as? ManagedImageHistoryStoring)?.thumbnailData(id: id)
+    }
+
+    @discardableResult
     func markUsed(id: UUID) throws -> Date {
         let activityAt = clock.now
         try store.markUsed(id: id, activityAt: activityAt)
@@ -95,6 +109,10 @@ final class HistoryService {
 
     private var retentionCutoff: Date {
         clock.now.addingTimeInterval(-Self.retention)
+    }
+
+    private static func isRenderable(_ entry: HistoryEntry) -> Bool {
+        entry.isImageEntry || HistoryTextPolicy.shouldCapture(entry.text)
     }
 
     private func fallbackPage(after cursor: HistoryPageCursor?, query: String?) throws -> HistoryPage {
@@ -124,7 +142,8 @@ final class HistoryService {
         }
         return HistoryPage(
             descriptors: descriptors,
-            textEntries: pageEntries,
+            textEntries: pageEntries.filter(\.isTextOnly),
+            entries: pageEntries,
             nextCursor: pageEntries.last.map {
                 HistoryPageCursor(activityAt: $0.activityAt, id: $0.id)
             },
@@ -168,6 +187,18 @@ actor SerializedHistoryService {
 
     func capture(text: String) throws -> HistoryEntry? {
         try service.capture(text: text)
+    }
+
+    func capture(imageItems: [ManagedImageCaptureItem]) throws -> HistoryEntry? {
+        try service.capture(imageItems: imageItems)
+    }
+
+    func pastePayload(id: UUID) throws -> HistoryPastePayload? {
+        try service.pastePayload(id: id)
+    }
+
+    func thumbnailData(id: UUID) throws -> Data? {
+        try service.thumbnailData(id: id)
     }
 
     func markUsed(id: UUID) throws -> Date {
