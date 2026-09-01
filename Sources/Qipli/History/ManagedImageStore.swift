@@ -89,6 +89,20 @@ struct ManagedImageCaptureItem: Equatable, Sendable {
 struct ManagedImageAssetManifest: Codable, Equatable, Sendable {
     let occurrenceID: UUID
     let items: [ManagedImageAssetItemManifest]
+    let capturedAt: Date?
+    let displayName: String?
+
+    init(
+        occurrenceID: UUID,
+        items: [ManagedImageAssetItemManifest],
+        capturedAt: Date? = nil,
+        displayName: String? = nil
+    ) {
+        self.occurrenceID = occurrenceID
+        self.items = items
+        self.capturedAt = capturedAt
+        self.displayName = displayName
+    }
 
     var representations: [HistoryManagedImageRepresentation] {
         items.flatMap(\.representations)
@@ -96,6 +110,34 @@ struct ManagedImageAssetManifest: Codable, Equatable, Sendable {
 
     var totalBytes: Int {
         representations.reduce(0) { $0 + $1.metadata.byteCount }
+    }
+}
+
+enum ManagedImageNaming {
+    static func name(
+        capturedAt: Date,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let components = calendar.dateComponents(
+            [.year, .month, .day, .hour, .minute, .second],
+            from: capturedAt
+        )
+        return [
+            "image",
+            padded(components.year ?? 0, width: 4),
+            padded(components.month ?? 0, width: 2),
+            padded(components.day ?? 0, width: 2),
+            padded(components.hour ?? 0, width: 2),
+            padded(components.minute ?? 0, width: 2),
+            padded(components.second ?? 0, width: 2)
+        ].joined(separator: "_")
+    }
+
+    private static func padded(_ value: Int, width: Int) -> String {
+        let string = String(value)
+        return String(repeating: "0", count: max(0, width - string.count)) + string
     }
 }
 
@@ -140,13 +182,23 @@ enum ManagedImageStoreError: LocalizedError, Equatable {
 }
 
 protocol ManagedImageStoring: AnyObject {
-    func commit(occurrenceID: UUID, items: [ManagedImageCaptureItem]) throws -> ManagedImageAssetManifest
+    func commit(
+        occurrenceID: UUID,
+        items: [ManagedImageCaptureItem],
+        capturedAt: Date
+    ) throws -> ManagedImageAssetManifest
     func read(_ representation: HistoryManagedImageRepresentation) throws -> Data
     func validate(_ manifest: ManagedImageAssetManifest) throws
     func remove(manifest: ManagedImageAssetManifest) throws
     func removeAllOwnedAssets() throws
     func cleanupTemporaryAssets() throws
     func makeThumbnail(for manifest: ManagedImageAssetManifest) throws -> Data?
+}
+
+extension ManagedImageStoring {
+    func commit(occurrenceID: UUID, items: [ManagedImageCaptureItem]) throws -> ManagedImageAssetManifest {
+        try commit(occurrenceID: occurrenceID, items: items, capturedAt: Date())
+    }
 }
 
 /// Owns only files below the Qipli managed image root. Paths in manifests are
@@ -172,7 +224,11 @@ final class ManagedImageAssetStore: ManagedImageStoring {
         try cleanupTemporaryAssets()
     }
 
-    func commit(occurrenceID: UUID, items: [ManagedImageCaptureItem]) throws -> ManagedImageAssetManifest {
+    func commit(
+        occurrenceID: UUID,
+        items: [ManagedImageCaptureItem],
+        capturedAt: Date
+    ) throws -> ManagedImageAssetManifest {
         guard !items.isEmpty else { throw ManagedImageStoreError.emptyImage }
         var manifests: [ManagedImageAssetItemManifest] = []
         var occurrenceBytes = 0
@@ -234,7 +290,12 @@ final class ManagedImageAssetStore: ManagedImageStoring {
                 }
             }
             try fileManager.removeItem(at: tempRoot)
-            return ManagedImageAssetManifest(occurrenceID: occurrenceID, items: manifests)
+            return ManagedImageAssetManifest(
+                occurrenceID: occurrenceID,
+                items: manifests,
+                capturedAt: capturedAt,
+                displayName: ManagedImageNaming.name(capturedAt: capturedAt)
+            )
         } catch let error as ManagedImageStoreError {
             try? fileManager.removeItem(at: tempRoot)
             for url in committedURLs { try? fileManager.removeItem(at: url) }

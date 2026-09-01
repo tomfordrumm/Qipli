@@ -154,6 +154,7 @@ struct HistoryEntry: Identifiable, Equatable, Sendable {
     let imageMetadata: [HistoryImageMetadata]
     let managedImages: [HistoryManagedImageRepresentation]
     let managedImageItems: [ManagedImageAssetItemManifest]
+    let managedImageName: String?
 
     init(
         id: UUID,
@@ -164,7 +165,8 @@ struct HistoryEntry: Identifiable, Equatable, Sendable {
         ],
         imageMetadata: [HistoryImageMetadata] = [],
         managedImages: [HistoryManagedImageRepresentation] = [],
-        managedImageItems: [ManagedImageAssetItemManifest] = []
+        managedImageItems: [ManagedImageAssetItemManifest] = [],
+        managedImageName: String? = nil
     ) {
         self.id = id
         self.text = text
@@ -173,6 +175,7 @@ struct HistoryEntry: Identifiable, Equatable, Sendable {
         self.imageMetadata = imageMetadata
         self.managedImages = managedImages
         self.managedImageItems = managedImageItems
+        self.managedImageName = managedImageName
     }
 
     var isImageEntry: Bool {
@@ -185,7 +188,7 @@ struct HistoryEntry: Identifiable, Equatable, Sendable {
 
     var displayText: String {
         if !text.isEmpty { return text }
-        if isImageEntry { return "Image" }
+        if isImageEntry { return managedImageName ?? "Image" }
         return "Clipboard item"
     }
 

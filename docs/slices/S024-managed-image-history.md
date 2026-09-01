@@ -1,7 +1,7 @@
 ---
 id: S024
 title: Managed image History
-status: needs_verification
+status: done
 depends_on:
   - S023
 covers:
@@ -62,14 +62,14 @@ S023 завершён, а D-035 принят с production defaults: 32 MiB на
 
 ## Acceptance criteria
 
-- [ ] Supported image из native app и browser создаёт одну durable occurrence с правильным ordered item/representation manifest.
-- [ ] Restart показывает occurrence и thumbnail, а pasteback передаёт сохранённое image content совместимому target без text substitution.
-- [ ] History page/search snapshot не содержит full image bytes; offscreen rows не запускают unbounded decode.
-- [ ] Per-item и total limit отклоняют новую image целиком с понятным уведомлением, не создают placeholder и не удаляют старые occurrences.
-- [ ] Partial write, disk-full, corrupt/missing asset и failed metadata commit не публикуют успешную occurrence и не оставляют unsafe path cleanup.
-- [ ] Delete, expiry и Clear All удаляют metadata, managed asset, thumbnails и temp artifacts только внутри Qipli roots.
-- [ ] Image copy при active Stack появляется в History, не меняет Stack session/order/next и получает понятное text-only limitation state.
-- [ ] Pasteback регистрирует exact final `changeCount`, не recaptures Qipli write и сохраняет target/failure behavior S016.
+- [x] Supported image из native app и browser создаёт одну durable occurrence с правильным ordered item/representation manifest.
+- [x] Restart показывает occurrence и thumbnail, а pasteback передаёт сохранённое image content совместимому target без text substitution.
+- [x] History page/search snapshot не содержит full image bytes; offscreen rows не запускают unbounded decode.
+- [x] Per-item и total limit отклоняют новую image целиком с понятным уведомлением, не создают placeholder и не удаляют старые occurrences.
+- [x] Partial write, disk-full, corrupt/missing asset и failed metadata commit не публикуют успешную occurrence и не оставляют unsafe path cleanup.
+- [x] Delete, expiry и Clear All удаляют metadata, managed asset, thumbnails и temp artifacts только внутри Qipli roots.
+- [x] Image copy при active Stack появляется в History, не меняет Stack session/order/next и получает понятное text-only limitation state.
+- [x] Pasteback регистрирует exact final `changeCount`, не recaptures Qipli write и сохраняет target/failure behavior S016.
 
 ## Verification
 
@@ -87,6 +87,7 @@ S023 завершён, а D-035 принят с production defaults: 32 MiB на
 - Добавлены typed inline-image contracts, allowlist PNG/TIFF/JPEG/HEIC/HEIF/GIF и managed Application Support storage с opaque UUID paths.
 - Реализованы per-item 32 MiB, per-occurrence 64 MiB и durable-originals 1 GiB fail-closed quotas без auto-eviction; rejected capture не публикует occurrence и показывает non-payload notice.
 - Сохранены ordered items и все поддержанные representations; Core Data хранит только manifest/metadata, а exact paste materializes выбранную occurrence через typed pasteboard writer.
+- Для inline image UI показывает стабильное синтетическое имя `image_yyyy_mm_dd_hh_mm_ss`, сформированное в момент первого захвата и сохранённое в manifest; повторная history paste его не меняет.
 - Добавлены atomic temporary writes, integrity/hash/size checks, path/symlink validation, pending-delete recovery, expiry/Clear All cleanup и bounded 512 px thumbnails с byte-capped 128 MiB UI cache.
 - Pasteboard materialization и image metadata parsing вынесены из main actor; active text-only Stack сохраняет image в History без изменения Stack order/state и показывает ограничение.
 - Новый `ManagedImageStore.swift` добавлен и в SwiftPM, и в native `Qipli.xcodeproj` target.
@@ -95,11 +96,15 @@ S023 завершён, а D-035 принят с production defaults: 32 MiB на
 
 - Focused S024/store/pasteboard/paste tests: 46/46.
 - Полный SwiftPM suite: 207/207, 0 failures.
+- Полный SwiftPM suite после naming follow-up: 208/208, 0 failures.
 - Native unsigned Xcode Debug XCTest: exit 0 после включения managed-image source в project.
+- Optimized universal unsigned Release: `BUILD SUCCEEDED`; executable содержит `arm64` и `x86_64`.
+- Embedded Sparkle runtime linking и project/built version contract прошли (`1.0.5`, build `6`).
 - `git diff --check` и payload-free source scan прошли.
+- Scoped Codex Security diff scan `fc258e3c-b50f-4c2d-9bd5-4fe6306e8224`: 4 source/test files reviewed, 0 findings, 0 P0/P1.
 - Независимый read-only review: исходные 3 P1 замечания исправлены; новых P0/P1 не осталось. P2 про bounded read также закрыт предварительной file-size проверкой.
 
 ### Остаточные gates
 
-- Требуется ручная native/browser matrix: image copy из native app и browser, restart, visible/offscreen thumbnail behavior, metadata search, exact paste, oversize/storage-full notice, Delete/Clear All и copy при active Stack.
-- Release/optimized universal build и scoped security diff scan остаются задачами S026/release pipeline.
+- [x] 2026-09-01 пользователь подтвердил ручную native/browser matrix: image copy из native app и browser, restart, stable image name, visible/offscreen thumbnail behavior, metadata search, exact paste, oversize/storage-full notice, Delete/Clear All и copy при active Stack.
+- [x] 2026-09-01 optimized universal Release, runtime/version checks и scoped security diff scan прошли; S024 technical gates закрыты.

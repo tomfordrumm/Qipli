@@ -160,7 +160,11 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         let occurrenceID = UUID()
         let manifest: ManagedImageAssetManifest
         do {
-            manifest = try imageStore.commit(occurrenceID: occurrenceID, items: items)
+            manifest = try imageStore.commit(
+                occurrenceID: occurrenceID,
+                items: items,
+                capturedAt: activityAt
+            )
         } catch {
             throw error
         }
@@ -201,7 +205,8 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
                 representations: [HistoryRepresentationDescriptor(kind: .inlineImage, typeIdentifier: manifest.representations.first?.typeIdentifier ?? "public.image")],
                 imageMetadata: manifest.representations.map(\.metadata),
                 managedImages: manifest.representations,
-                managedImageItems: manifest.items
+                managedImageItems: manifest.items,
+                managedImageName: manifest.displayName
             )
         }
     }
@@ -326,7 +331,36 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         context = container.newBackgroundContext()
         context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
         context.undoManager = nil
+        try backfillManagedImageNames()
         try cleanupPendingImageDeletions()
+    }
+
+    private func backfillManagedImageNames() throws {
+        try contextSync { context in
+            let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
+            request.predicate = NSPredicate(
+                format: "managedImageManifest != nil AND managedImageDeletionPending != YES"
+            )
+            for object in try context.fetch(request) {
+                guard let manifest = Self.manifest(from: object),
+                      manifest.displayName == nil,
+                      let capturedAt = object.value(forKey: "capturedAt") as? Date
+                else { continue }
+                let upgradedManifest = ManagedImageAssetManifest(
+                    occurrenceID: manifest.occurrenceID,
+                    items: manifest.items,
+                    capturedAt: capturedAt,
+                    displayName: ManagedImageNaming.name(capturedAt: capturedAt)
+                )
+                guard let data = try? JSONEncoder().encode(upgradedManifest),
+                      let encoded = String(data: data, encoding: .utf8)
+                else { continue }
+                object.setValue(encoded, forKey: "managedImageManifest")
+            }
+            if context.hasChanges {
+                try context.save()
+            }
+        }
     }
 
     private func contextSync<T>(_ body: (NSManagedObjectContext) throws -> T) throws -> T {
@@ -465,6 +499,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
             managedImages = []
             managedImageItems = []
         }
+        let managedImageName = manifest?.displayName
         return HistoryEntry(
             id: id,
             text: text,
@@ -472,7 +507,8 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
             representations: representations,
             imageMetadata: imageMetadata,
             managedImages: managedImages,
-            managedImageItems: managedImageItems
+            managedImageItems: managedImageItems,
+            managedImageName: managedImageName
         )
     }
 

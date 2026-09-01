@@ -81,6 +81,29 @@ final class HistoryStoreTests: XCTestCase {
         store.close()
     }
 
+    func testManagedImageNameUsesFirstCaptureTimeAndSurvivesReuse() throws {
+        let firstCapture = Date(timeIntervalSinceReferenceDate: 8_350_000)
+        let clock = MutableClock(now: firstCapture)
+        let store = try makeStore()
+        let service = HistoryService(store: store, clock: clock)
+        let entry = try XCTUnwrap(try service.capture(imageItems: [
+            ManagedImageCaptureItem(order: 0, representations: [
+                ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: try makePNGData())
+            ])
+        ]))
+        let expectedName = ManagedImageNaming.name(capturedAt: firstCapture)
+        XCTAssertEqual(entry.displayText, expectedName)
+
+        clock.now = firstCapture.addingTimeInterval(120)
+        _ = try service.markUsed(id: entry.id)
+        XCTAssertEqual(try store.fetchEntry(id: entry.id)?.displayText, expectedName)
+
+        let restarted = try CoreDataHistoryStore(storeURL: directory.appendingPathComponent("History.sqlite"))
+        XCTAssertEqual(try restarted.fetchEntry(id: entry.id)?.displayText, expectedName)
+        restarted.close()
+        store.close()
+    }
+
     func testManagedImageOccurrencePreservesItemAndRepresentationOrderAcrossRestart() throws {
         let store = try makeStore()
         let service = HistoryService(store: store)
