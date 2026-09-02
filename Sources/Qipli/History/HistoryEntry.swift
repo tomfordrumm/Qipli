@@ -281,7 +281,12 @@ struct HistoryEntry: Identifiable, Equatable, Sendable {
         if !text.isEmpty { return text }
         if isImageEntry { return managedImageName ?? "Image" }
         if isReferenceEntry {
-            let names = referenceMetadata.map(\.displayName).filter { !$0.isEmpty }
+            let names = referenceMetadata.map { metadata in
+                if metadata.typeIdentifier == "public.url", !metadata.searchText.isEmpty {
+                    return metadata.searchText
+                }
+                return metadata.displayName
+            }.filter { !$0.isEmpty }
             if let first = names.first {
                 let label = names.count == 1 ? first : "\(first) + \(names.count - 1) more"
                 return referenceMetadata.contains { $0.availability == .unavailable }

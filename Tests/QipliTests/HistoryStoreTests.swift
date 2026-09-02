@@ -160,8 +160,27 @@ final class HistoryStoreTests: XCTestCase {
             )
         ]))
 
-        XCTAssertEqual(entry.displayText, "example.com")
+        XCTAssertEqual(entry.displayText, exactURL)
         XCTAssertEqual(entry.referenceMetadata.first?.domain, "example.com")
+
+        let secondURL = "https://example.com/another-page?item=two"
+        let secondEntry = try XCTUnwrap(service.capture(referenceItems: [
+            HistoryReferenceCaptureItem(
+                order: 0,
+                kind: .url,
+                typeIdentifier: NSPasteboard.PasteboardType.URL.rawValue,
+                urlString: secondURL,
+                metadata: HistoryReferenceMetadata(
+                    displayName: "example.com",
+                    typeIdentifier: NSPasteboard.PasteboardType.URL.rawValue,
+                    domain: "example.com",
+                    searchText: secondURL
+                )
+            )
+        ]))
+        XCTAssertEqual(secondEntry.displayText, secondURL)
+        XCTAssertNotEqual(entry.displayText, secondEntry.displayText)
+
         let page = try store.searchPage(
             query: "a%2Fb",
             since: clock.now.addingTimeInterval(-1),
