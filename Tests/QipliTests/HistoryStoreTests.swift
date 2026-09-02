@@ -582,6 +582,40 @@ final class HistoryStoreTests: XCTestCase {
         upgradedDomainStore.close()
     }
 
+    func testFailedLegacyMigrationPreservesRecoverableStore() throws {
+        let storeURL = directory.appendingPathComponent("History.sqlite")
+        let managedRoot = directory.appendingPathComponent("ManagedImages", isDirectory: true)
+        let id = UUID()
+        let activityAt = Date(timeIntervalSinceReferenceDate: 8_550_000)
+        try writeLegacyCapturedAtStore(
+            at: storeURL,
+            id: id,
+            text: "legacy migration recovery",
+            activityAt: activityAt
+        )
+        let imageStore = try ManagedImageAssetStore(rootURL: managedRoot)
+        let originalStore = try Data(contentsOf: storeURL)
+
+        try setPermissions(0o444, at: storeURL)
+        try setPermissions(0o555, at: directory)
+        defer {
+            try? setPermissions(0o755, at: directory)
+            try? setPermissions(0o644, at: storeURL)
+        }
+
+        XCTAssertThrowsError(try CoreDataHistoryStore(storeURL: storeURL, imageStore: imageStore))
+        XCTAssertEqual(try Data(contentsOf: storeURL), originalStore)
+
+        try setPermissions(0o755, at: directory)
+        try setPermissions(0o644, at: storeURL)
+        let recoveredStore = try CoreDataHistoryStore(storeURL: storeURL)
+        XCTAssertEqual(
+            try recoveredStore.fetchCurrent(since: .distantPast),
+            [HistoryEntry(id: id, text: "legacy migration recovery", activityAt: activityAt)]
+        )
+        recoveredStore.close()
+    }
+
     func testTypedHistoryPagesUseBoundedKeysetCursorWithoutDuplicates() throws {
         let store = try makeStore()
         let clock = MutableClock(now: Date(timeIntervalSinceReferenceDate: 8_750_000))
@@ -927,6 +961,13 @@ final class HistoryStoreTests: XCTestCase {
                 userInfo: [NSLocalizedDescriptionKey: String(decoding: data, as: UTF8.self)]
             )
         }
+    }
+
+    private func setPermissions(_ permissions: Int, at url: URL) throws {
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: permissions)],
+            ofItemAtPath: url.path
+        )
     }
 
     private func clearStoreInSeparateLifetime(at storeURL: URL) throws {
