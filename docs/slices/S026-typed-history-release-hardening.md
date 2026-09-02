@@ -1,7 +1,7 @@
 ---
 id: S026
 title: Typed History migration and release hardening
-status: needs_verification
+status: done
 depends_on:
   - S014
   - S015
@@ -79,7 +79,7 @@ covers:
 - onboarding, README и release-notes privacy copy синхронизированы с typed History scope: text, URLs, filenames, file references и managed images остаются локальными, updater не получает payload;
 - добавлены focused lifecycle/fault tests: low disk, orphan/temp cleanup, Clear All ownership, symlink confinement, corrupt metadata recovery и readonly legacy migration preservation.
 
-Проверено 2026-09-02: HistoryStoreTests `33/33` (включая readonly legacy migration fault-injection), полный SwiftPM `222/222`, `check-update-privacy.sh`, release contract tests `13/13`, public-readiness audit `137` current paths / `97` Git revisions, unsigned optimized universal Release (`arm64` + `x86_64`), version contract `1.0.5 (6)` и embedded Sparkle runtime linking. Signed/notarized `v1.0.6 (7)` опубликован, Sparkle appcast задеплоен, а пользователь подтвердил update/clean-machine typed History smoke на втором Mac.
+Проверено 2026-09-02: HistoryStoreTests `33/33` (включая readonly legacy migration fault-injection), полный SwiftPM `222/222`, `check-update-privacy.sh`, release contract tests `13/13`, public-readiness audit `137` current paths / `97` Git revisions, unsigned optimized universal Release (`arm64` + `x86_64`), version contract `1.0.6 (7)` и embedded Sparkle runtime linking. Signed/notarized `v1.0.6 (7)` опубликован, Sparkle appcast задеплоен, а пользователь подтвердил update/clean-machine typed History smoke на втором Mac.
 
 Scoped security diff scan завершён по commit range `bf23b30..6336499`: `0` reportable findings, coverage complete; дополнительно проверены path/symlink confinement, owned-only cleanup, corrupt metadata fail-closed и отсутствие payload leakage. TAC advisory был `not_granted`, а независимый architecture reviewer не завершился в bounded wait, поэтому это ограничение сохранено в scan report.
 

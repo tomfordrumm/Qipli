@@ -1,6 +1,6 @@
 # Qipli — текущее состояние проекта
 
-Последняя актуализация: 2026-08-30
+Последняя актуализация: 2026-09-02
 
 Источник истины для статусов: этот файл
 
@@ -13,6 +13,7 @@
 - Milestone M4 — public delivery и secure updates — активен: repository public, S013 завершён, signed/notarized `v1.0.5 (6)` опубликован с versioned DMG, stable `Qipli.dmg` и immutable Sparkle ZIP. Лендинг доступен на `https://qipli.yhub.net` и скачивает публичный latest DMG. S014 `needs_verification` только до immutable rerun proof и clean-machine macOS 14 launch; S015 `in_progress` до реальной update/failure matrix.
 - Corrective slice S016 `needs_verification`: History-only keyboard routing, single paste transaction, fresh capture и passive click-away реализованы; пользователь принял cold/warm open, rapid arrows, non-first Enter и adaptive rows. Остаются failure restore, VoiceOver/Delete/double-click и click-away/Command-Tab checks.
 - Milestone M6 — performance hardening — активен: S017–S018 `done`, S019–S022 `needs_verification`; все срезы реализованы строго по порядку и автоматически проверены, остаётся объединённая ручная performance matrix.
+- Milestone M7 — bounded typed History — активен: S026 завершён после migration fault-injection, signed/notarized release/update smoke и scoped security review.
 - S008 остаётся финальным blocked release gate до завершения S011/S012, S014–S016 и полной clean-machine/manual release matrix. Локальные Developer ID и notarization credentials подтверждены 2026-08-26.
 - Fail-closed release workflow опубликовал первый Developer ID-signed и notarized GitHub Release `v1.0.0`; публичный ZIP независимо скачан и принят Gatekeeper.
 - Завершённые срезы: [`S001 — Скелет приложения и системное разрешение`](slices/S001-foundation-permissions.md), [`S002 — Захват, хранение и удаление истории`](slices/S002-history-capture-retention.md), [`S003 — Поиск и повторная вставка из истории`](slices/S003-history-search-paste.md), [`S004 — Сбор и визуальная панель Paste Stack`](slices/S004-stack-collection.md), [`S005 — Порядок и направление обхода`](slices/S005-stack-order-direction.md), [`S006 — Последовательная вставка и прогресс`](slices/S006-stack-sequential-paste.md), [`S007 — Повторная активация и отмена`](slices/S007-stack-recovery-cancel.md), [`S009 — Адаптивные стеклянные панели`](slices/S009-adaptive-glass-panels.md) и [`S013 — Версии и безопасный public CI`](slices/S013-versioning-public-ci.md).
@@ -44,6 +45,7 @@
 | S020 | Отзывчивый поиск и ограниченные previews | `needs_verification` | automated gates пройдены, остаётся manual rapid-typing smoke |
 | S021 | Масштабируемый Paste Stack | `needs_verification` | automated gates пройдены, остаётся manual Stack smoke |
 | S022 | Энергоэффективный pasteboard polling | `needs_verification` | automated gates пройдены, остаются idle observation и manual clipboard/sleep-wake smoke |
+| S026 | Typed History migration and release hardening | `done` | migration fault-injection, signed update/manual matrix и scoped security review подтверждены |
 
 ## Блокеры и recheck points
 
@@ -58,6 +60,8 @@ S020 автоматически проверен: debounced search работа�
 S021 автоматически проверен: next occurrence выбирается максимум одним линейным traversal без filtered allocation, reservation повторно использует найденный index, UI rows читают один подготовленный next ID, а session остаётся единственным long-lived владельцем occurrence array. Gate на 10 000 append подтвердил ровно 10 000 revisions/inspections/publications без retained controller snapshot. До `done` остаётся ручной reorder/direction/reactivate/paste smoke.
 
 S022 автоматически проверен: production scheduler использует interval `0.35 s` и tolerance `0.05 s`, один fire синхронно вызывает максимум один actor-isolated poll без nested Task, lifecycle остаётся идемпотентным, а освобождение cancellation token defensive invalidates timer. 10 000 unchanged fires дали ноль чтений clipboard text. До `done` остаются реальный idle CPU/wakeup observation и ручные fast-copy/duplicate/immediate-History/sleep-wake сценарии.
+
+S026 завершён: HistoryStore `33/33`, полный SwiftPM `222/222`, migration fault-injection сохранил legacy SQLite byte-for-byte при ожидаемом readonly failure, signed/notarized `v1.0.6 (7)` опубликован и проверен пользователем на втором Mac, а scoped security diff scan завершился с `0` reportable findings.
 
 - S013: push-to-main run `33158358277` обнаружил несовместимый macOS 15 SDK; после перехода на `macos-26` run `33158511887` прошёл. Обычный PR run `33159567400` и fork-style run `33160652451` из `404-Hub/Qipli` также прошли без release secrets и write permissions.
 - S014 не имеет implementation/credential blocker: protected run `33165198739` опубликовал `v1.0.0`, а публичный ZIP прошёл повторную unauthenticated проверку. До `done` остаются immutable rerun proof и clean-machine macOS 14 launch.
@@ -114,6 +118,7 @@ S022 автоматически проверен: production scheduler испо�
 
 | Дата | Изменение | Основание |
 |---|---|---|
+| 2026-09-02 | S026 переведён в `done`. | Migration fault-injection, signed/notarized `v1.0.6 (7)` и scoped security diff scan с `0` reportable findings завершены; пользователь подтвердил update/typed History smoke на втором Mac. |
 | 2026-08-06 | Создан план; S001 переведён в `ready`, остальные срезы — `planned`. | Easy PRD по подтверждённому брифу и ответам пользователя |
 | 2026-08-07 | Реализован S001 и переведён в `needs_verification`. | Swift Package Debug/Release builds и статическая проверка успешны; Xcode/XCTest и ручная macOS verification недоступны на машине только с Command Line Tools. |
 | 2026-08-07 | Исправлен programmatic AppKit lifecycle и конфигурация Xcode test target. | Xcode Debug/Release builds и 9 XCTest прошли; остаётся ручная системная проверка. |
