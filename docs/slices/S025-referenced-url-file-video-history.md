@@ -1,7 +1,7 @@
 ---
 id: S025
 title: Referenced URL, file and video History
-status: needs_verification
+status: done
 depends_on:
   - S023
   - S024
@@ -56,14 +56,14 @@ URL и локальные file/video selections появляются в обще
 
 ## Acceptance criteria
 
-- [ ] Web URL из browser сохраняет URL semantics, находится по URL/domain и повторно вставляется без network request.
-- [ ] Finder single/multi-file selection создаёт одну occurrence с правильным item count/order и повторно вставляется совместимому target.
-- [ ] Video file классифицируется по UTType/metadata и не читается целиком для capture, list, search или pasteboard preparation.
-- [ ] Rename/move на том же доступном storage проходит documented bookmark resolution path; stale bookmark обновляется без duplicate occurrence.
-- [ ] Deleted/unmounted/permission-denied source показывает unavailable state, не скрывает occurrence и не выполняет false successful paste.
-- [ ] Delete, expiry и Clear All удаляют только Qipli metadata/derivatives и byte-for-byte не меняют существующие source files.
-- [ ] Search находит occurrences за пределами первой page по filename, extension, domain и content type без OCR/file-content scan.
-- [ ] Media copy при active Stack не меняет Stack state и сохраняет ordinary `Command-V` text contract.
+- [x] Web URL из browser сохраняет URL semantics, находится по URL/domain и повторно вставляется без network request.
+- [x] Finder single/multi-file selection создаёт одну occurrence с правильным item count/order и повторно вставляется совместимому target.
+- [x] Video file классифицируется по UTType/metadata и не читается целиком для capture, list, search или pasteboard preparation.
+- [x] Rename/move на том же доступном storage проходит documented bookmark resolution path; stale bookmark обновляется без duplicate occurrence.
+- [x] Deleted/unmounted/permission-denied source показывает unavailable state, не скрывает occurrence и не выполняет false successful paste.
+- [x] Delete, expiry и Clear All удаляют только Qipli metadata/derivatives и byte-for-byte не меняют существующие source files.
+- [x] Search находит occurrences за пределами первой page по filename, extension, domain и content type без OCR/file-content scan.
+- [x] Media copy при active Stack не меняет Stack state и сохраняет ordinary `Command-V` text contract.
 
 ## Verification
 
@@ -87,4 +87,4 @@ URL и локальные file/video selections появляются в обще
 
 Автоматические проверки: focused URL/reference/pasteboard suite — 44 теста; полный SwiftPM suite — 217 тестов, exit 0; Xcode Debug test — 217/217; Xcode Release universal build (`arm64` + `x86_64`) — `BUILD SUCCEEDED`; security-diff scan — 0 findings.
 
-Открытая ручная проверка: реальный browser URL, Finder single/multi-file и video, rename/move, deleted/unmounted/permission-denied source, search/pasteback в совместимые приложения, active Stack, relaunch и clean-console behavior. До неё срез имеет `needs_verification` и не коммитится как `done`.
+Пользователь подтвердил ручную матрицу: реальный browser URL, Finder single/multi-file и video, rename/move, deleted/unmounted/permission-denied source, search/pasteback в совместимые приложения, active Stack, relaunch и clean-console behavior. Срез закрыт как `done` на основании этого scoped user acceptance.

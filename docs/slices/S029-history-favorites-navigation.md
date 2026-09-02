@@ -1,7 +1,7 @@
 ---
 id: S029
 title: Favorites navigation
-status: planned
+status: backlog
 depends_on:
   - S028
 covers:
@@ -13,6 +13,8 @@ covers:
 ---
 
 # S029: Favorites navigation
+
+> 2026-09-02 срез выведен из активного плана в `BL-005` решением D-038. Спецификация ниже сохраняется как историческая проработка; presentation и retention semantics должны быть подтверждены заново до возвращения в план.
 
 ## Пользовательский результат
 

@@ -37,8 +37,9 @@
 - `docs/slices/S025-referenced-url-file-video-history.md` — URL и reference-only file/video History без копирования source bytes.
 - `docs/slices/S026-typed-history-release-hardening.md` — migration, privacy, cleanup и signed update verification typed History.
 - `docs/slices/S027-top-notch-history-shelf.md` — верхняя transient History с Search, карточками и hardware-safe placement.
-- `docs/slices/S028-full-card-history-library.md` — отдельное полноразмерное окно History с трёхколоночной карточной сеткой.
-- `docs/slices/S029-history-favorites-navigation.md` — навигация History/Favorites и lifecycle favorite marker.
+- `docs/slices/S028-full-card-history-library.md` — отложенная в backlog историческая спецификация отдельного полноразмерного окна History.
+- `docs/slices/S029-history-favorites-navigation.md` — отложенная в backlog историческая спецификация Favorites.
+- `docs/slices/S030-top-notch-paste-stack.md` — перенос полного Paste Stack user path в nonactivating Top Notch presentation.
 
 ### Подход к поставке
 

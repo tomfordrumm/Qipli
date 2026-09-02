@@ -1,6 +1,6 @@
 # Qipli — технический контракт
 
-Статус: архитектура публичного приложения, typed History и Top Notch/card History поставки
+Статус: архитектура публичного приложения, typed History и единой Top Notch оболочки History/Paste Stack
 
 Дата базовой проверки платформы: 2026-08-06; S004 input/panel contracts перепроверены: 2026-08-08; Accessibility identity/release signing перепроверены: 2026-08-09; Settings/onboarding/ServiceManagement перепроверены: 2026-08-12; Developer ID/notarization и GitHub Actions/Releases перепроверены: 2026-08-26; Sparkle `2.9.6` contracts перепроверены: 2026-08-28; typed pasteboard/UTType/bookmark contracts перепроверены: 2026-08-31; notch geometry/window/collection contracts перепроверены: 2026-09-01
 
@@ -32,7 +32,7 @@ Qipli — нативное menu bar приложение на Swift. Интер�
 | NEED-014 | Хранить inline images локально без загрузки payload в History snapshot | Core Data metadata + managed files в Application Support | supported | Системный file storage не требует новой runtime dependency. S024 проверяет atomic ownership, quotas, restart, cleanup и bounded thumbnail decode. |
 | NEED-015 | Сохранять reference на локальный file/video без копирования source bytes | file URL + Foundation URL bookmark data | supported с runtime recheck | Bookmark может разрешать URL позднее и сообщать stale data. S025 проверяет move/rename/delete, stale refresh и pasteback на реальных Finder items. |
 | NEED-016 | Привязать transient History к camera-safe верхней области конкретного display | `NSScreen.safeAreaInsets`, auxiliary top areas и `visibleFrame` | supported с hardware verification | AppKit предоставляет safe-area geometry; S027 проверяет MacBook с camera housing, notchless external display, full-screen Space и изменение screen parameters без hardcoded notch dimensions. |
-| NEED-017 | Показывать bounded карточки с reusable views, selection и prefetch | `NSCollectionView` + flow/custom layout | supported | AppKit collection view отделяет data source/layout, переиспользует item views и поддерживает selection/prefetch. S027 использует horizontal shelf, S028 — вертикальную сетку из трёх колонок. |
+| NEED-017 | Показывать bounded карточки с reusable views, selection и prefetch | `NSCollectionView` + flow/custom layout | supported | AppKit collection view отделяет data source/layout, переиспользует item views и поддерживает selection/prefetch. S027 использует horizontal History shelf; S030 переиспользует bounded horizontal presentation contract для ordered text Stack cards. |
 
 ### Авторитетные источники
 
@@ -108,8 +108,8 @@ Sparkle updater ──> public HTTPS appcast ──> EdDSA-verified ZIP ──> 
 
 - управляет жизненным циклом menu bar utility и единственным экземпляром приложения;
 - предоставляет команды «История», «Начать/закрыть Paste Stack», Settings, состояние разрешения и «Выйти»;
-- создаёт reusable Top Notch panel, отдельное singleton full History window, Paste Stack panel и singleton Settings/onboarding windows, не смешивая оконную логику с доменными правилами;
-- хранит одну `HistoryPresentationState` с query, selected occurrence, active destination и captured paste target; Top Notch и full window получают snapshots этой state, но не становятся независимыми владельцами paste transaction;
+- создаёт activating History Top Notch, отдельную nonactivating Paste Stack Top Notch presentation и singleton Settings/onboarding windows, не смешивая оконную логику с доменными правилами;
+- хранит History query, selected occurrence и captured paste target только в History presentation; Stack presentation наблюдает существующий `StackSessionController` и не становится владельцем input/paste transactions;
 - на первом локальном запуске удерживает старт `PasteboardMonitor` за onboarding gate; после Finish/Skip/close запускает normal shell services ровно один раз.
 
 ### PasteboardMonitor
@@ -180,7 +180,7 @@ S010 заменяет hard-coded History/Stack/Reactivate Previous match зна�
 
 - Settings window — singleton active AppKit window со SwiftUI content; она не наследует nonactivating/floating behavior Stack и не создаёт постоянный Dock icon;
 - typed preferences service загружает три shortcuts и onboarding completion из `UserDefaults`, валидирует весь shortcut snapshot и fail closed восстанавливает defaults при несовместимых данных;
-- Paste Stack хранит в `UserDefaults` только последнюю пару конечных координат панели. При открытии сохранённый frame восстанавливается лишь если полностью входит в `visibleFrame` одного из текущих экранов; иначе панель центрируется на доступном экране под курсором и сохраняет новую позицию;
+- До S030 standalone Paste Stack сохранял в `UserDefaults` последнюю пару конечных координат панели. S030 перестаёт читать и обновлять эту preference для presentation; устаревшее несекретное значение можно оставить для совместимости, но оно не влияет на Top Notch geometry;
 - invalid edit не записывается и не меняет runtime snapshot; Reset to Defaults затрагивает только shortcuts;
 - существующий `AccessibilityPermissionService` остаётся единственным permission source of truth для History fallback, Settings и onboarding; отдельные status-menu item и Permission panel отсутствуют;
 - `LaunchAtLoginServicing` изолирует `SMAppService.mainApp.status`, `register()`, `unregister()` и открытие Login Items Settings. `requiresApproval` не считается enabled; `notFound` остаётся явным retryable состоянием и разрешает user-triggered `register()`; errors видимы и retryable;
@@ -195,18 +195,17 @@ S010 заменяет hard-coded History/Stack/Reactivate Previous match зна�
 - permission request и login-item registration происходят только после соответствующего явного действия пользователя;
 - onboarding не читает clipboard payload и не создаёт тестовую history entry.
 
-### Panel material boundary
+### Top Notch presentation boundary
 
 - `PanelController` сохраняет ownership, lifecycle, activation, focus, close delegate, level, Spaces/full-screen и display-placement contracts; material wrapper не принимает feature decisions;
-- один AppKit factory/provider оборачивает existing `NSHostingView` каждой History/Paste Stack panel в ровно один outer material surface;
+- один AppKit shell/provider задаёт общие shape, safe-area geometry, mask transition и content-safe insets для History и Paste Stack Top Notch; каждый presentation содержит ровно одну outer surface;
 - на macOS 26+ provider использует `NSGlassEffectView` style `regular`; вызов закрыт `#available(macOS 26.0, *)`, поэтому deployment target остаётся macOS 14;
 - на macOS 14–25 provider использует `NSVisualEffectView` с semantic `.popover` material, `.behindWindow` blending и system-managed state; implementation не имитирует Liquid Glass custom blur/shader;
 - Top Notch использует отдельный reusable borderless activating `NSPanel`: shortcut сначала captures non-Qipli target, затем делает panel key и фокусирует Search. Frame привязан к текущему screen и раскрывается вниз; top anchor не двигается во время resize. Placement использует safe-area/auxiliary-area geometry и `visibleFrame`, а на notchless display выбирает top-center fallback ниже menu bar;
-- full History использует отдельное singleton resizable window с ordinary window lifecycle, minimum width для трёх читаемых колонок и собственным Search. Оно не floating и не скрывается на каждый resign-key; explicit close не активирует stale captured target;
-- переход `Top Notch → full` имеет states `notchVisible`, `transitioningToFull`, `fullVisible`, `hidden`. Query/selection/target snapshot передаётся до показа; Top Notch скрывается и перестаёт принимать input только после `windowDidBecomeVisible`/эквивалентного подтверждения full presentation;
-- `NSCollectionView` является общей AppKit card boundary: horizontal flow layout для Top Notch и vertical three-column flow/custom layout для full History. Item views переиспользуются, selection синхронно отражается в presentation state, prefetch допускается только для bounded descriptors/thumbnail requests;
+- History `NSCollectionView` остаётся horizontal reusable card boundary. Stack получает bounded horizontal ordered cards без второй long-lived occurrence collection; exact text не копируется в отдельную presentation model и не обходится целиком ради preview;
 - top/right/left/bottom placement моделируется будущим enum, но production S027 реализует только `.top`; остальные values не появляются в Settings и не проходят partial runtime paths;
-- Paste Stack использует отдельную borderless `.nonactivatingPanel` configuration поверх того же единственного outer material. Material surface клипится continuous corner radius, panel сохраняет system shadow, а custom header передаёт исходный mouse-down в `NSWindow.performDrag(with:)`; Close вызывает существующий cancel path. List не является window drag region;
+- Paste Stack использует отдельную reusable borderless `.nonactivatingPanel` configuration с теми же safe-area frame и mask transitions. Она не вызывает app activation/`makeKey`, не получает History outside-click/resign-key hooks и остаётся раскрытой до Cancel, global Escape или auto-finish. Отдельный movable frame, window drag region и saved-origin restore удаляются из active path;
+- специальный transition между active Stack и History не входит в S030. Реализация не добавляет tab/navigation state или обещание возврата между modes;
 - Lists, cards и individual controls не получают отдельные custom glass layers. На macOS 26 standard controls принимают актуальное системное оформление автоматически;
 - system labels/selection colors и accessibility settings определяют contrast. Reduce Transparency может сделать surface непрозрачнее, и код не пытается обходить этот выбор пользователя;
 - capability selection имеет injected deterministic seam, но ни tests, ни provider не читают clipboard payload.
@@ -235,27 +234,26 @@ S010 заменяет hard-coded History/Stack/Reactivate Previous match зна�
 
 ### Сбор Paste Stack (S004)
 
-1. Deferred global `⌘⇧C` action snapshots/starts session with current pasteboard `changeCount`, показывает nonactivating panel и только затем dispatch-ит tagged ordinary `⌘C`; repeated hotkey сохраняет session/occurrences, но повторяет Copy. Target app остаётся active и владеет resulting pasteboard write.
+1. Deferred global `⌘⇧C` action snapshots/starts session with current pasteboard `changeCount`, показывает nonactivating Paste Stack Top Notch и только затем dispatch-ит tagged ordinary `⌘C`; repeated hotkey сохраняет session/occurrences, но повторяет Copy. Target app остаётся active и владеет resulting pasteboard write.
 2. Menu Start создаёт одну пустую session без Copy; menu меняется на Cancel.
 3. Resulting target-owned pasteboard change не self-write и не append-ится напрямую: Monitor → HistoryService → matching StackSession сохраняет History-first/watermark guarantees. Если tagged Copy dispatch observable fails, panel показывает retryable error; отсутствие pasteboard change у target не заявляется как capture error.
-4. Stack panel — `NSPanel` с `.nonactivatingPanel`, floating level, `.canJoinAllSpaces` и `.fullScreenAuxiliary`; она не вызывает App activation или `makeKey`.
-5. Перед показом panel выбирается `NSScreen` под курсором (fallback main/first screen), а чистая placement function центрирует компактный frame и clamp-ит origin к `visibleFrame` этого display.
-6. Exact global Escape или close/cancel освобождает только StackSession и скрывает panel; записи History не затрагиваются.
+4. Stack panel — borderless `NSPanel` с `.nonactivatingPanel`, Top Notch level, `.canJoinAllSpaces` и `.fullScreenAuxiliary`; она не вызывает App activation или `makeKey` и не закрывается при работе во внешнем приложении.
+5. Перед показом выбирается screen из текущего source/target context с bounded mouse/main/first fallback. Frame вычисляется тем же safe-area/auxiliary-area contract, что S027; legacy saved floating origin игнорируется.
+6. Exact global Escape или Cancel освобождает только StackSession, запускает reverse mask transition и после него выполняет `orderOut`; записи History не затрагиваются.
 
 ### Вставка из истории
 
 1. До активации History сохраняются frontmost non-Qipli application и контекст, достаточный для возврата; текущий display определяется из active target window/mouse fallback без чтения clipboard payload.
 2. После startup History reload reusable Top Notch prewarm-ится без показа. Явный `⌘⇧V`/menu action вычисляет safe top frame, раскрывает panel вниз и через единственный AppKit adapter запрашивает strong user-initiated activation; после `isActive` panel становится key и Search получает focus. Fresh show синхронно выбирает first occurrence и card shelf возвращает viewport к leading anchor; paste-failure reopen не сбрасывает retry context.
-3. `Развернуть` snapshots current query, exact selected ID и captured target, показывает full History, восстанавливает ту же selection в three-column collection и только после видимого full window скрывает Top Notch. В transition state Enter/double-click admission закрыт. Full window остаётся до explicit close; новый user-triggered `⌘⇧V` из другого приложения создаёт новую presentation session и новый target.
-4. До S023 по `Enter` immutable selected text становится внутренней записью в system pasteboard. Typed History materializes selected occurrence only after reservation: text/URL берутся из metadata, image читается из managed asset, file/video reference разрешается без чтения всего source в память. Writer восстанавливает ordered pasteboard items и retained supported representations. Exact final `changeCount` сразу регистрируется как self-write.
-5. Сразу после successful write активное History presentation в том же обработчике становится прозрачным и перестаёт принимать mouse events. Пока невидимая Qipli ещё active, оно yield/request-activates captured application; command не отправляется до подтверждённого active target.
-6. Bounded deadline с main-run-loop retries проверяет `NSRunningApplication.isActive`; при active target presentation выполняет `orderOut` перед synthetic `⌘V`. Пользователь не видит activation wait.
-7. После accepted-but-exhausted activation или dispatch failure presentation восстанавливается с retryable error. Pasteboard не переписывается и команда не дублируется.
-8. Только после успешной отправки tagged `⌘V` `PanelController` неблокирующе обновляет activity exact selected ID. Durable/cache order меняется сразу, но visible cards не перестраиваются до следующей fresh History presentation; ошибка durable update не меняет уже успешный paste.
-9. AppKit key monitor ограничен текущим key History presentation и exact unmodified keyDown. Arrow routing синхронно обновляет exact selected ID и вызывает collection-view scroll-to-visible без ожидания SwiftUI render; Top Notch использует одномерный leading/trailing order, full History — предсказуемое двухмерное перемещение в сетке. Enter начинает transaction непосредственно в handler.
-10. Одна UUID transaction блокирует повторные Enter/double-click до completion. Target activation notification проверяет exact captured application и завершает handoff сразу; bounded timer остаётся fallback и единственным timeout path.
-11. `windowDidResignKey` и History-only local/global mouse monitor скрывают только Top Notch без focus restoration. Explicit Escape использует отдельный cancel path. Full History использует ordinary window lifecycle; passive close любого presentation не возвращает stale target. Paste Stack не получает эти dismissal hooks.
-12. UI сообщает только об отправке команды; реальное принятие text/media сторонним приложением наблюдать надёжно нельзя. Missing/corrupt payload останавливает write до conceal/activation и оставляет активное History presentation открытым с exact unavailable state.
+3. До S023 по `Enter` immutable selected text становится внутренней записью в system pasteboard. Typed History materializes selected occurrence only after reservation: text/URL берутся из metadata, image читается из managed asset, file/video reference разрешается без чтения всего source в память. Writer восстанавливает ordered pasteboard items и retained supported representations. Exact final `changeCount` сразу регистрируется как self-write.
+4. Сразу после successful write активное History presentation в том же обработчике становится прозрачным и перестаёт принимать mouse events. Пока невидимая Qipli ещё active, оно yield/request-activates captured application; command не отправляется до подтверждённого active target.
+5. Bounded deadline с main-run-loop retries проверяет `NSRunningApplication.isActive`; при active target presentation выполняет `orderOut` перед synthetic `⌘V`. Пользователь не видит activation wait.
+6. После accepted-but-exhausted activation или dispatch failure presentation восстанавливается с retryable error. Pasteboard не переписывается и команда не дублируется.
+7. Только после успешной отправки tagged `⌘V` `PanelController` неблокирующе обновляет activity exact selected ID. Durable/cache order меняется сразу, но visible cards не перестраиваются до следующей fresh History presentation; ошибка durable update не меняет уже успешный paste.
+8. AppKit key monitor ограничен текущим key History presentation и exact unmodified keyDown. Arrow routing синхронно обновляет exact selected ID и вызывает collection-view scroll-to-visible без ожидания SwiftUI render. Enter начинает transaction непосредственно в handler.
+9. Одна UUID transaction блокирует повторные Enter/double-click до completion. Target activation notification проверяет exact captured application и завершает handoff сразу; bounded timer остаётся fallback и единственным timeout path.
+10. `windowDidResignKey` и History-only local/global mouse monitor скрывают History Top Notch без focus restoration. Explicit Escape использует отдельный cancel path. Paste Stack Top Notch не получает эти dismissal hooks.
+11. UI сообщает только об отправке команды; реальное принятие text/media сторонним приложением наблюдать надёжно нельзя. Missing/corrupt payload останавливает write до conceal/activation и оставляет активное History presentation открытым с exact unavailable state.
 
 ### Вставка из Paste Stack
 
@@ -264,7 +262,7 @@ S010 заменяет hard-coded History/Stack/Reactivate Previous match зна�
 3. Writer returns the exact final `changeCount`; monitor receives that count as a self-write before control returns to its next poll, so the write cannot re-enter History/Stack capture.
 4. Executor posts tagged synthetic ordinary `⌘V`. Only a successful dispatch converts the exact reservation to used; a permission, writer, dispatch or input-listener failure returns traversal reservation to pending but returns reactivation reservation to used while retaining priority, then publishes a retryable non-payload error.
 5. Used occurrences remain visible and disabled; one Reactivate action or `⌘⇧Z` priority is marked separately from traversal Next. Append/cancel/deferred UI intents validate the current session/UUID domain atomically.
-6. After the last successful dispatch, all occurrences are first published as used. One deterministic deferred turn verifies the same session is still complete and has no reactivation priority, then releases it, closes the nonactivating panel and restores the menu Start state. A reactivation before that turn prevents finish; it does not reactivate a target app.
+6. After the last successful dispatch, all occurrences are first published as used. One deterministic deferred turn verifies the same session is still complete and has no reactivation priority, then releases it, runs the reverse Top Notch transition, orders out the nonactivating panel and restores the menu Start state. A reactivation before that turn prevents finish; it does not reactivate a target app.
 
 При гонке с внешней сменой pasteboard предпочтение отдаётся безопасности: не вставлять неизвестное значение как элемент стека, показать сбой и сохранить текущую сессию для повтора.
 
@@ -425,8 +423,7 @@ QipliUITests/         in-app keyboard and panel flows
 - S025: URL/file/video classification, ordered multi-item occurrence, bookmark create/resolve/stale refresh, moved/renamed/deleted source, metadata-only search и отсутствие source delete/copy;
 - S026: upgrade migration from public text store, interrupted capture/delete recovery, orphan cleanup restricted to managed roots, Clear All inventory, update preservation и payload-free privacy/log scan;
 - S027: pure safe-area placement для camera/notchless/multi-display frames, presentation state machine, horizontal card reuse, Search focus, one-dimensional selection, click-away и прежний single paste transaction;
-- S028: atomic Top Notch → full transfer, exactly three-column layout at supported widths, two-dimensional keyboard navigation, query/selection continuity, singleton lifecycle и no-dual-input transition;
-- S029: favorite marker persistence/migration, History/Favorites filtering, search within destination, Delete/expiry/Clear All cleanup и отсутствие retention extension;
+- S030: shared safe-area shape/motion with separate nonactivating Stack lifecycle, source/target focus preservation, horizontal ordered cards, reorder/direction, Next/Processing/Used/reactivation/error states, reverse finish/cancel и отсутствие legacy floating-window placement;
 - build: Debug и Release для deployment target macOS 14.
 
 ### Вручную на чистой системе
@@ -448,8 +445,7 @@ QipliUITests/         in-app keyboard and panel flows
 - S025 Finder single/multi-file plus video reference: copy, search, paste while source exists, rename/move recheck, delete source and verify unavailable state; Qipli delete/clear must not change source files.
 - S026 clean-machine signed update from the last text-only public build preserves text History and starts with empty managed asset roots; privacy/network inspection confirms no media payload leaves the Mac.
 - S027 MacBook camera-housing plus notchless external-display matrix: current-screen placement, menu-bar clearance, full-screen Space, Search focus, arrows/Enter/Delete/Escape/click-away, Light/Dark, Reduce Motion/Transparency и unchanged ordinary `⌘V`.
-- S028 transition and full-window matrix: query/selection continuity, no duplicate interactive surface, exactly three cards per row at minimum and larger widths, resize/relaunch behavior, 2D arrows, type-aware cards and paste target handoff in at least two external apps.
-- S029 History/Favorites navigation, toggle/relaunch/search/Delete/expiry/Clear All and VoiceOver labels; verify explicitly that favorite does not survive after its occurrence expires.
+- S030 Top Notch Stack matrix: source Copy, menu-empty Start, reorder/direction, exact sequential paste, Reactivate/`⌘⇧Z`, failure retry, cancel/Escape, auto-finish, camera-housing/notchless/second-display/full-screen placement and nonactivation in at least two external apps.
 
 ## 10. Сборка и распространение
 

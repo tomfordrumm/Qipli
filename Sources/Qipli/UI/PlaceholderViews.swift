@@ -471,7 +471,7 @@ struct HistoryPanelIntentExecutor {
     }
 }
 
-private enum HistoryKeyboardActionScheduler {
+enum HistoryKeyboardActionScheduler {
     static func deferToNextMainRunLoop(_ action: @escaping () -> Void) {
         RunLoop.main.perform(inModes: [.common]) {
             action()

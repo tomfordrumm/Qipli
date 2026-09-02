@@ -95,6 +95,12 @@ final class HistoryViewModel: ObservableObject {
         return entries
     }
 
+    /// Metadata-only projection for transient card presentations. Exact text
+    /// remains behind the selected-paste lookup boundary.
+    var visibleDescriptors: [HistoryOccurrenceDescriptor] {
+        visibleEntries.map(Self.descriptor(from:))
+    }
+
     func prepareForPresentation() {
         let removedExpiredEntries = discardExpiredSnapshotEntries()
         let wasFiltered = !query.isEmpty
@@ -269,6 +275,19 @@ final class HistoryViewModel: ObservableObject {
 
     func recordPasteFailure(_ failure: HistoryPasteFailure) {
         pasteFailure = failure
+    }
+
+    /// Materializes one exact occurrence only when the presentation has
+    /// committed to a paste action. The shelf itself receives descriptors.
+    func entryForPaste(id: UUID) async -> Result<HistoryEntry, HistoryPasteFailure> {
+        do {
+            guard let entry = try await service.entry(id: id) else {
+                return .failure(.entryUnavailable)
+            }
+            return .success(entry)
+        } catch {
+            return .failure(.entryUnavailable)
+        }
     }
 
     func clearPasteFailure() {
@@ -456,11 +475,21 @@ final class HistoryViewModel: ObservableObject {
     }
 
     func requestThumbnail(for entry: HistoryEntry) {
-        guard entry.isImageEntry,
-              thumbnailDataByEntryID[entry.id] == nil,
-              thumbnailTasks[entry.id] == nil
+        requestThumbnail(forEntryID: entry.id, isImage: entry.isImageEntry)
+    }
+
+    func requestThumbnail(forEntryID entryID: UUID) {
+        let isImage = visibleDescriptors.first(where: { $0.id == entryID })?.representations.contains {
+            $0.kind == .inlineImage
+        } == true
+        requestThumbnail(forEntryID: entryID, isImage: isImage)
+    }
+
+    private func requestThumbnail(forEntryID entryID: UUID, isImage: Bool) {
+        guard isImage,
+              thumbnailDataByEntryID[entryID] == nil,
+              thumbnailTasks[entryID] == nil
         else { return }
-        let entryID = entry.id
         let generation = thumbnailGeneration
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -727,6 +756,17 @@ final class HistoryViewModel: ObservableObject {
                 referenceMetadata: descriptor.referenceMetadata
             )
         }
+    }
+
+    private static func descriptor(from entry: HistoryEntry) -> HistoryOccurrenceDescriptor {
+        HistoryOccurrenceDescriptor(
+            id: entry.id,
+            activityAt: entry.activityAt,
+            textPreview: entry.isTextOnly ? HistoryPreview.text(for: entry.text) : nil,
+            representations: entry.representations,
+            imageMetadata: entry.imageMetadata,
+            referenceMetadata: entry.referenceMetadata
+        )
     }
 
     private static func isNewer(_ lhs: HistoryEntry, than rhs: HistoryEntry) -> Bool {

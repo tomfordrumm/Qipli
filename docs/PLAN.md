@@ -1,8 +1,8 @@
 # Qipli — план поставки и развития продукта
 
-Статус: core MVP подтверждён; signed public release опубликован; typed History активна; Top Notch/card History спланирована
+Статус: core MVP подтверждён; signed public release опубликован; typed History и S027 завершены; S030 готов к переносу Paste Stack в Top Notch
 
-Дата: 2026-09-01
+Дата: 2026-09-02
 
 Источник оперативных статусов: [`STATE.md`](STATE.md)
 
@@ -68,22 +68,28 @@
 
 После milestone History работает как ограниченный metadata-каталог: первая и последующие страницы содержат не более 500 descriptors, поиск выполняется в persistence по всему 30-дневному окну, а text, URL, inline images и file/video references восстанавливаются через typed pasteboard contract без загрузки media payload в UI snapshot.
 
-23. [`S023 — Bounded typed History foundation`](slices/S023-paginated-typed-history-foundation.md) — `ready`; зависит от S018–S020 и заменяет full-snapshot History только после migration/search parity checks.
+23. [`S023 — Bounded typed History foundation`](slices/S023-paginated-typed-history-foundation.md) — `done`; bounded schema/query boundary, migration, search parity и native History contract реализованы и проверены.
 24. [`S024 — Managed image History`](slices/S024-managed-image-history.md) — `done`; manual native/browser matrix, optimized universal Release и scoped security diff scan подтверждены.
-25. [`S025 — Referenced URL, file and video History`](slices/S025-referenced-url-file-video-history.md) — `needs_verification`; implementation и automated gates пройдены, остаётся manual browser/Finder matrix.
-26. [`S026 — Typed History migration and release hardening`](slices/S026-typed-history-release-hardening.md) — `planned`; зависит от S014, S015, S024 и S025.
+25. [`S025 — Referenced URL, file and video History`](slices/S025-referenced-url-file-video-history.md) — `done`; implementation, automated gates и manual browser/Finder matrix подтверждены.
+26. [`S026 — Typed History migration and release hardening`](slices/S026-typed-history-release-hardening.md) — `done`; migration fault-injection, privacy/cleanup audit, signed/notarized `v1.0.6 (7)` и update/clean-machine typed History smoke подтверждены.
 
 Результат: media расширяет History без роста initial working set, скрытого auto-eviction или копирования source file/video bytes. Paste Stack остаётся text-only до отдельного будущего решения.
 
-## Milestone M8 — Top Notch и карточная библиотека History
+## Milestone M8 — Top Notch History
 
-После milestone default `⌘⇧V` открывает верхнюю карточную панель с поиском, пользователь может без потери контекста развернуть её в отдельное трёхколоночное окно и перейти между History и Favorites.
+После milestone default `⌘⇧V` открывает верхнюю карточную панель с поиском, type-aware cards и прежним exact paste/focus contract.
 
-27. [`S027 — Top Notch History shelf`](slices/S027-top-notch-history-shelf.md) — `ready`; зависит от S016 и S024 и сначала закрывает geometry/focus/paste risk верхней transient-панели.
-28. [`S028 — Полноценная карточная History`](slices/S028-full-card-history-library.md) — `planned`; зависит от S027 и добавляет `Развернуть`, отдельное resizable window и сетку по три карточки.
-29. [`S029 — Favorites navigation`](slices/S029-history-favorites-navigation.md) — `planned`; зависит от S028, а перед переводом в `ready` требует подтверждения retention-семантики Favorites из D-037.
+27. [`S027 — Top Notch History shelf`](slices/S027-top-notch-history-shelf.md) — `done`; implementation, focused automated gates и ручная geometry/focus/paste/accessibility matrix верхней transient-панели подтверждены.
 
-Результат: быстрый transient path остаётся keyboard-first, а полноценная библиотека получает больше места для текста и media metadata. Альтернативное положение справа, слева или снизу и дополнительные разделы библиотеки остаются в backlog.
+Результат: быстрый transient History path остаётся keyboard-first. S028 и S029 выведены из активного плана в BL-004/BL-005 решением D-038; отдельное окно, Favorites и альтернативное положение остаются backlog.
+
+## Milestone M9 — Paste Stack в Top Notch
+
+После milestone `⌘⇧C` и status menu показывают Paste Stack в той же hardware-safe верхней форме, что History, но Stack сохраняет отдельный nonactivating lifecycle и весь подтверждённый sequence/recovery contract.
+
+30. [`S030 — Paste Stack в Top Notch`](slices/S030-top-notch-paste-stack.md) — `ready`; зависит от завершённых S007/S012/S021/S027 и заменяет отдельное перемещаемое Stack window единым верхним presentation.
+
+Результат: History и Paste Stack используют одну визуальную Top Notch оболочку. History принимает Search focus и закрывается по своим transient rules; Stack не активирует Qipli, остаётся видимым во время работы во внешнем приложении и схлопывается только после Cancel/Escape/auto-finish.
 
 ## Граф зависимостей
 
@@ -99,10 +105,11 @@ S003 + S007 + S010 + S011 + S012 + S014 + S015 + S016 -> S008
 S017 -> S018 -> S019 -> S020 -> S021 -> S022
 S018 + S019 + S020 -> S023 -> S024 -> S025
 S014 + S015 + S024 + S025 -> S026
-S016 + S024 -> S027 -> S028 -> S029
+S016 + S024 -> S027
+S007 + S012 + S021 + S027 -> S030
 ```
 
-Граф ацикличен. Performance hardening S017–S022 завершён. Typed History начинается с bounded schema/query boundary в S023; managed images добавляются в S024; reference-only URL/file/video — в S025; migration/release proof — в S026. Top Notch начинается отдельным system-window slice S027, затем S028 заменяет полноценный table presentation карточной библиотекой, а S029 добавляет Favorites. S023 готов к дальнейшей verification, S024 завершён после manual native/browser image matrix, optimized universal Release и scoped security diff scan. S025 реализован и ждёт ручную browser/Finder matrix. S013 завершён после локальных и hosted main/PR/fork CI runs. S014 опубликовал реальный `v1.0.5`, clean-machine proof подтверждён, остаётся immutable rerun. S015 завершён после ручной update/failure/accessibility matrix; production feed указывает на `v1.0.5`. S008 остаётся финальным gate только до operational rerun proof. Изменения pasteboard/input, permission, ServiceManagement, network, dependency, signing, update или performance contracts должны сначала согласовываться в `TECHNICAL.md` и `DECISIONS.md`.
+Граф ацикличен. Performance hardening S017–S022 завершён. Typed History начинается с bounded schema/query boundary в S023; managed images добавляются в S024; reference-only URL/file/video — в S025; migration/release proof — в S026. S023–S026 завершены. Top Notch S027 реализован и принят по manual geometry/focus/paste/accessibility matrix. Решением D-038 S028/S029 перенесены в backlog, а ближайшим ready slice является S030 — полный Paste Stack в Top Notch без специального active-Stack-to-History flow. S013 завершён после локальных и hosted main/PR/fork CI runs. S014 опубликовал реальный `v1.0.5`, clean-machine proof подтверждён, остаётся immutable rerun. S015 завершён после ручной update/failure/accessibility matrix; production feed указывает на `v1.0.5`. S008 остаётся финальным gate только до operational rerun proof. Изменения pasteboard/input, permission, ServiceManagement, network, dependency, signing, update или performance contracts должны сначала согласовываться в `TECHNICAL.md` и `DECISIONS.md`.
 
 ## Покрытие требований
 
@@ -111,20 +118,20 @@ S016 + S024 -> S027 -> S028 -> S029
 | FR-001 | S002 |
 | FR-002 | S002 |
 | FR-003 | S003, S027 |
-| FR-004 | S003, S027, S028 |
-| FR-005 | S003, S027, S028 |
+| FR-004 | S003, S027 |
+| FR-005 | S003, S027 |
 | FR-006 | S002, S003, S008, S026 |
-| FR-007 | S004 |
-| FR-008 | S004 |
-| FR-009 | S005 |
-| FR-010 | S005 |
-| FR-011 | S006 |
-| FR-012 | S006 |
-| FR-013 | S007 |
-| FR-014 | S006 |
-| FR-015 | S004, S007 |
+| FR-007 | S004, S030 |
+| FR-008 | S004, S030 |
+| FR-009 | S005, S030 |
+| FR-010 | S005, S030 |
+| FR-011 | S006, S030 |
+| FR-012 | S006, S030 |
+| FR-013 | S007, S030 |
+| FR-014 | S006, S030 |
+| FR-015 | S004, S007, S030 |
 | FR-016 | S001, S003, S006 |
-| FR-017 | S009, S012, S027, S028 |
+| FR-017 | S009, S012, S027, S030 |
 | FR-018 | S010, S008 |
 | FR-019 | S010, S008 |
 | FR-020 | S010, S008 |
@@ -132,7 +139,7 @@ S016 + S024 -> S027 -> S028 -> S029
 | FR-022 | S014 |
 | FR-023 | S014, S008 |
 | FR-024–FR-025 | S015, S008 |
-| FR-026 | S016, S008, S027, S028 |
+| FR-026 | S016, S008, S027 |
 | FR-027 | S023, S026 |
 | FR-028 | S024, S025 |
 | FR-029 | S024 |
@@ -140,8 +147,7 @@ S016 + S024 -> S027 -> S028 -> S029
 | FR-031 | S024, S025 |
 | FR-032 | S024, S026 |
 | FR-033 | S027 |
-| FR-034 | S028 |
-| FR-035 | S029 |
+| FR-036 | S030 |
 | BR-001–BR-004 | S002, S004 |
 | BR-005 | S005 |
 | BR-006 | S007 |
@@ -155,42 +161,41 @@ S016 + S024 -> S027 -> S028 -> S029
 | BR-018 | S015 |
 | BR-019–BR-020 | S024, S025 |
 | BR-021 | S024, S026 |
-| BR-022 | S024, S025, S027, S028 |
+| BR-022 | S024, S025, S027 |
 | BR-023 | S024, S025, S026 |
-| BR-024 | S024, S025 |
-| BR-025 | S027, S028 |
-| BR-026 | S029 |
-| BR-027 | S027, S028, S029 |
+| BR-024 | S024, S025, S030 |
+| BR-027 | S027, S030 |
+| BR-028 | S030 |
 | NFR-001 | S001, S008 |
 | NFR-002–NFR-003 | S002, S008, S015 |
-| NFR-004 | S001, S006, S010, S008 |
-| NFR-005 | S003, S004, S006, S007, S009, S012, S016, S027, S028 |
-| NFR-006 | S003, S004, S006, S007, S009, S012, S016 |
+| NFR-004 | S001, S006, S010, S008, S030 |
+| NFR-005 | S003, S004, S006, S007, S009, S012, S016, S027, S030 |
+| NFR-006 | S003, S004, S006, S007, S009, S012, S016, S030 |
 | NFR-007 | S008 |
 | NFR-008 | S001–S007, S009–S016 |
-| NFR-009 | S009, S012, S027, S028 |
+| NFR-009 | S009, S012, S027, S030 |
 | NFR-010–NFR-011 | S010, S011 |
 | NFR-012–NFR-013 | S013, S014 |
 | NFR-014 | S014, S015, S008 |
 | NFR-015 | S015, S008 |
 | NFR-016 | S018, S019 |
 | NFR-017 | S019 |
-| NFR-018–NFR-019 | S017, S020 |
+| NFR-018–NFR-019 | S017, S020, S030 |
 | NFR-020 | S017, S019, S022 |
 | NFR-021 | S023, S027 |
 | NFR-022 | S024, S025 |
 | NFR-023–NFR-024 | S024, S025, S026 |
 | NFR-025 | S023, S026 |
-| NFR-026 | S027 |
-| NFR-027 | S027, S028, S029 |
-| NFR-028 | S027, S028, S029 |
+| NFR-026 | S027, S030 |
+| NFR-027–NFR-029 | S027, S030 |
 
-Каждое must-have требование покрыто хотя бы одним срезом. Детальные acceptance criteria и verification находятся только в соответствующих slice-файлах.
+Каждое must-have требование покрыто хотя бы одним активным срезом. Отложенные FR-034/FR-035 и BR-025/BR-026 сохранены как evidence в BL-004/BL-005 и S028/S029, но не входят в coverage текущей поставки. Детальные acceptance criteria и verification находятся только в соответствующих slice-файлах.
 
 ## Правила изменения плана
 
 - Статус меняется только в [`STATE.md`](STATE.md); frontmatter среза синхронизируется в той же правке.
 - `planned` срез должен быть перепроверен на зависимости и переведён в `ready` непосредственно перед реализацией.
+- `backlog` срез не входит в dependency graph, current coverage или очередь реализации; для возврата нужен подтверждённый пользовательский путь, новое accepted decision и повторная проверка требований.
 - Значимое отклонение от продукта или архитектуры сначала записывается в [`DECISIONS.md`](DECISIONS.md).
 - Срез нельзя пометить `done`, пока заполнен не только чек-лист, но и Implementation report.
 - Новая функция MVP или первого публичного релиза должна получить `FR/BR/NFR` ID и покрытие срезом; функция «на потом» не должна незаметно попадать в acceptance criteria.

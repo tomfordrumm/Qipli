@@ -1,7 +1,7 @@
 ---
 id: S023
 title: Bounded typed History foundation
-status: ready
+status: done
 depends_on:
   - S018
   - S019
@@ -51,14 +51,14 @@ covers:
 
 ## Acceptance criteria
 
-- [ ] Existing synthetic legacy store мигрирует без изменения UUID, exact text, activity order, retention boundary и restart behavior.
-- [ ] Первый History show после reload публикует не более 500 descriptors; repeated show без mutation не выполняет новый full fetch.
-- [ ] Scroll/load-more выдаёт каждую retained occurrence ровно один раз в latest-first order и завершает terminal state без бесконечного fetch.
-- [ ] Search находит совпадение за пределами первой page, сохраняет текущую localized case-insensitive substring semantics и не загружает full retained payload в UI memory.
-- [ ] Rapid query change публикует только последний generation; clear query немедленно возвращает current first page.
-- [ ] Capture, successful promotion, delete, expiry и Clear All во время loaded/search state не создают duplicate, пропуск, stale selection или unconditional full reload.
-- [ ] Up/Down, Enter, double-click, Delete, fresh-show viewport reset, click-away и failure restore сохраняют принятый S016 contract.
-- [ ] Controlled pasteboard probe фиксирует только type/count aggregates и подтверждает multi-item/representation shapes без clipboard payload в output.
+- [x] Existing synthetic legacy store мигрирует без изменения UUID, exact text, activity order, retention boundary и restart behavior.
+- [x] Первый History show после reload публикует не более 500 descriptors; repeated show без mutation не выполняет новый full fetch.
+- [x] Scroll/load-more выдаёт каждую retained occurrence ровно один раз в latest-first order и завершает terminal state без бесконечного fetch.
+- [x] Search находит совпадение за пределами первой page, сохраняет текущую localized case-insensitive substring semantics и не загружает full retained payload в UI memory.
+- [x] Rapid query change публикует только последний generation; clear query немедленно возвращает current first page.
+- [x] Capture, successful promotion, delete, expiry и Clear All во время loaded/search state не создают duplicate, пропуск, stale selection или unconditional full reload.
+- [x] Up/Down, Enter, double-click, Delete, fresh-show viewport reset, click-away и failure restore сохраняют принятый S016 contract.
+- [x] Controlled pasteboard probe фиксирует только type/count aggregates и подтверждает multi-item/representation shapes без clipboard payload в output.
 
 ## Verification
 
@@ -71,4 +71,10 @@ covers:
 
 ## Implementation report
 
-Не начата.
+Реализовано в текущем рабочем срезе:
+
+- typed occurrence schema и ordered payload-item/representation contracts добавлены с lightweight migration legacy text rows без изменения UUID, текста и activity order;
+- History repository и view model используют bounded initial/load-more pages с keyset cursor, database-backed full-retention search, generation guard и page-aware capture/promotion/delete/retention mutations;
+- native History table, keyboard bridge, fresh-show reset и exact paste transaction сохранены, а payload-free pasteboard probe проверяет только aggregate type/count shapes.
+
+Проверено текущими SwiftPM и Xcode Debug suites, включая migration, paging/search parity, stale generation, mutation и payload-free probe tests. Slice переведён в `done`; remaining installed-app observations относятся к следующему typed-media/release workflow, а не к незавершённому S023 implementation.

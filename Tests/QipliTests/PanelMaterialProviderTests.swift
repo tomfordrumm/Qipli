@@ -69,9 +69,31 @@ final class PanelMaterialProviderTests: XCTestCase {
         XCTAssertGreaterThan(surface.bounds.height, content.frame.height)
     }
 
+    func testOpaqueSurfaceUsesSolidBackgroundInsteadOfSystemMaterial() {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 80, height: 40),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let provider = PanelMaterialProvider(
+            capabilities: FixedPanelMaterialCapabilities(supportsLiquidGlass: false)
+        )
+
+        let surface = provider.install(
+            content: NSView(),
+            in: panel,
+            opaqueBackground: .black
+        )
+
+        XCTAssertFalse(surface is NSVisualEffectView)
+        XCTAssertEqual(surface.layer?.backgroundColor, NSColor.black.cgColor)
+    }
+
     func testWindowConfigurationsPreservePanelContractsAndAddOnlySystemPresentation() {
         let expectedTitles: [PanelKind: String] = [
             .history: "History",
+            .topNotchHistory: "History",
             .pasteStack: "Paste Stack"
         ]
 
@@ -101,6 +123,13 @@ final class PanelMaterialProviderTests: XCTestCase {
         XCTAssertTrue(historyConfiguration.styleMask.contains(.utilityWindow))
         XCTAssertTrue(historyConfiguration.styleMask.contains(.fullSizeContentView))
         XCTAssertTrue(historyConfiguration.dismissesOnOutsideClick)
+
+        let topNotchConfiguration = PanelWindowConfiguration.make(for: .topNotchHistory)
+        XCTAssertEqual(topNotchConfiguration.chrome, .custom(cornerRadius: 20))
+        XCTAssertEqual(topNotchConfiguration.contentRect.size, NSSize(width: 1_080, height: 276))
+        XCTAssertTrue(topNotchConfiguration.dismissesOnOutsideClick)
+        XCTAssertFalse(topNotchConfiguration.styleMask.contains(.titled))
+        XCTAssertFalse(topNotchConfiguration.styleMask.contains(.nonactivatingPanel))
 
         let stackConfiguration = PanelWindowConfiguration.make(for: .pasteStack)
         XCTAssertEqual(stackConfiguration.chrome, .custom(cornerRadius: 18))

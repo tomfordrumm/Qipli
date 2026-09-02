@@ -62,9 +62,27 @@ final class PanelMaterialProvider {
     /// Installs one full-size material surface behind the native title bar while
     /// pinning SwiftUI content to the window's safe content layout rect.
     @discardableResult
-    func install(content: NSView, in panel: NSPanel) -> NSView {
+    func install(
+        content: NSView,
+        in panel: NSPanel,
+        opaqueBackground: NSColor? = nil,
+        opaqueSurface: NSView? = nil
+    ) -> NSView {
         let contentContainer = NSView()
-        let surface = makeSurface(wrapping: contentContainer)
+        let surface: NSView
+        if let opaqueBackground {
+            let resolvedSurface = opaqueSurface ?? NSView()
+            resolvedSurface.wantsLayer = true
+            resolvedSurface.layer?.backgroundColor = opaqueBackground.cgColor
+            resolvedSurface.addSubview(contentContainer)
+            contentContainer.frame = resolvedSurface.bounds
+            contentContainer.autoresizingMask = [.width, .height]
+            (resolvedSurface as? TopNotchHistorySurfaceView)?
+                .attachPresentationContentView(contentContainer)
+            surface = resolvedSurface
+        } else {
+            surface = makeSurface(wrapping: contentContainer)
+        }
         panel.contentView = surface
 
         content.translatesAutoresizingMaskIntoConstraints = false
@@ -101,8 +119,9 @@ final class PanelMaterialProvider {
     }
 }
 
-enum PanelKind: CaseIterable {
+enum PanelKind: CaseIterable, Equatable {
     case history
+    case topNotchHistory
     case pasteStack
 }
 
@@ -128,6 +147,14 @@ struct PanelWindowConfiguration {
                 contentRect: NSRect(x: 0, y: 0, width: 460, height: 340),
                 styleMask: [.titled, .closable, .utilityWindow, .fullSizeContentView],
                 chrome: .native,
+                dismissesOnOutsideClick: true
+            )
+        case .topNotchHistory:
+            Self(
+                title: "History",
+                contentRect: NSRect(origin: .zero, size: TopNotchHistoryGeometry.defaultPanelSize),
+                styleMask: [.borderless],
+                chrome: .custom(cornerRadius: 20),
                 dismissesOnOutsideClick: true
             )
         case .pasteStack:

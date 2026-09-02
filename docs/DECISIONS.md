@@ -216,7 +216,7 @@
 
 ## D-022 — Borderless chrome применяется только к Paste Stack
 
-- Статус: `accepted`
+- Статус: `superseded by D-038` для текущего presentation; historical S012 evidence сохраняется
 - Дата: 2026-08-12
 - Источник: пользователь; Apple AppKit `borderless`, `nonactivatingPanel` и `performDrag(with:)` documentation перепроверены 2026-08-12
 - Контекст: пользователь выбрал edge-to-edge Paste Stack с custom header вместо native title bar, сохранив компактную overlay-модель и существующую stack behavior.
@@ -356,7 +356,7 @@
 
 ## D-036: Default History открывается как Top Notch и разворачивается в отдельную карточную библиотеку
 
-- Статус: `accepted`
+- Статус: `superseded by D-038`
 - Дата: 2026-09-01
 - Источник: пользователь
 - Контекст: текущая native-table History надёжна и быстра с клавиатуры, но узкое обычное окно использует мало площади карточки для многострочного текста и media preview. Пользователь хочет быстрый вызов из верхней чёлки MacBook, Search прямо в панели и отдельное полноценное окно для более глубокого просмотра.
@@ -366,10 +366,20 @@
 
 ## D-037: Favorites не продлевает 30-day retention
 
-- Статус: `proposed`
+- Статус: `withdrawn to backlog by D-038`
 - Дата: 2026-09-01
 - Источник: консервативное предположение агента из запроса пользователя о Favorites
 - Контекст: пользователь подтвердил раздел Favorites, но не определил, должен ли favorite закреплять occurrence бессрочно. Бессрочное хранение изменит существующий privacy/retention contract, cleanup и ожидания по disk usage.
 - Решение: в первой версии Favorite является локальным marker и фильтром существующих occurrences. Delete, expiry и Clear All удаляют occurrence вместе с marker; favorite сам по себе не меняет activity time и не отменяет 30-day retention.
 - Причина: такое поведение добавляет навигацию без скрытого расширения срока хранения чувствительного clipboard payload.
 - Последствия: перед переводом S029 в `ready` пользователь подтверждает или меняет решение. Бессрочные pins потребуют отдельного product/technical решения, migration/cleanup semantics и понятного UI.
+
+## D-038: Top Notch остаётся единственной текущей History surface и принимает Paste Stack
+
+- Статус: `accepted`
+- Дата: 2026-09-02
+- Источник: пользователь
+- Контекст: после приёмки S027 пользователь не видит ближайшей ценности в отдельном полноразмерном окне History и хочет сосредоточить дальнейший UI polish в верхней Top Notch оболочке. Отдельная плавающая Paste Stack panel создаёт второй визуальный язык и отдельное положение окна, хотя Stack является таким же быстрым overlay-сценарием Qipli.
+- Решение: отдельное полноценное окно History, действие `Развернуть` и Favorites уходят из активного плана в backlog. `⌘⇧V` продолжает открывать transient activating History Top Notch. Paste Stack переносится в ту же верхнюю форму, placement и motion, но сохраняет отдельную nonactivating panel configuration: Stack не становится key, не забирает focus у source/target app, не закрывается по History click-away/resign-key и завершается только existing Cancel/Escape/auto-finish paths. Специальный переход из активного Stack в History не входит в текущий пользовательский путь и не является acceptance criterion.
+- Причина: один верхний shell делает частые History и Stack сценарии визуально цельными, а отказ от непроверенного full-library режима сокращает scope. Раздельные AppKit activation/lifecycle contracts сохраняют уже принятую надёжность системной вставки.
+- Последствия: S028/S029 и их requirements сохраняются как backlog evidence, но не входят в coverage текущей поставки. S030 становится ближайшим ready slice. D-022 остаётся историей принятого S012, но movable frame, position restore и custom window drag больше не являются целевым Paste Stack presentation. D-036/D-037 не управляют активным планом.

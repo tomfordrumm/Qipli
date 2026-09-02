@@ -10,19 +10,27 @@ final class PanelController {
     private let historyPasteExecutor: HistoryPasteExecutor
     private let frontmostApplicationCapture: FrontmostApplicationCapturing
     private let screenProvider: PanelScreenProviding
+    private let topNotchScreenProvider: TopNotchScreenProviding
     private let pasteStackPositionStore: PasteStackPanelPositionStoring
     private let openAccessibilitySettings: () -> Void
     private let activationPresenter: PanelActivationPresenter
     private let materialProvider: PanelMaterialProvider
     private let historyTableInteractionBridge = HistoryTableInteractionBridge()
+    private let topNotchInteractionBridge = TopNotchHistoryInteractionBridge()
+    private let topNotchLayoutModel = TopNotchHistoryLayoutModel()
     private var historyPanel: NSPanel?
+    private weak var topNotchSurfaceView: TopNotchHistorySurfaceView?
+    private var topNotchState: TopNotchPresentationState = .hidden
+    private var topNotchPresentationGeneration = 0
     private var stackPanel: NSPanel?
     private var historyPasteTarget: HistoryPasteTarget?
     private var historyPasteTransactionID: UUID?
+    private var pendingHistoryPasteEntryID: UUID?
     private var historyPanelDelegate: HistoryPanelDelegate?
     private var historyKeyboardMonitor: HistoryPanelKeyboardMonitor?
     private var historyOutsideClickMonitor: HistoryPanelOutsideClickMonitor?
     private var stackPanelDelegate: StackPanelDelegate?
+    private var screenParametersObserver: NSObjectProtocol?
 
     /// The shell uses this only to refresh its Start/Cancel menu title.
     var onPasteStackCancelled: (() -> Void)?
@@ -34,6 +42,7 @@ final class PanelController {
         historyPasteExecutor: HistoryPasteExecutor,
         frontmostApplicationCapture: FrontmostApplicationCapturing = SystemFrontmostApplicationCapture(),
         screenProvider: PanelScreenProviding = SystemPanelScreenProvider(),
+        topNotchScreenProvider: TopNotchScreenProviding = SystemTopNotchScreenProvider(),
         pasteStackPositionStore: PasteStackPanelPositionStoring = PasteStackPanelPositionStore(),
         applicationActivator: QipliApplicationActivating? = nil,
         materialProvider: PanelMaterialProvider? = nil,
@@ -48,6 +57,7 @@ final class PanelController {
         self.historyPasteExecutor = historyPasteExecutor
         self.frontmostApplicationCapture = frontmostApplicationCapture
         self.screenProvider = screenProvider
+        self.topNotchScreenProvider = topNotchScreenProvider
         self.pasteStackPositionStore = pasteStackPositionStore
         self.openAccessibilitySettings = openAccessibilitySettings
         self.materialProvider = materialProvider ?? PanelMaterialProvider()
@@ -56,9 +66,26 @@ final class PanelController {
             application: resolvedApplicationActivator,
             scheduleNextMainRunLoop: activationScheduler
         )
+        screenParametersObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshVisibleTopNotchFrame()
+            }
+        }
+    }
+
+    deinit {
+        if let screenParametersObserver {
+            NotificationCenter.default.removeObserver(screenParametersObserver)
+        }
     }
 
     func showHistory() {
+        topNotchPresentationGeneration += 1
+        let presentationGeneration = topNotchPresentationGeneration
         cancelHistoryPasteTransaction()
         restoreHistoryPanelPresentation()
         _ = permissionService.refresh()
@@ -67,11 +94,9 @@ final class PanelController {
             historyPasteTarget = frontmostApplicationCapture.capturePriorApplication()
         }
         historyViewModel.prepareForPresentation()
-        historyTableInteractionBridge.applySnapshot(
-            entries: historyViewModel.visibleEntries,
-            revision: historyViewModel.visibleSnapshotRevision,
-            selectedEntryID: historyViewModel.selectedEntryID,
-            resetViewport: false
+        topNotchInteractionBridge.applySnapshot(
+            entryIDs: historyViewModel.visibleEntries.map(\.id),
+            selectedEntryID: historyViewModel.selectedEntryID
         )
         let panel: NSPanel
         if let historyPanel {
@@ -80,16 +105,76 @@ final class PanelController {
             panel = makeHistoryPanel()
         }
         historyPanel = panel
+        topNotchLayoutModel.topContentInset = topNotchSafeAreaInset(for: historyPasteTarget)
+        let expandedFrame = topNotchFrame(for: panel, target: historyPasteTarget)
+        let collapsedFrame = topNotchCollapsedFrame(
+            from: expandedFrame,
+            target: historyPasteTarget
+        )
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let shouldAnimate = !panel.isVisible
+        if shouldAnimate {
+            topNotchState = .appearing
+            panel.setFrame(expandedFrame, display: false)
+            panel.contentView?.layoutSubtreeIfNeeded()
+            if reduceMotion {
+                topNotchSurfaceView?.restoreExpandedPresentation()
+                panel.alphaValue = 0
+            } else {
+                topNotchSurfaceView?.prepareForReveal(
+                    from: topNotchCompactRect(
+                        collapsedFrame: collapsedFrame,
+                        expandedFrame: expandedFrame
+                    )
+                )
+                panel.alphaValue = 1
+            }
+        } else {
+            topNotchState = .visible
+            panel.setFrame(expandedFrame, display: true)
+        }
         present(
             panel,
             requestSearchFocus: true,
-            requestHistoryViewportReset: isFreshPresentation,
-            requiresStrongUserActivation: true
+            requestHistoryViewportReset: false,
+            requiresStrongUserActivation: true,
+            preserveFrame: true,
+            afterPresent: { [weak self, weak panel] in
+                guard shouldAnimate,
+                      let self,
+                      self.topNotchPresentationGeneration == presentationGeneration,
+                      self.topNotchState == .appearing,
+                      let panel
+                else { return }
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = reduceMotion ? 0.12 : 0.20
+                    context.timingFunction = CAMediaTimingFunction(
+                        controlPoints: 0.23,
+                        1,
+                        0.32,
+                        1
+                    )
+                    panel.animator().alphaValue = 1
+                    if !reduceMotion {
+                        self.topNotchSurfaceView?.animateReveal(duration: context.duration)
+                        self.topNotchSurfaceView?.animateContentAlpha(to: 1)
+                    }
+                } completionHandler: {
+                    Task { @MainActor [weak self] in
+                        guard let self,
+                              self.topNotchPresentationGeneration == presentationGeneration,
+                              self.topNotchState == .appearing,
+                              panel.isVisible
+                        else { return }
+                        self.topNotchState = .visible
+                    }
+                }
+            }
         )
     }
 
-    /// Builds the reusable History surface after startup data has loaded so the
-    /// first user invocation does not pay SwiftUI/AppKit construction cost.
+    /// Builds the reusable Top Notch History surface after startup data has
+    /// loaded so the first user invocation does not pay construction cost.
     func prepareHistoryPanel() {
         guard historyPanel == nil else { return }
         historyPanel = makeHistoryPanel()
@@ -120,13 +205,16 @@ final class PanelController {
     }
 
     func closeAll() {
+        topNotchPresentationGeneration += 1
         cancelHistoryPasteTransaction()
         cancelPasteStack()
         historyPanel?.delegate = nil
+        topNotchState = .hidden
         [historyPanel, stackPanel].forEach { $0?.close() }
     }
 
     private func pasteHistoryEntry(_ entry: HistoryEntry) {
+        pendingHistoryPasteEntryID = nil
         guard historyPasteTransactionID == nil else { return }
         let transactionID = UUID()
         historyPasteTransactionID = transactionID
@@ -177,7 +265,9 @@ final class PanelController {
     private func dismissHistory(_ intent: HistoryPanelDismissalIntent) {
         HistoryPanelDismissalExecutor(
             cancelPaste: { [weak self] in self?.cancelHistoryPasteTransaction() },
-            hide: { [weak self] in self?.hideHistoryPanel() },
+            hide: { [weak self] completion in
+                self?.hideHistoryPanel(completion: completion)
+            },
             restoreFocus: { [weak self] in
                 _ = HistoryFocusRestorer.returnToCapturedTarget(self?.historyPasteTarget)
             }
@@ -186,6 +276,7 @@ final class PanelController {
     }
 
     private func cancelHistoryPasteTransaction() {
+        pendingHistoryPasteEntryID = nil
         guard historyPasteTransactionID != nil || historyPasteExecutor.hasActivePaste else {
             return
         }
@@ -205,17 +296,95 @@ final class PanelController {
             }
             return
         }
-        present(historyPanel, requestSearchFocus: true, requiresStrongUserActivation: true)
+        present(
+            historyPanel,
+            requestSearchFocus: true,
+            requiresStrongUserActivation: true,
+            preserveFrame: true
+        )
     }
 
-    private func hideHistoryPanel() {
-        historyPanel?.orderOut(nil)
-        restoreHistoryPanelPresentation()
+    private func hideHistoryPanel(completion: @escaping () -> Void = {}) {
+        // `orderOut` and explicit target activation both resign the key window.
+        // The delegate must not start a second dismissal while this one owns
+        // the animation and its eventual focus handoff.
+        guard topNotchState != .dismissing else { return }
+        topNotchPresentationGeneration += 1
+        let presentationGeneration = topNotchPresentationGeneration
+        topNotchState = TopNotchPresentationStateMachine.transition(topNotchState, event: .dismiss)
+        guard let panel = historyPanel, panel.isVisible else {
+            restoreHistoryPanelPresentation()
+            topNotchState = TopNotchPresentationStateMachine.transition(
+                topNotchState,
+                event: .dismissalFinished
+            )
+            completion()
+            return
+        }
+
+        panel.ignoresMouseEvents = true
+        guard panel.alphaValue > 0.001 else {
+            panel.orderOut(nil)
+            restoreHistoryPanelPresentation()
+            topNotchState = TopNotchPresentationStateMachine.transition(
+                topNotchState,
+                event: .dismissalFinished
+            )
+            completion()
+            return
+        }
+
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let collapsedFrame = topNotchCollapsedFrame(
+            from: topNotchFrame(for: panel, target: historyPasteTarget),
+            target: historyPasteTarget
+        )
+        let expandedFrame = topNotchFrame(for: panel, target: historyPasteTarget)
+        let duration = reduceMotion ? 0.10 : 0.16
+        if !reduceMotion {
+            topNotchSurfaceView?.animateDismiss(
+                to: topNotchCompactRect(
+                    collapsedFrame: collapsedFrame,
+                    expandedFrame: expandedFrame
+                ),
+                duration: duration
+            )
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            context.timingFunction = CAMediaTimingFunction(
+                controlPoints: 0.23,
+                1,
+                0.32,
+                1
+            )
+            if reduceMotion {
+                panel.animator().alphaValue = 0
+            } else {
+                self.topNotchSurfaceView?.animateContentAlpha(to: 0)
+            }
+        } completionHandler: {
+            Task { @MainActor [weak self, weak panel] in
+                guard let self,
+                      let panel,
+                      self.topNotchPresentationGeneration == presentationGeneration,
+                      self.topNotchState == .dismissing
+                else { return }
+                panel.orderOut(nil)
+                self.restoreHistoryPanelPresentation()
+                self.topNotchState = TopNotchPresentationStateMachine.transition(
+                    self.topNotchState,
+                    event: .dismissalFinished
+                )
+                completion()
+            }
+        }
     }
 
     private func restoreHistoryPanelPresentation() {
         historyPanel?.alphaValue = 1
         historyPanel?.ignoresMouseEvents = false
+        topNotchSurfaceView?.restoreExpandedPresentation()
     }
 
     private func makePanel<Content: View>(
@@ -223,18 +392,42 @@ final class PanelController {
         @ViewBuilder content: () -> Content
     ) -> NSPanel {
         let configuration = PanelWindowConfiguration.make(for: kind)
-        let panel = NSPanel(
-            contentRect: configuration.contentRect,
-            styleMask: configuration.styleMask,
-            backing: .buffered,
-            defer: false
-        )
+        let panel: NSPanel
+        if kind == .topNotchHistory {
+            panel = TopNotchHistoryPanel(
+                contentRect: configuration.contentRect,
+                styleMask: configuration.styleMask,
+                backing: .buffered,
+                defer: false
+            )
+        } else {
+            panel = NSPanel(
+                contentRect: configuration.contentRect,
+                styleMask: configuration.styleMask,
+                backing: .buffered,
+                defer: false
+            )
+        }
         configuration.applyPresentation(to: panel)
-        let surface = materialProvider.install(content: NSHostingView(rootView: content()), in: panel)
+        let surface = materialProvider.install(
+            content: NSHostingView(rootView: content()),
+            in: panel,
+            opaqueBackground: kind == .topNotchHistory ? .black : nil,
+            opaqueSurface: kind == .topNotchHistory ? TopNotchHistorySurfaceView() : nil
+        )
         configuration.applySurfacePresentation(to: surface)
+        if kind == .topNotchHistory {
+            // The expanded shelf is the notch overlay, not a window below it:
+            // keep it above the menu bar and let the black surface meet the
+            // hardware camera area directly.
+            panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
+            surface.layer?.cornerRadius = 0
+            panel.hasShadow = false
+            topNotchSurfaceView = surface as? TopNotchHistorySurfaceView
+        }
 
         switch kind {
-        case .history:
+        case .history, .topNotchHistory:
             let panelDelegate = HistoryPanelDelegate(
                 cancel: { [weak self] in self?.cancelHistory() },
                 passiveDismiss: { [weak self] in self?.passiveDismissHistory() },
@@ -242,7 +435,10 @@ final class PanelController {
             )
             panel.delegate = panelDelegate
             historyPanelDelegate = panelDelegate
-            historyKeyboardMonitor = HistoryPanelKeyboardMonitor(panel: panel) { [weak self] action in
+            historyKeyboardMonitor = HistoryPanelKeyboardMonitor(
+                panel: panel,
+                selectionAxis: kind == .topNotchHistory ? .horizontal : .vertical
+            ) { [weak self] action in
                 self?.handleHistoryKeyAction(action) ?? false
             }
             if configuration.dismissesOnOutsideClick {
@@ -257,14 +453,15 @@ final class PanelController {
     }
 
     private func makeHistoryPanel() -> NSPanel {
-        makePanel(kind: .history) {
-            HistoryPanelView(
+        makePanel(kind: .topNotchHistory) {
+            TopNotchHistoryShelfView(
                 viewModel: self.historyViewModel,
                 permissionService: self.permissionService,
+                layoutModel: self.topNotchLayoutModel,
                 openAccessibilitySettings: self.openAccessibilitySettings,
-                pasteEntry: { [weak self] entry in self?.pasteHistoryEntry(entry) },
+                pasteEntry: { [weak self] id in self?.requestPasteHistoryEntry(id: id) },
                 close: { [weak self] in self?.cancelHistory() },
-                tableInteractionBridge: self.historyTableInteractionBridge
+                interactionBridge: self.topNotchInteractionBridge
             )
         }
     }
@@ -277,15 +474,18 @@ final class PanelController {
             guard permissionService.state == .granted else {
                 return false
             }
+            if historyPanel is TopNotchHistoryPanel {
+                guard let selectedEntryID = historyViewModel.selectedEntryID else { return false }
+                requestPasteHistoryEntry(id: selectedEntryID)
+                return true
+            }
         }
 
         return HistoryPanelKeyActionExecutor(
             moveSelection: { [weak self] offset in
                 guard let self else { return }
                 self.historyViewModel.moveSelection(by: offset)
-                self.historyTableInteractionBridge.applySelection(
-                    id: self.historyViewModel.selectedEntryID
-                )
+                self.topNotchInteractionBridge.applySelection(id: self.historyViewModel.selectedEntryID)
             },
             selectedEntry: { [weak self] in self?.historyViewModel.selectedEntry },
             pasteEntry: { [weak self] entry in
@@ -301,6 +501,28 @@ final class PanelController {
             }
         )
         .execute(action)
+    }
+
+    private func requestPasteHistoryEntry(id: UUID) {
+        guard pendingHistoryPasteEntryID == nil,
+              historyPasteTransactionID == nil,
+              !historyViewModel.isPasteInProgress,
+              permissionService.state == .granted
+        else { return }
+        pendingHistoryPasteEntryID = id
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.pendingHistoryPasteEntryID == id
+            else { return }
+            self.pendingHistoryPasteEntryID = nil
+            switch await self.historyViewModel.entryForPaste(id: id) {
+            case let .success(entry):
+                self.pasteHistoryEntry(entry)
+            case let .failure(failure):
+                self.historyViewModel.recordPasteFailure(failure)
+                self.reopenHistoryAfterPasteFailure()
+            }
+        }
     }
 
     private func makeStackPanel<Content: View>(@ViewBuilder content: () -> Content) -> NSPanel {
@@ -334,9 +556,14 @@ final class PanelController {
         requestHistoryViewportReset: Bool = false,
         requiresStrongUserActivation: Bool = false,
         activatesApplication: Bool = true,
-        placeOnCurrentScreen: Bool = false
+        placeOnCurrentScreen: Bool = false,
+        preserveFrame: Bool = false,
+        afterPresent: @escaping () -> Void = {}
     ) {
-        if placeOnCurrentScreen {
+        if preserveFrame {
+            // The caller has already selected a display-specific frame, such as
+            // the safe-area anchored Top Notch frame.
+        } else if placeOnCurrentScreen {
             place(panel)
         } else {
             panel.center()
@@ -359,16 +586,76 @@ final class PanelController {
                         resetViewport: true
                     )
                 }
+                afterPresent()
             },
             whenActive: { [weak self, weak panel] in
                 guard let panel else { return }
                 panel.makeKey()
                 if requestSearchFocus {
-                    panel.makeFirstResponder(nil)
                     self?.historyViewModel.requestSearchFocus()
                 }
             }
         )
+    }
+
+    private func topNotchFrame(for panel: NSPanel, target: HistoryPasteTarget?) -> NSRect {
+        guard let screen = target?.preferredScreen ?? topNotchScreenProvider.currentScreen() else {
+            return TopNotchHistoryGeometry.frame(
+                screenFrame: screenProvider.currentVisibleFrame(),
+                visibleFrame: screenProvider.currentVisibleFrame(),
+                safeAreaInsets: NSEdgeInsets(),
+                panelSize: TopNotchHistoryGeometry.defaultPanelSize
+            )
+        }
+        return TopNotchHistoryGeometry.frame(
+            screenFrame: screen.frame,
+            visibleFrame: screen.visibleFrame,
+            safeAreaInsets: screen.safeAreaInsets,
+            auxiliaryTopLeftArea: screen.auxiliaryTopLeftArea,
+            auxiliaryTopRightArea: screen.auxiliaryTopRightArea,
+            panelSize: NSSize(
+                width: TopNotchHistoryGeometry.defaultPanelSize.width,
+                height: TopNotchHistoryGeometry.defaultPanelSize.height
+                    + topNotchSafeAreaInset(for: target)
+            )
+        )
+    }
+
+    private func topNotchSafeAreaInset(for target: HistoryPasteTarget?) -> CGFloat {
+        max(0, (target?.preferredScreen ?? topNotchScreenProvider.currentScreen())?.safeAreaInsets.top ?? 0)
+    }
+
+    private func topNotchCollapsedFrame(
+        from expandedFrame: NSRect,
+        target: HistoryPasteTarget?
+    ) -> NSRect {
+        guard let screen = target?.preferredScreen ?? topNotchScreenProvider.currentScreen() else {
+            return TopNotchHistoryGeometry.collapsedFrame(from: expandedFrame)
+        }
+        return TopNotchHistoryGeometry.collapsedFrame(
+            from: expandedFrame,
+            safeAreaInsets: screen.safeAreaInsets,
+            auxiliaryTopLeftArea: screen.auxiliaryTopLeftArea,
+            auxiliaryTopRightArea: screen.auxiliaryTopRightArea
+        )
+    }
+
+    private func topNotchCompactRect(
+        collapsedFrame: NSRect,
+        expandedFrame: NSRect
+    ) -> CGRect {
+        CGRect(
+            x: collapsedFrame.minX - expandedFrame.minX,
+            y: 0,
+            width: collapsedFrame.width,
+            height: collapsedFrame.height
+        )
+    }
+
+    private func refreshVisibleTopNotchFrame() {
+        guard topNotchState == .visible, let panel = historyPanel, panel.isVisible else { return }
+        topNotchLayoutModel.topContentInset = topNotchSafeAreaInset(for: historyPasteTarget)
+        panel.setFrame(topNotchFrame(for: panel, target: historyPasteTarget), display: true)
     }
 
     private func place(_ panel: NSPanel) {
@@ -510,16 +797,17 @@ enum HistoryPanelDismissalIntent: Equatable {
 
 struct HistoryPanelDismissalExecutor {
     let cancelPaste: () -> Void
-    let hide: () -> Void
+    let hide: (@escaping () -> Void) -> Void
     let restoreFocus: () -> Void
 
     func execute(_ intent: HistoryPanelDismissalIntent) {
         if intent == .explicit {
             cancelPaste()
         }
-        hide()
-        if intent == .explicit {
-            restoreFocus()
+        hide {
+            if intent == .explicit {
+                restoreFocus()
+            }
         }
     }
 }
@@ -527,6 +815,8 @@ struct HistoryPanelDismissalExecutor {
 enum HistoryPanelPhysicalKey: Equatable {
     case up
     case down
+    case left
+    case right
     case enter
     case escape
     case other
@@ -547,6 +837,8 @@ struct HistoryPanelKeyEvent: Equatable {
         let key: HistoryPanelPhysicalKey = switch event.keyCode {
         case 126: .up
         case 125: .down
+        case 123: .left
+        case 124: .right
         case 36, 76: .enter
         case 53: .escape
         default: .other
@@ -560,22 +852,28 @@ struct HistoryPanelKeyEvent: Equatable {
     }
 }
 
+enum HistoryPanelSelectionAxis: Equatable {
+    case vertical
+    case horizontal
+}
+
 enum HistoryPanelKeyAdmission {
     static func action(
         for event: HistoryPanelKeyEvent,
-        isEventInKeyHistoryWindow: Bool
+        isEventInKeyHistoryWindow: Bool,
+        selectionAxis: HistoryPanelSelectionAxis = .vertical
     ) -> HistoryPanelKeyAction? {
         guard isEventInKeyHistoryWindow, !event.hasDisallowedModifiers else { return nil }
         switch event.key {
-        case .up:
+        case .up where selectionAxis == .vertical, .left where selectionAxis == .horizontal:
             return .moveSelection(by: -1)
-        case .down:
+        case .down where selectionAxis == .vertical, .right where selectionAxis == .horizontal:
             return .moveSelection(by: 1)
         case .enter where !event.isRepeat:
             return .pasteSelection
         case .escape where !event.isRepeat:
             return .close
-        case .enter, .escape, .other:
+        case .up, .down, .left, .right, .enter, .escape, .other:
             return nil
         }
     }
@@ -590,10 +888,16 @@ enum HistoryPanelOutsideClickAdmission {
 private final class HistoryPanelKeyboardMonitor {
     private weak var panel: NSPanel?
     private var monitor: Any?
+    private let selectionAxis: HistoryPanelSelectionAxis
     private let handle: (HistoryPanelKeyAction) -> Bool
 
-    init(panel: NSPanel, handle: @escaping (HistoryPanelKeyAction) -> Bool) {
+    init(
+        panel: NSPanel,
+        selectionAxis: HistoryPanelSelectionAxis,
+        handle: @escaping (HistoryPanelKeyAction) -> Bool
+    ) {
         self.panel = panel
+        self.selectionAxis = selectionAxis
         self.handle = handle
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             self?.process(event) ?? event
@@ -615,7 +919,8 @@ private final class HistoryPanelKeyboardMonitor {
         let isEventInKeyHistoryWindow = event.window === panel && panel.isKeyWindow
         guard let action = HistoryPanelKeyAdmission.action(
             for: HistoryPanelKeyEvent(event: event),
-            isEventInKeyHistoryWindow: isEventInKeyHistoryWindow
+            isEventInKeyHistoryWindow: isEventInKeyHistoryWindow,
+            selectionAxis: selectionAxis
         ) else {
             return event
         }
@@ -718,6 +1023,11 @@ private final class HistoryPanelDelegate: NSObject, NSWindowDelegate {
 private final class NonActivatingStackPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+}
+
+private final class TopNotchHistoryPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
 }
 
 @MainActor

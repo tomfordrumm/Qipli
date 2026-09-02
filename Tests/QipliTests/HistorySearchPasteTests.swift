@@ -73,6 +73,16 @@ final class HistoryViewModelSearchTests: XCTestCase {
         XCTAssertEqual(store.entries.first { $0.id == matching.id }?.text, "Äpfel")
     }
 
+    func testEntryForPasteReportsMissingOccurrenceInsteadOfFailingSilently() async {
+        let viewModel = HistoryViewModel(
+            service: HistoryService(store: InMemoryHistoryStore(entries: []))
+        )
+
+        let result = await viewModel.entryForPaste(id: UUID())
+
+        XCTAssertEqual(result, .failure(.entryUnavailable))
+    }
+
     func testSelectionMovesWithinVisibleResultsAndResetsAfterQueryChange() async {
         let first = makeEntry("alpha", offset: 3)
         let second = makeEntry("alphabet", offset: 2)
@@ -1124,19 +1134,49 @@ final class HistoryPanelIntentTests: XCTestCase {
         ))
     }
 
+    func testTopNotchKeyboardAdmissionUsesHorizontalArrowsWithoutChangingHistoryAxis() {
+        XCTAssertEqual(HistoryPanelKeyAdmission.action(
+            for: HistoryPanelKeyEvent(key: .left, hasDisallowedModifiers: false, isRepeat: true),
+            isEventInKeyHistoryWindow: true,
+            selectionAxis: .horizontal
+        ), .moveSelection(by: -1))
+        XCTAssertEqual(HistoryPanelKeyAdmission.action(
+            for: HistoryPanelKeyEvent(key: .right, hasDisallowedModifiers: false, isRepeat: true),
+            isEventInKeyHistoryWindow: true,
+            selectionAxis: .horizontal
+        ), .moveSelection(by: 1))
+        XCTAssertNil(HistoryPanelKeyAdmission.action(
+            for: HistoryPanelKeyEvent(key: .up, hasDisallowedModifiers: false, isRepeat: true),
+            isEventInKeyHistoryWindow: true,
+            selectionAxis: .horizontal
+        ))
+        XCTAssertNil(HistoryPanelKeyAdmission.action(
+            for: HistoryPanelKeyEvent(key: .left, hasDisallowedModifiers: false, isRepeat: true),
+            isEventInKeyHistoryWindow: true
+        ))
+    }
+
     func testPassiveDismissHidesOnlyWhileExplicitDismissCancelsAndRestoresFocus() {
         var events: [String] = []
+        var finishHide: (() -> Void)?
         let executor = HistoryPanelDismissalExecutor(
             cancelPaste: { events.append("cancel") },
-            hide: { events.append("hide") },
+            hide: { completion in
+                events.append("hide")
+                finishHide = completion
+            },
             restoreFocus: { events.append("restore") }
         )
 
         executor.execute(.passive)
         XCTAssertEqual(events, ["hide"])
+        finishHide?()
+        XCTAssertEqual(events, ["hide"])
 
         events.removeAll()
         executor.execute(.explicit)
+        XCTAssertEqual(events, ["cancel", "hide"])
+        finishHide?()
         XCTAssertEqual(events, ["cancel", "hide", "restore"])
     }
 
