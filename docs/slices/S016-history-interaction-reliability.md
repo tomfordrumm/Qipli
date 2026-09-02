@@ -1,7 +1,7 @@
 ---
 id: S016
 title: Надёжная навигация и закрытие History
-status: needs_verification
+status: done
 depends_on:
   - S003
 covers:
@@ -49,13 +49,13 @@ History одинаково реагирует на клавиатуру неза
 
 ## Acceptance criteria
 
-- [ ] Up/Down меняют selection, а Enter/Escape работают после fresh show, повторной активации и клика по History row, пока panel остаётся key.
-- [ ] Если initial activation заняла больше прежних трёх main-run-loop turns, получение key status всё равно фокусирует Search и включает keyboard navigation.
+- [x] Up/Down меняют selection, а Enter/Escape работают после fresh show, повторной активации и клика по History row, пока panel остаётся key.
+- [x] Если initial activation заняла больше прежних трёх main-run-loop turns, получение key status всё равно фокусирует Search и включает keyboard navigation.
 - [x] Rapid repeated Enter/double-click во время target activation приводит максимум к одной pasteboard write и одной tagged paste command.
 - [x] Successful target activation не ждёт следующего 50 ms polling tick; exhausted deadline оставляет retryable failure без dispatch.
 - [x] Каждый Up/Down синхронно применяет exact native row selection; `scrollRowToVisible` не позволяет highlight уйти за viewport и не использует deferred/coalesced SwiftUI `scrollTo`.
 - [x] `Enter` визуально скрывает History без `Pasting…`, selection jump или видимого activation wait; failure возвращает ту же panel с retryable error.
-- [ ] Click, Command-Tab или переход в другое окно скрывает History и не активирует ранее captured app поверх нового user target.
+- [x] Click, Command-Tab или переход в другое окно скрывает History и не активирует ранее captured app поверх нового user target.
 - [x] Escape по-прежнему закрывает History, возвращает captured target и не меняет pasteboard.
 - [x] Copy непосредственно перед History show доступен в первой presentation, если pasteboard уже опубликовал change.
 - [x] Обычный external capture не выполняет полный storage fetch; duplicates, Unicode, multiline, retention и self-write suppression сохраняются.
@@ -67,7 +67,7 @@ History одинаково реагирует на клавиатуру неза
 - [x] Unit tests passive dismiss не вызывает focus restoration, а explicit Escape вызывает.
 - [x] Integration test fresh pasteboard flush completes capture before History reload/presentation.
 - [x] Full SwiftPM suite и unsigned Xcode Debug build.
-- [ ] Manual macOS matrix: hotkey focus, row click plus arrows, instant visual hide on Enter, delayed target activation, rapid Enter, click outside to same/other app, Command-Tab, Escape and retry failure.
+- [x] Manual macOS matrix: hotkey focus, row click plus arrows, instant visual hide on Enter, delayed target activation, rapid Enter, click outside to same/other app, Command-Tab, Escape and retry failure.
 
 ## Implementation report
 
@@ -87,9 +87,9 @@ History одинаково реагирует на клавиатуру неза
 - После native-table rewrite focused History ViewModel/intent Xcode tests: 35 tests, 0 failures. Финальные Xcode и clean-copy SwiftPM suites: по 189 tests, 0 failures.
 - Xcode Debug app собран для `arm64` и `x86_64`.
 - Пользователь принял Xcode smoke cold/warm open, rapid Up/Down, non-first Enter без видимого jump и адаптивные одно-/многострочные rows. Trace показала среднюю реакцию стрелок `1.93 ms`, maximum `8.3 ms`, visual conceal на Enter `4.3–8.4 ms`.
-- Полная manual macOS matrix остаётся открытой для failure restore, VoiceOver/Delete/double-click и click-away/Command-Tab regression.
+- 2026-08-30 пользователь подтвердил полную manual macOS matrix, включая failure restore, VoiceOver/Delete/double-click и click-away/Command-Tab regression, на двух машинах.
 
 ### Отклонения и остаточные риски
 
-- Реальный responder/focus path и клики по другим приложениям требуют ручной проверки в запущенном menu bar app.
+- Реальный responder/focus path и клики по другим приложениям подтверждены пользователем на двух машинах.
 - Успешный synthetic `Command-V` означает доставку события после активации target, но не подтверждает принятие текста конкретным target field.

@@ -1,7 +1,7 @@
 ---
 id: S019
 title: Асинхронный History pipeline
-status: needs_verification
+status: done
 depends_on:
   - S018
 covers:
@@ -59,7 +59,7 @@ Core Data work выполняется последовательно вне main
 - [x] S017 fetch counters и capture baseline.
 - [x] Full SwiftPM/Xcode tests; Thread Sanitizer или эквивалентный targeted run, если доступен стабильно.
 - [x] Unsigned universal Release build.
-- [ ] Manual rapid-copy → immediate History show smoke без пропущенных entries.
+- [x] Manual rapid-copy → immediate History show smoke без пропущенных entries.
 
 ## Implementation report
 
@@ -84,5 +84,5 @@ Core Data work выполняется последовательно вне main
 
 ### Отклонения и остаточные риски
 
-- Ручной rapid-copy → immediate History show на установленном приложении не выполнялся; до него срез остаётся `needs_verification`.
+- 2026-08-30 пользователь подтвердил rapid-copy → immediate History show smoke на двух машинах без пропущенных entries. Срез переведён в `done`.
 - Очередь намеренно сериализует persistence: при очень медленном/недоступном store backlog сохраняет данные и порядок ценой задержки presentation, а не теряет capture.

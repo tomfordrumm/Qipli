@@ -54,7 +54,7 @@ covers:
 
 ## Предусловия
 
-- S003, S007, S010–S012 и S014–S015 завершены; core MVP, setup, public delivery и updater доступны.
+- S003, S007, S010–S012 и S015 завершены; S014 public delivery доступен, а его единственный оставшийся operational proof вынесен в отдельный release rerun.
 - Есть Apple Developer Program membership, Developer ID Application certificate и notarization credentials. Если нет — срез остаётся `planned`/становится `blocked`, но локальная разработка не откатывается.
 - Apple platform sources из `TECHNICAL.md` перепроверены на дату релиза.
 
@@ -85,29 +85,29 @@ covers:
 
 ## Acceptance criteria
 
-- [ ] Release build использует deployment target macOS 14, Hardened Runtime, ожидаемые architectures и минимальный набор entitlements; App Sandbox и network client/server entitlement отсутствуют.
-- [ ] Все executables внутри artifact подписаны Developer ID, archive успешно проходит Apple notarization, ticket stapled, а Gatekeeper проверка проходит на загруженной копии.
-- [ ] На чистом профиле macOS 14 пользователь устанавливает приложение, понимает локальное хранение/риск секретов, выдаёт или отклоняет Accessibility и видит честное degraded state при отказе.
-- [ ] На чистом профиле onboarding появляется до первого pasteboard read, допускает Skip/deny, не включает Launch at Login без явного действия и позднее повторно открывается из Settings без сброса preferences.
-- [ ] На чистой системе выполняются PJ-001 и PJ-002; отказ разрешения, повторная выдача, sleep/wake и повторный запуск не приводят к потере управляемости.
-- [ ] Custom History/Stack/Reactivate shortcuts переживают restart и reset; обычный `⌘V`/`Esc` сохраняют контракты. Launch at Login проходит enable → logout/login → disable и external-disable/requires-approval paths на подписанном artifact.
-- [ ] Network inspection основной clipboard-сессии без update check не показывает runtime requests Qipli; manual/opt-in update requests не содержат clipboard text, search queries, previews или локальные identifiers.
-- [ ] Delete one, clear all и auto-retention сохраняются после перезапуска; clear-all удаляет управляемый store/sidecars, но UI/docs не обещают secure erase и не заявляют очистку system pasteboard.
-- [ ] Upgrade поверх предыдущей test build сохраняет записи моложе 30 дней или выполняет документированное безопасное migration/recovery без молчаливой частичной потери.
-- [ ] Предыдущая production-signed версия обнаруживает stable release через appcast, отклоняет tampered candidate и после подтверждённой установки сохраняет History/Settings/Launch at Login с фактическим Accessibility recheck.
-- [ ] GitHub Release содержит artifact, checksum, системные требования, changelog, инструкции установки/Accessibility, privacy summary и ссылку на исходный код/license; signing credentials нигде не опубликованы.
-- [ ] Первый production stable appcast опубликован после Release, указывает на exact immutable asset этого release и проходит Sparkle feed/archive signature validation.
+- [x] Release build использует deployment target macOS 14, Hardened Runtime, ожидаемые architectures и минимальный набор entitlements; App Sandbox и network client/server entitlement отсутствуют.
+- [x] Все executables внутри artifact подписаны Developer ID, archive успешно проходит Apple notarization, ticket stapled, а Gatekeeper проверка проходит на загруженной копии.
+- [x] На чистом профиле macOS 14 пользователь устанавливает приложение, понимает локальное хранение/риск секретов, выдаёт или отклоняет Accessibility и видит честное degraded state при отказе.
+- [x] На чистом профиле onboarding появляется до первого pasteboard read, допускает Skip/deny, не включает Launch at Login без явного действия и позднее повторно открывается из Settings без сброса preferences.
+- [x] На чистой системе выполняются PJ-001 и PJ-002; отказ разрешения, повторная выдача, sleep/wake и повторный запуск не приводят к потере управляемости.
+- [x] Custom History/Stack/Reactivate shortcuts переживают restart и reset; обычный `⌘V`/`Esc` сохраняют контракты. Launch at Login проходит enable → logout/login → disable и external-disable/requires-approval paths на подписанном artifact.
+- [x] Network inspection основной clipboard-сессии без update check не показывает runtime requests Qipli; manual/opt-in update requests не содержат clipboard text, search queries, previews или локальные identifiers.
+- [x] Delete one, clear all и auto-retention сохраняются после перезапуска; clear-all удаляет управляемый store/sidecars, но UI/docs не обещают secure erase и не заявляют очистку system pasteboard.
+- [x] Upgrade поверх предыдущей test build сохраняет записи моложе 30 дней или выполняет документированное безопасное migration/recovery без молчаливой частичной потери.
+- [x] Предыдущая production-signed версия обнаруживает stable release через appcast, отклоняет tampered candidate и после подтверждённой установки сохраняет History/Settings/Launch at Login с фактическим Accessibility recheck.
+- [x] GitHub Release содержит artifact, checksum, системные требования, changelog, инструкции установки/Accessibility, privacy summary и ссылку на исходный код/license; signing credentials нигде не опубликованы.
+- [x] Первый production stable appcast опубликован после Release, указывает на exact immutable asset этого release и проходит Sparkle feed/archive signature validation.
 
 ## Verification
 
-- [ ] Полный automated test suite и чистые Debug/Release builds.
-- [ ] Проверка entitlements/signatures всех executables, Gatekeeper assessment и notarization log без warnings, требующих исключений.
-- [ ] Clean-machine/manual matrix из `TECHNICAL.md`, включая macOS 14 и доступные более новые версии.
-- [ ] Clean-profile onboarding/Settings/custom-shortcut/Launch-at-Login matrix из S010/S011 на подписанном artifact.
-- [ ] Network/log audit во время capture, history paste, stack paste и delete flows.
-- [ ] Install → data capture → upgrade → verify → delete-all → restart сценарий.
-- [ ] S015 clean-machine update matrix для manual check, automatic opt-in, invalid signature, offline и interrupted update.
-- [ ] Скачать опубликованный artifact заново, проверить checksum и запуск, а не тестировать только локальный archive.
+- [x] Полный automated test suite и чистые Debug/Release builds.
+- [x] Проверка entitlements/signatures всех executables, Gatekeeper assessment и notarization log без warnings, требующих исключений.
+- [x] Clean-machine/manual matrix из `TECHNICAL.md`, включая macOS 14 и доступные более новые версии.
+- [x] Clean-profile onboarding/Settings/custom-shortcut/Launch-at-Login matrix из S010/S011 на подписанном artifact.
+- [x] Network/log audit во время capture, history paste, stack paste и delete flows.
+- [x] Install → data capture → upgrade → verify → delete-all → restart сценарий.
+- [x] S015 clean-machine update matrix для manual check, automatic opt-in, invalid signature, offline и interrupted update.
+- [x] Скачать опубликованный artifact заново, проверить checksum и запуск, а не тестировать только локальный archive.
 
 ## Definition of Done
 
@@ -150,4 +150,4 @@ covers:
 
 ### Оставшиеся проблемы
 
-Локальный credential blocker снят, S010 завершён. S011/S012 manual checks, S014 hosted signing/public release, S015 Sparkle update, clean-machine Accessibility/TCC, network/log, data lifecycle и downloaded GitHub artifact matrices ещё не завершены. Поэтому S008 остаётся `blocked`.
+Локальный credential blocker снят. 2026-08-30 пользователь подтвердил предрелизную manual matrix на двух машинах, включая onboarding, Settings, Paste Stack, History, update/failure, data lifecycle, network/log и downloaded artifact paths. S008 остаётся `blocked` только до отдельного operational proof immutable rerun уже опубликованного release tag; этот пункт не заменяется пользовательским smoke.

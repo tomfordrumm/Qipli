@@ -1,7 +1,7 @@
 ---
 id: S012
 title: Edge-to-edge Paste Stack с кастомным header
-status: needs_verification
+status: done
 depends_on:
   - S007
   - S009
@@ -36,14 +36,14 @@ Paste Stack выглядит как компактная самостоятел�
 
 ## Acceptance criteria
 
-- [ ] Paste Stack не показывает native title bar или traffic lights.
-- [ ] Close в header отменяет незавершённый стек через существующий cancel path.
-- [ ] Header перетаскивает окно, не превращая весь List в drag-зону окна.
-- [ ] Direction toggle сохраняет current direction semantics и traversal lock.
-- [ ] List и separators занимают полную ширину окна; row content сохраняет читаемые внутренние отступы.
-- [ ] Panel остаётся nonactivating, floating, доступной во всех Spaces/full-screen и не забирает focus у source/target app.
-- [ ] После drag и повторного открытия или relaunch Paste Stack восстанавливает последнее доступное положение; после отключения owning display открывается по центру доступного экрана.
-- [ ] Light/Dark, Reduce Transparency, Increase Contrast, empty/error и длинный multiline content остаются читаемыми.
+- [x] Paste Stack не показывает native title bar или traffic lights.
+- [x] Close в header отменяет незавершённый стек через существующий cancel path.
+- [x] Header перетаскивает окно, не превращая весь List в drag-зону окна.
+- [x] Direction toggle сохраняет current direction semantics и traversal lock.
+- [x] List и separators занимают полную ширину окна; row content сохраняет читаемые внутренние отступы.
+- [x] Panel остаётся nonactivating, floating, доступной во всех Spaces/full-screen и не забирает focus у source/target app.
+- [x] После drag и повторного открытия или relaunch Paste Stack восстанавливает последнее доступное положение; после отключения owning display открывается по центру доступного экрана.
+- [x] Light/Dark, Reduce Transparency, Increase Contrast, empty/error и длинный multiline content остаются читаемыми.
 
 ## Verification
 
@@ -51,8 +51,8 @@ Paste Stack выглядит как компактная самостоятел�
 - [x] Deterministic tests для сохранения координат, восстановления полностью видимого frame и center fallback при отключённом display или частично недоступном frame.
 - [x] Полный SwiftPM XCTest suite.
 - [x] `git diff --check` и scoped privacy/network scan.
-- [ ] Manual macOS smoke: Close, header drag, direction, row reorder, sequential paste, Esc, auto-finish и source/target focus.
-- [ ] Manual visual matrix: Light/Dark, long rows, empty/error, Reduce Transparency и Increase Contrast.
+- [x] Manual macOS smoke: Close, header drag, direction, row reorder, sequential paste, Esc, auto-finish и source/target focus.
+- [x] Manual visual matrix: Light/Dark, long rows, empty/error, Reduce Transparency и Increase Contrast.
 
 ## Implementation report
 
@@ -64,4 +64,4 @@ Paste Stack выглядит как компактная самостоятел�
 - Последняя позиция сохраняется как две конечные координаты в `UserDefaults` через injected store. `PanelController` принимает её только внутри текущих `NSScreen.visibleFrame`; недоступная позиция заменяется существующим центрированием на экране под курсором.
 - SwiftPM: 110 tests, 0 failures. Focused PanelMaterialProviderTests: 8 tests, 0 failures.
 - Follow-up 2026-08-27: focused placement/store tests `7/7`, полный SwiftPM suite `142/142` и Xcode Debug XCTest `142/142` прошли.
-- Осталась ручная visual/interaction matrix из Verification.
+- 2026-08-30 пользователь подтвердил visual/interaction matrix на двух машинах. Срез переведён в `done`.

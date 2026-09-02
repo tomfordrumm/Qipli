@@ -323,3 +323,53 @@
 - Решение: сохранить SwiftUI shell/search/footer, но заменить feature list на view-based `NSTableView`. AppKit keyboard monitor через weak interaction bridge синхронно применяет exact selected UUID и `scrollRowToVisible` в том же вызове; Enter начинает single paste transaction непосредственно в key handler и скрывает panel сразу после successful pasteboard write. Successful mark-used меняет durable/cache order, но публикуется только при следующем fresh presentation. Reusable panel prewarm выполняется после startup History reload.
 - Причина: bottleneck подтверждён между model publication и SwiftUI render, а не в Core Data, pasteboard poll или selection calculation. Native table даёт императивный selection/viewport contract и переиспользование row views без полной перерисовки списка на каждый arrow.
 - Последствия: History row rendering и selection принадлежат AppKit, остальной panel composition остаётся SwiftUI согласно D-004. Пользователь принял повторный Xcode replay; payload-free trace зафиксировала достаточные latency aggregates и затем полностью удалена, включая Release call sites. Остаточная S016 matrix сохраняет failure restore, VoiceOver/Delete/double-click и click-away/Command-Tab проверки.
+
+## D-033: Typed History использует гибридное хранение и поставляется раньше media Paste Stack
+
+- Статус: `accepted`
+- Дата: 2026-08-31
+- Источник: пользователь
+- Контекст: следующий этап Qipli должен хранить не только текст, но и URL, изображения, файлы и видео. Полные media payload нельзя помещать в текущий `HistoryEntry.text`, полный UI snapshot или synchronous Stack paste path. Пользователь выбрал History-first поставку, metadata-only search и отсутствие OCR.
+- Решение: text и URL metadata остаются локальными Core Data values; inline images сохраняются как Qipli-managed files; file/video сохраняются reference-only без автоматического копирования source bytes. Typed History поддерживает capture, bounded preview, metadata search и повторную вставку. Paste Stack до отдельного среза остаётся text-only. OCR изображений, анализ видео и remote URL preview исключены.
+- Причина: гибридная модель сохраняет автономность inline clipboard images, не дублирует потенциально гигабайтные локальные файлы и не заставляет media изменить latency-критичный ordinary `Command-V` Stack contract.
+- Последствия: missing file/video source получает явное unavailable state. Media copy при active Stack сохраняется в History, но не меняет Stack. Clear All удаляет Qipli-owned images/derivatives/reference metadata, но не source files. Новый network owner, OCR dependency или media Stack требуют отдельного решения.
+
+## D-034: History становится bounded metadata catalogue с keyset pagination
+
+- Статус: `accepted`
+- Дата: 2026-08-31
+- Источник: пользователь 2026-08-30 и техническое уточнение при планировании 2026-08-31
+- Контекст: текущий store загружает все 30-day text occurrences в `allEntries` и выполняет линейный in-memory search. При текущих 1 885 rows это не авария, но модель не ограничивает working set и не подходит для media payload. `NSTableView` виртуализирует row views, а не data source.
+- Решение: S023 вводит initial/load-more pages максимум по 500 occurrence descriptors, cursor по строгому `(activityAt, id)` order и database-backed search по всему retention window. UI snapshots не содержат exact media payload, bookmarks или thumbnails. Legacy text rows мигрируются без изменения UUID/activity/text. Full-retention row count не ограничивается этим решением.
+- Причина: bounded catalogue ограничивает memory и decode work независимо от числа и типа retained occurrences, сохраняя 30-day product contract и быстрый repeated show.
+- Последствия: S019 current full-snapshot implementation заменяется только после migration/search parity tests. `fetchBatchSize` без real `fetchLimit`/cursor не выполняет контракт. Capture, promotion, delete, retention и stale search должны иметь page-aware tests до media work.
+
+## D-035: Managed images получают fail-closed capacity limits без auto-eviction
+
+- Статус: `accepted`
+- Дата: 2026-09-01
+- Источник: пользователь принял предложенные production defaults после сравнения с публичными clipboard managers и технического recheck
+- Контекст: inline image может занимать существенно больше text entry, а 30-day retention без byte policy допускает исчерпание диска. Скрытое удаление старой истории ради нового clipboard item нарушает ожидаемое владение данными.
+- Решение: production policy получает лимит 32 MiB на image item, 64 MiB на одну occurrence, 1 GiB на все durable original image bytes, 128 MiB на пересоздаваемый thumbnail cache и 512 px на длинную сторону thumbnail. Превышение любого hard limit отклоняет новую occurrence целиком, показывает non-payload уведомление и не удаляет existing History. Policy инъецируется в тесты; значения не появляются в UI/logs как payload metadata.
+- Причина: 32 MiB покрывает обычные Retina/browser images и несколько representations, 64 MiB ограничивает multi-item occurrence, а 1 GiB даёт большой локальный запас без неограниченного роста managed storage.
+- Последствия: лимиты пока остаются production defaults без UI; позднее общий quota можно вынести в настройки с сохранением hard safety ceiling. Automatic LRU eviction и metadata-only placeholder для отклонённого image не входят в выбранное поведение.
+
+## D-036: Default History открывается как Top Notch и разворачивается в отдельную карточную библиотеку
+
+- Статус: `accepted`
+- Дата: 2026-09-01
+- Источник: пользователь
+- Контекст: текущая native-table History надёжна и быстра с клавиатуры, но узкое обычное окно использует мало площади карточки для многострочного текста и media preview. Пользователь хочет быстрый вызов из верхней чёлки MacBook, Search прямо в панели и отдельное полноценное окно для более глубокого просмотра.
+- Решение: default `⌘⇧V` показывает borderless Top Notch на текущем экране, раскрывающийся вниз от camera-safe верхней области или top-center fallback. Top Notch содержит Search и horizontal type-aware cards. `Развернуть` передаёт query, selected occurrence и captured target отдельному resizable History window, которое показывает ровно три карточки в ряду. Одновременно интерактивно только одно History presentation. Первая поставка фиксирует top placement; правый, левый и нижний edge остаются будущей настройкой.
+- Причина: transient shelf сокращает путь частой вставки, а отдельная библиотека даёт карточкам достаточно площади, не перегружая быстрый вызов. Разделение на два presentation сохраняет проверяемую window/focus boundary и не заставляет компактную панель изображать полноценный browser.
+- Последствия: D-032 больше не предписывает `NSTableView` как визуальную поверхность после S028, но сохраняет обязательные synchronous selection/viewport/paste guarantees. Top Notch получает отдельную geometry/state machine, полная History становится обычным отдельным окном, а Paste Stack и ordinary `⌘V` не меняются. Remote URL preview, hover-only behavior и edge-placement Settings в S027–S029 не входят.
+
+## D-037: Favorites не продлевает 30-day retention
+
+- Статус: `proposed`
+- Дата: 2026-09-01
+- Источник: консервативное предположение агента из запроса пользователя о Favorites
+- Контекст: пользователь подтвердил раздел Favorites, но не определил, должен ли favorite закреплять occurrence бессрочно. Бессрочное хранение изменит существующий privacy/retention contract, cleanup и ожидания по disk usage.
+- Решение: в первой версии Favorite является локальным marker и фильтром существующих occurrences. Delete, expiry и Clear All удаляют occurrence вместе с marker; favorite сам по себе не меняет activity time и не отменяет 30-day retention.
+- Причина: такое поведение добавляет навигацию без скрытого расширения срока хранения чувствительного clipboard payload.
+- Последствия: перед переводом S029 в `ready` пользователь подтверждает или меняет решение. Бессрочные pins потребуют отдельного product/technical решения, migration/cleanup semantics и понятного UI.

@@ -1,7 +1,7 @@
 ---
 id: S010
 title: Settings, пользовательские сочетания и запуск при входе
-status: needs_verification
+status: done
 depends_on:
   - S001
   - S007
@@ -97,7 +97,7 @@ covers:
 - [x] AppKit tests singleton activation, window lifecycle и сохранение accessory/menu-bar application behavior.
 - [x] Полный SwiftPM/Xcode XCTest suite, Debug и universal Release builds с deployment target macOS 14.
 - [x] Пользовательская ручная приёмка основного Settings, shortcuts, permission и Launch at Login пути выполнена 2026-08-26; проверенные сценарии работают.
-- [ ] После corrective fix 2026-08-29 повторное переключение General ↔ Shortcuts не выводит `Publishing changes from within view updates` в Xcode console.
+- [x] После corrective fix 2026-08-29 повторное переключение General ↔ Shortcuts не выводит `Publishing changes from within view updates` в Xcode console.
 
 Расширенная logout/login, VoiceOver, display modes, clean-console и clean-machine matrix не выдаётся за выполненную. По явному решению пользователя она перенесена в общий предрелизный прогон S008 и не блокирует приёмку S010.
 
@@ -159,4 +159,4 @@ covers:
 
 ### Оставшиеся проблемы
 
-Product-code blockers отсутствуют. S010 временно возвращён в `needs_verification` только до ручного clean-console retest переключения General ↔ Shortcuts; остальные ранее принятые контракты не переоткрывались. Непройденные пункты расширенной системной матрицы сохранены как предрелизная проверка S008 и не отмечены как фактически выполненные.
+Product-code blockers отсутствуют. 2026-08-30 пользователь повторно проверил переключение General ↔ Shortcuts на двух машинах; clean-console gate пройден. Расширенная системная матрица остаётся частью общего release-прогона S008.

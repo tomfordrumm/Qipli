@@ -1,7 +1,7 @@
 ---
 id: S021
 title: Масштабируемый Paste Stack
-status: needs_verification
+status: done
 depends_on:
   - S020
 covers:
@@ -56,7 +56,7 @@ Paste Stack определяет следующий occurrence одним лин
 - [x] Focused Stack state-machine and render-preparation tests.
 - [x] S017 Stack baselines/operation counts до/после.
 - [x] Full SwiftPM/Xcode suite и unsigned universal Release build.
-- [ ] Manual reorder/direction/reactivate/paste smoke.
+- [x] Manual reorder/direction/reactivate/paste smoke.
 
 ## Implementation report
 
@@ -79,5 +79,5 @@ Paste Stack определяет следующий occurrence одним лин
 
 ### Отклонения и остаточные риски
 
-- Ручной reorder/direction/reactivate/paste smoke в реальной panel не выполнялся; до него срез остаётся `needs_verification`.
+- 2026-08-30 пользователь подтвердил reorder/direction/reactivate/paste smoke в реальной panel на двух машинах. Срез переведён в `done`.
 - Reorder validation и UUID-based updates остаются линейными, но больше не умножаются на число UI rows. Custom virtualization не добавлялась без доказанной необходимости.

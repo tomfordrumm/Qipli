@@ -1,7 +1,7 @@
 ---
 id: S020
 title: Отзывчивый поиск и ограниченные previews
-status: needs_verification
+status: done
 depends_on:
   - S019
 covers:
@@ -53,7 +53,7 @@ covers:
 - [x] Preview operation-count и long-text exact-paste tests.
 - [x] S017 search/preview baselines на 1 800/10 000/50 000 synthetic entries.
 - [x] Full SwiftPM/Xcode suite и unsigned universal Release build.
-- [ ] Manual rapid typing/clear/retype smoke в History.
+- [x] Manual rapid typing/clear/retype smoke в History.
 
 ## Implementation report
 
@@ -78,5 +78,5 @@ covers:
 
 ### Отклонения и остаточные риски
 
-- Ручной rapid typing/clear/retype smoke в реальной History panel не выполнялся; до него срез остаётся `needs_verification`.
+- 2026-08-30 пользователь подтвердил rapid typing/clear/retype smoke в реальной History panel на двух машинах. Срез переведён в `done`.
 - Search по-прежнему линейный по полному snapshot; срез устраняет main-thread stall и stale publication, но сознательно не вводит FTS и не меняет substring semantics.
