@@ -163,6 +163,7 @@ enum ManagedImageStoreError: LocalizedError, Equatable {
     case imageItemTooLarge
     case occurrenceTooLarge
     case storageLimitReached
+    case insufficientDiskSpace
     case invalidManagedPath
     case missingAsset
     case corruptAsset
@@ -175,6 +176,7 @@ enum ManagedImageStoreError: LocalizedError, Equatable {
         case .imageItemTooLarge: "The copied image is larger than Qipli's per-item limit."
         case .occurrenceTooLarge: "The copied image group is larger than Qipli's per-copy limit."
         case .storageLimitReached: "Qipli image storage is full. Delete older images to save this one."
+        case .insufficientDiskSpace: "There is not enough free disk space to save this image."
         case .invalidManagedPath, .missingAsset, .corruptAsset, .writeFailed:
             "Qipli could not safely save the copied image."
         }
@@ -191,7 +193,9 @@ protocol ManagedImageStoring: AnyObject {
     func validate(_ manifest: ManagedImageAssetManifest) throws
     func remove(manifest: ManagedImageAssetManifest) throws
     func removeAllOwnedAssets() throws
+    func removeOwnedAssets(for occurrenceID: UUID) throws
     func cleanupTemporaryAssets() throws
+    func cleanupOrphanAssets(knownOccurrenceIDs: Set<UUID>) throws
     func makeThumbnail(for manifest: ManagedImageAssetManifest) throws -> Data?
 }
 
@@ -207,20 +211,27 @@ final class ManagedImageAssetStore: ManagedImageStoring {
     let rootURL: URL
     let policy: HistoryImageStoragePolicy
     private let fileManager: FileManager
+    private let availableCapacityProvider: (URL) -> Int64?
 
     init(
         rootURL: URL,
         policy: HistoryImageStoragePolicy = .production,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        availableCapacityProvider: @escaping (URL) -> Int64? = { url in
+            let values = try? url.resourceValues(forKeys: [
+                .volumeAvailableCapacityForImportantUsageKey,
+                .volumeAvailableCapacityKey
+            ])
+            return values?.volumeAvailableCapacityForImportantUsage
+                ?? values?.volumeAvailableCapacity.map(Int64.init)
+        }
     ) throws {
         self.rootURL = rootURL.standardizedFileURL
         self.policy = policy
         self.fileManager = fileManager
-        try fileManager.createDirectory(at: self.rootURL, withIntermediateDirectories: true)
-        try fileManager.createDirectory(
-            at: self.rootURL.appendingPathComponent(".tmp", isDirectory: true),
-            withIntermediateDirectories: true
-        )
+        self.availableCapacityProvider = availableCapacityProvider
+        try ensureManagedDirectory(self.rootURL)
+        try ensureManagedDirectory(self.rootURL.appendingPathComponent(".tmp", isDirectory: true))
         try cleanupTemporaryAssets()
     }
 
@@ -271,6 +282,10 @@ final class ManagedImageAssetStore: ManagedImageStoring {
         guard currentOriginalBytes() + occurrenceBytes <= policy.maxTotalOriginalBytes else {
             throw ManagedImageStoreError.storageLimitReached
         }
+        if let availableCapacity = availableCapacityProvider(rootURL),
+           availableCapacity < Int64(occurrenceBytes) {
+            throw ManagedImageStoreError.insufficientDiskSpace
+        }
 
         let tempRoot = rootURL.appendingPathComponent(".tmp/\(UUID().uuidString)", isDirectory: true)
         var committedURLs: [URL] = []
@@ -300,6 +315,11 @@ final class ManagedImageAssetStore: ManagedImageStoring {
             try? fileManager.removeItem(at: tempRoot)
             for url in committedURLs { try? fileManager.removeItem(at: url) }
             throw error
+        } catch let error as NSError
+            where error.domain == NSCocoaErrorDomain && error.code == NSFileWriteOutOfSpaceError {
+            try? fileManager.removeItem(at: tempRoot)
+            for url in committedURLs { try? fileManager.removeItem(at: url) }
+            throw ManagedImageStoreError.insufficientDiskSpace
         } catch {
             try? fileManager.removeItem(at: tempRoot)
             for url in committedURLs { try? fileManager.removeItem(at: url) }
@@ -331,6 +351,7 @@ final class ManagedImageAssetStore: ManagedImageStoring {
     func validate(_ manifest: ManagedImageAssetManifest) throws {
         let prefix = "images/\(manifest.occurrenceID.uuidString)/"
         guard !manifest.items.isEmpty,
+              !manifest.representations.isEmpty,
               manifest.representations.allSatisfy({ $0.relativePath.hasPrefix(prefix) })
         else { throw ManagedImageStoreError.invalidManagedPath }
         for representation in manifest.representations {
@@ -339,6 +360,7 @@ final class ManagedImageAssetStore: ManagedImageStoring {
     }
 
     func remove(manifest: ManagedImageAssetManifest) throws {
+        try ensureManagedDirectory(rootURL.appendingPathComponent("images", isDirectory: true))
         try validate(manifest)
         for representation in manifest.representations {
             let url = try managedURL(for: representation.relativePath)
@@ -347,26 +369,56 @@ final class ManagedImageAssetStore: ManagedImageStoring {
             }
         }
         let occurrenceURL = rootURL.appendingPathComponent("images/\(manifest.occurrenceID.uuidString)")
-        if fileManager.fileExists(atPath: occurrenceURL.path) {
+        if fileManager.fileExists(atPath: occurrenceURL.path),
+           !isSymbolicLink(occurrenceURL),
+           try fileManager.contentsOfDirectory(at: occurrenceURL, includingPropertiesForKeys: nil).isEmpty {
             try fileManager.removeItem(at: occurrenceURL)
         }
     }
 
     func removeAllOwnedAssets() throws {
         let imagesURL = rootURL.appendingPathComponent("images", isDirectory: true)
-        if fileManager.fileExists(atPath: imagesURL.path) {
-            try fileManager.removeItem(at: imagesURL)
+        try ensureManagedDirectory(imagesURL)
+        for url in try fileManager.contentsOfDirectory(at: imagesURL, includingPropertiesForKeys: nil) {
+            guard UUID(uuidString: url.lastPathComponent) != nil,
+                  isDirectory(url),
+                  !isSymbolicLink(url)
+            else { continue }
+            try fileManager.removeItem(at: url)
         }
-        try fileManager.createDirectory(at: imagesURL, withIntermediateDirectories: true)
         try cleanupTemporaryAssets()
+    }
+
+    func removeOwnedAssets(for occurrenceID: UUID) throws {
+        let imagesURL = rootURL.appendingPathComponent("images", isDirectory: true)
+        try ensureManagedDirectory(imagesURL)
+        let occurrenceURL = rootURL.appendingPathComponent(
+            "images/\(occurrenceID.uuidString)",
+            isDirectory: true
+        )
+        guard fileManager.fileExists(atPath: occurrenceURL.path),
+              isDirectory(occurrenceURL),
+              !isSymbolicLink(occurrenceURL)
+        else { return }
+        try fileManager.removeItem(at: occurrenceURL)
+    }
+
+    func cleanupOrphanAssets(knownOccurrenceIDs: Set<UUID>) throws {
+        let imagesURL = rootURL.appendingPathComponent("images", isDirectory: true)
+        try ensureManagedDirectory(imagesURL)
+        for url in try fileManager.contentsOfDirectory(at: imagesURL, includingPropertiesForKeys: nil) {
+            guard let occurrenceID = UUID(uuidString: url.lastPathComponent),
+                  isDirectory(url),
+                  !isSymbolicLink(url),
+                  !knownOccurrenceIDs.contains(occurrenceID)
+            else { continue }
+            try fileManager.removeItem(at: url)
+        }
     }
 
     func cleanupTemporaryAssets() throws {
         let temporaryURL = rootURL.appendingPathComponent(".tmp", isDirectory: true)
-        guard fileManager.fileExists(atPath: temporaryURL.path) else {
-            try fileManager.createDirectory(at: temporaryURL, withIntermediateDirectories: true)
-            return
-        }
+        try ensureManagedDirectory(temporaryURL)
         for url in try fileManager.contentsOfDirectory(at: temporaryURL, includingPropertiesForKeys: nil) {
             try fileManager.removeItem(at: url)
         }
@@ -412,8 +464,26 @@ final class ManagedImageAssetStore: ManagedImageStoring {
         return url
     }
 
+    private func ensureManagedDirectory(_ url: URL) throws {
+        if !fileManager.fileExists(atPath: url.path) {
+            try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        guard isDirectory(url), !isSymbolicLink(url) else {
+            throw ManagedImageStoreError.invalidManagedPath
+        }
+    }
+
+    private func isDirectory(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+    }
+
+    private func isSymbolicLink(_ url: URL) -> Bool {
+        (try? fileManager.destinationOfSymbolicLink(atPath: url.path)) != nil
+    }
+
     private func currentOriginalBytes() -> Int {
         let imagesURL = rootURL.appendingPathComponent("images", isDirectory: true)
+        guard isDirectory(imagesURL), !isSymbolicLink(imagesURL) else { return 0 }
         guard let enumerator = fileManager.enumerator(
             at: imagesURL,
             includingPropertiesForKeys: [.fileSizeKey],
@@ -421,6 +491,9 @@ final class ManagedImageAssetStore: ManagedImageStoring {
         ) else { return 0 }
         return enumerator.reduce(0) { result, item in
             guard let url = item as? URL,
+                  url.pathExtension == "asset",
+                  UUID(uuidString: url.deletingLastPathComponent().lastPathComponent) != nil,
+                  !isSymbolicLink(url.deletingLastPathComponent()),
                   let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
                   values.isRegularFile == true,
                   let size = values.fileSize

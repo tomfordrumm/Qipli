@@ -49,6 +49,12 @@ enum HistoryStoreError: LocalizedError, Equatable {
 
 /// A local-only SQLite store. No managed objects cross this boundary.
 final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedImageHistoryStoring {
+    private enum ImageManifestRecord {
+        case absent
+        case valid(ManagedImageAssetManifest)
+        case corrupt
+    }
+
     private static let entityName = "HistoryEntry"
     private let storeURL: URL
     private let imageStore: ManagedImageStoring
@@ -429,7 +435,14 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
     }
 
     func pastePayload(id: UUID) throws -> HistoryPastePayload? {
-        let imageManifest = try imageManifest(id: id)
+        let imageRecord = try imageManifestRecord(id: id)
+        if case .corrupt = imageRecord {
+            throw ManagedImageStoreError.corruptAsset
+        }
+        let imageManifest: ManagedImageAssetManifest? = switch imageRecord {
+        case .absent, .corrupt: nil
+        case let .valid(manifest): manifest
+        }
         let referenceManifest = try referenceManifest(id: id)
         guard imageManifest?.occurrenceID == id || referenceManifest?.occurrenceID == id else { return nil }
 
@@ -539,7 +552,11 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
     }
 
     func thumbnailData(id: UUID) throws -> Data? {
-        guard let manifest = try imageManifest(id: id), manifest.occurrenceID == id else { return nil }
+        let imageRecord = try imageManifestRecord(id: id)
+        guard case let .valid(manifest) = imageRecord, manifest.occurrenceID == id else {
+            if case .corrupt = imageRecord { throw ManagedImageStoreError.corruptAsset }
+            return nil
+        }
         return try imageStore.makeThumbnail(for: manifest)
     }
 
@@ -574,12 +591,19 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
     }
 
     func delete(id: UUID) throws {
-        let manifest = try imageManifest(id: id)
-        if let manifest {
+        switch try imageManifestRecord(id: id) {
+        case let .valid(manifest):
             try markImageDeletionPending(id: id)
             try imageStore.remove(manifest: manifest)
             try removePendingImageEntry(id: id)
             return
+        case .corrupt:
+            try markImageDeletionPending(id: id)
+            try imageStore.removeOwnedAssets(for: id)
+            try removePendingImageEntry(id: id)
+            return
+        case .absent:
+            break
         }
         try contextSync { context in
             let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
@@ -645,6 +669,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         context.undoManager = nil
         try backfillManagedImageNames()
         try cleanupPendingImageDeletions()
+        try cleanupOrphanImageAssets()
     }
 
     private func backfillManagedImageNames() throws {
@@ -890,11 +915,24 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         for object in try context.fetch(request) {
             if let manifest = Self.manifest(from: object) {
                 try imageStore.remove(manifest: manifest)
+            } else if let id = object.value(forKey: "id") as? UUID {
+                try imageStore.removeOwnedAssets(for: id)
             }
             context.delete(object)
         }
         if context.hasChanges {
             try context.save()
+        }
+    }
+
+    private func cleanupOrphanImageAssets() throws {
+        try contextSync { context in
+            let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
+            request.predicate = NSPredicate(format: "managedImageManifest != nil")
+            let knownOccurrenceIDs = Set(
+                try context.fetch(request).compactMap { $0.value(forKey: "id") as? UUID }
+            )
+            try imageStore.cleanupOrphanAssets(knownOccurrenceIDs: knownOccurrenceIDs)
         }
     }
 
@@ -971,13 +1009,18 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         return try? JSONDecoder().decode(HistoryReferenceManifest.self, from: data)
     }
 
-    private func imageManifest(id: UUID) throws -> ManagedImageAssetManifest? {
+    private func imageManifestRecord(id: UUID) throws -> ImageManifestRecord {
         try contextSync { context in
             let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
             request.fetchLimit = 1
             request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
-            guard let object = try context.fetch(request).first else { return nil }
-            return Self.manifest(from: object)
+            guard let object = try context.fetch(request).first,
+                  let encoded = object.value(forKey: "managedImageManifest") as? String
+            else { return .absent }
+            guard let data = encoded.data(using: .utf8),
+                  let manifest = try? JSONDecoder().decode(ManagedImageAssetManifest.self, from: data)
+            else { return .corrupt }
+            return .valid(manifest)
         }
     }
 

@@ -372,9 +372,16 @@ final class HistoryStoreTests: XCTestCase {
                 ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: try makePNGData())
             ])
         ])
+        let unrelatedFile = imagesRoot.appendingPathComponent("do-not-delete.txt")
+        try Data("unrelated file".utf8).write(to: unrelatedFile)
+        let orphanDirectory = imagesRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: orphanDirectory, withIntermediateDirectories: true)
+        try Data("orphan".utf8).write(to: orphanDirectory.appendingPathComponent("orphan.asset"))
         try service.clearAll()
         XCTAssertTrue(try service.entries().isEmpty)
         XCTAssertTrue(FileManager.default.fileExists(atPath: imagesRoot.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: unrelatedFile.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: orphanDirectory.path))
         store.close()
     }
 
@@ -408,6 +415,79 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertEqual(try assetStore.read(first.representations[0]).count, 60)
     }
 
+    func testLowDiskSpaceRejectsBeforeWritingAndPreservesExistingAssets() throws {
+        let policy = HistoryImageStoragePolicy(
+            maxImageItemBytes: 100,
+            maxOccurrenceBytes: 100,
+            maxTotalOriginalBytes: 1_000,
+            thumbnailCacheBytes: 100,
+            thumbnailLongEdge: 32
+        )
+        var availableCapacity: Int64 = 1_000
+        let assetStore = try ManagedImageAssetStore(
+            rootURL: directory.appendingPathComponent("ManagedImages", isDirectory: true),
+            policy: policy,
+            availableCapacityProvider: { _ in availableCapacity }
+        )
+        let first = try assetStore.commit(
+            occurrenceID: UUID(),
+            items: [ManagedImageCaptureItem(order: 0, representations: [
+                ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: Data(repeating: 7, count: 60))
+            ])]
+        )
+
+        availableCapacity = 59
+        XCTAssertThrowsError(try assetStore.commit(
+            occurrenceID: UUID(),
+            items: [ManagedImageCaptureItem(order: 0, representations: [
+                ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: Data(repeating: 8, count: 60))
+            ])]
+        )) { error in
+            XCTAssertEqual(error as? ManagedImageStoreError, .insufficientDiskSpace)
+        }
+        XCTAssertEqual(try assetStore.read(first.representations[0]).count, 60)
+    }
+
+    func testStartupRemovesOwnedOrphansButPreservesUnknownFiles() throws {
+        let managedRoot = directory.appendingPathComponent("ManagedImages", isDirectory: true)
+        let imagesRoot = managedRoot.appendingPathComponent("images", isDirectory: true)
+        try FileManager.default.createDirectory(at: imagesRoot, withIntermediateDirectories: true)
+
+        let orphanDirectory = imagesRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: orphanDirectory, withIntermediateDirectories: true)
+        try Data("orphan".utf8).write(to: orphanDirectory.appendingPathComponent("orphan.asset"))
+
+        let unknownFile = imagesRoot.appendingPathComponent("keep-me.txt")
+        try Data("unknown".utf8).write(to: unknownFile)
+
+        let temporaryDirectory = managedRoot.appendingPathComponent(".tmp/interrupted", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        try Data("temporary".utf8).write(to: temporaryDirectory.appendingPathComponent("payload"))
+
+        let store = try CoreDataHistoryStore(storeURL: directory.appendingPathComponent("History.sqlite"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: orphanDirectory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: unknownFile.path))
+        store.close()
+    }
+
+    func testManagedImageCleanupRejectsSymlinkedImagesRoot() throws {
+        let managedRoot = directory.appendingPathComponent("ManagedImages", isDirectory: true)
+        let outsideRoot = directory.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: outsideRoot, withIntermediateDirectories: true)
+        let protectedFile = outsideRoot.appendingPathComponent("protected.asset")
+        try Data("protected".utf8).write(to: protectedFile)
+
+        let assetStore = try ManagedImageAssetStore(rootURL: managedRoot)
+        let imagesRoot = managedRoot.appendingPathComponent("images", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: imagesRoot, withDestinationURL: outsideRoot)
+
+        XCTAssertThrowsError(try assetStore.removeAllOwnedAssets()) { error in
+            XCTAssertEqual(error as? ManagedImageStoreError, .invalidManagedPath)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: protectedFile.path))
+    }
+
     func testManagedImagePathsAndIntegrityFailClosed() throws {
         let assetStore = try ManagedImageAssetStore(
             rootURL: directory.appendingPathComponent("ManagedImages", isDirectory: true),
@@ -432,6 +512,37 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertThrowsError(try assetStore.read(manifest.representations[0])) { error in
             XCTAssertEqual(error as? ManagedImageStoreError, .corruptAsset)
         }
+    }
+
+    func testCorruptImageMetadataStaysVisibleFailsClosedAndCanBeDeleted() throws {
+        let storeURL = directory.appendingPathComponent("History.sqlite")
+        let store = try CoreDataHistoryStore(storeURL: storeURL)
+        let service = HistoryService(store: store)
+        let entry = try XCTUnwrap(try service.capture(imageItems: [
+            ManagedImageCaptureItem(order: 0, representations: [
+                ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: try makePNGData())
+            ])
+        ]))
+        store.close()
+
+        try sqliteExecute(
+            database: storeURL,
+            sql: "UPDATE ZHISTORYENTRY SET ZMANAGEDIMAGEMANIFEST = '{corrupt';"
+        )
+
+        let reopened = try CoreDataHistoryStore(storeURL: storeURL)
+        let reopenedService = HistoryService(store: reopened)
+        XCTAssertEqual(try reopenedService.entries().map(\.id), [entry.id])
+        XCTAssertThrowsError(try reopenedService.pastePayload(id: entry.id)) { error in
+            XCTAssertEqual(error as? ManagedImageStoreError, .corruptAsset)
+        }
+
+        try reopenedService.delete(id: entry.id)
+        XCTAssertTrue(try reopenedService.entries().isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("ManagedImages/images/\(entry.id.uuidString)").path
+        ))
+        reopened.close()
     }
 
     func testExistingCapturedAtSchemaStoreMigratesWithoutDataLossAndCreatesQueryIndexes() throws {
@@ -797,6 +908,25 @@ final class HistoryStoreTests: XCTestCase {
             )
         }
         return text
+    }
+
+    private func sqliteExecute(database: URL, sql: String) throws {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+        process.arguments = ["-batch", database.path, sql]
+        process.standardOutput = output
+        process.standardError = output
+        try process.run()
+        process.waitUntilExit()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        guard process.terminationStatus == 0 else {
+            throw NSError(
+                domain: "HistoryStoreTests.sqlite3",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: String(decoding: data, as: UTF8.self)]
+            )
+        }
     }
 
     private func clearStoreInSeparateLifetime(at storeURL: URL) throws {

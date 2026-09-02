@@ -414,13 +414,13 @@ private struct OnboardingWelcomeView: View {
         VStack(alignment: .leading, spacing: 24) {
             OnboardingScreenHeader(
                 title: "Save everything you copy",
-                message: "Qipli keeps it all available for 30 days."
+                message: "Qipli keeps copied text, URLs, images, and local file references on this Mac for 30 days."
             )
 
             OnboardingSurface {
                 VStack(alignment: .leading, spacing: 13) {
                     OnboardingInfoRow(
-                        title: "Your history stays on this Mac.",
+                        title: "Text, URLs, filenames, paths, and managed images stay on this Mac.",
                         symbolName: "internaldrive"
                     )
                     Divider()
