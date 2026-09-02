@@ -14,6 +14,13 @@ struct HistoryPanelView: View {
         VStack(alignment: .leading, spacing: 12) {
             searchField
 
+            if let imageCaptureNotice = viewModel.imageCaptureNotice {
+                Label(imageCaptureNotice, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             content
 
             footer
@@ -96,6 +103,13 @@ struct HistoryPanelView: View {
                     selectedEntryID: viewModel.selectedEntryID,
                     viewportResetRequestID: viewModel.presentationViewportResetRequestID,
                     interactionBridge: tableInteractionBridge,
+                    loadMore: {
+                        Task { @MainActor in
+                            await viewModel.loadMore()
+                        }
+                    },
+                    thumbnailData: { entry in viewModel.thumbnailDataByEntryID[entry.id] },
+                    requestThumbnail: { entry in viewModel.requestThumbnail(for: entry) },
                     selectEntry: viewModel.select,
                     pasteEntry: { entry in
                         guard canPaste else { return }
@@ -554,8 +568,12 @@ struct PasteStackPanelView: View {
             pasteFailure.message
         } else if sessionController.hasCopyCommandDispatchFailure {
             "Qipli could not send Copy to the active app. Try the Paste Stack shortcut again."
+        } else if let message = sessionController.nonTextCaptureFailureMessage {
+            message
         } else if sessionController.hasCaptureError {
             "Qipli could not save the last copied text. Copy it again to retry."
+        } else if sessionController.hasNonTextCaptureNotice {
+            "Non-text item saved to History. Paste Stack currently accepts text only."
         } else {
             nil
         }

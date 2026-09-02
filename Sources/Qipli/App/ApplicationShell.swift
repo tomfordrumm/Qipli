@@ -56,7 +56,8 @@ final class ApplicationShell: NSObject {
             historyViewModel: historyViewModel,
             stackSessionController: stackSessionController
         )
-        let monitor = PasteboardMonitor { [weak stackCaptureCoordinator, weak stackSessionController] change in
+        let monitor = PasteboardMonitor(
+            onExternalText: { [weak stackCaptureCoordinator, weak stackSessionController] change in
             // The monitor observes the active session before it defers the
             // persistence work. A later Start/Cancel cannot claim this copy;
             // the session watermark also rejects a write that predates Start.
@@ -66,7 +67,31 @@ final class ApplicationShell: NSObject {
                 observedChangeCount: change.changeCount,
                 stackCaptureContext: captureContext
             )
-        }
+            },
+            onExternalChange: { [weak stackCaptureCoordinator, weak stackSessionController] change in
+                let captureContext = stackSessionController?.captureContext
+                if !change.imageItems.isEmpty, !change.referenceItems.isEmpty {
+                    stackCaptureCoordinator?.enqueueExternalMixed(
+                        imageItems: change.imageItems,
+                        referenceItems: change.referenceItems,
+                        observedChangeCount: change.changeCount,
+                        stackCaptureContext: captureContext
+                    )
+                } else if !change.imageItems.isEmpty {
+                    stackCaptureCoordinator?.enqueueExternalImage(
+                        change.imageItems,
+                        observedChangeCount: change.changeCount,
+                        stackCaptureContext: captureContext
+                    )
+                } else if !change.referenceItems.isEmpty {
+                    stackCaptureCoordinator?.enqueueExternalReference(
+                        change.referenceItems,
+                        observedChangeCount: change.changeCount,
+                        stackCaptureContext: captureContext
+                    )
+                }
+            }
+        )
         pasteboardMonitor = monitor
         inputCoordinator = InputCoordinator(
             permissionService: permissionService,
@@ -75,13 +100,22 @@ final class ApplicationShell: NSObject {
         let commandDispatcher = pasteCommandDispatcher
             ?? (resolvedInputAdapter as? TaggedPasteCommandDispatching)
             ?? UnavailablePasteCommandDispatcher()
+        let historyPasteService = SerializedHistoryService(service: historyService)
         let pasteExecutor = HistoryPasteExecutor(
             permissionService: permissionService,
             pasteboardWriter: SystemHistoryPasteboardWriter(),
             registerSelfWrite: { [weak pasteboardMonitor] changeCount in
                 pasteboardMonitor?.registerSelfWrite(changeCount: changeCount)
             },
-            commandDispatcher: commandDispatcher
+            commandDispatcher: commandDispatcher,
+            payloadProvider: { [historyPasteService] entry async throws in
+                if entry.isTypedEntry {
+                    return try await historyPasteService.pastePayload(id: entry.id)
+                }
+                return HistoryPastePayload(items: [HistoryPasteboardItemPayload(representations: [
+                    HistoryPasteboardRepresentationPayload(typeIdentifier: "public.utf8-plain-text", data: Data(entry.text.utf8))
+                ])])
+            }
         )
         let panelController = PanelController(
             permissionService: permissionService,
