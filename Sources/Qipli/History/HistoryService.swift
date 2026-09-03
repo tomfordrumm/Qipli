@@ -20,10 +20,16 @@ final class HistoryService {
     static let pageSize = 500
 
     private let store: HistoryStoring
+    private let pagingStore: HistoryPagingStoring?
+    private let typedStore: TypedHistoryStoring?
+    private let richTextStore: RichTextHistoryStoring?
     private let clock: HistoryClock
 
     init(store: HistoryStoring, clock: HistoryClock = SystemHistoryClock()) {
         self.store = store
+        pagingStore = store as? HistoryPagingStoring
+        typedStore = store as? TypedHistoryStoring
+        richTextStore = store as? RichTextHistoryStoring
         self.clock = clock
     }
 
@@ -32,11 +38,11 @@ final class HistoryService {
     }
 
     var supportsPaging: Bool {
-        store is HistoryPagingStoring
+        pagingStore != nil
     }
 
     func page(after cursor: HistoryPageCursor? = nil) throws -> HistoryPage {
-        guard let pagedStore = store as? HistoryPagingStoring else {
+        guard let pagedStore = pagingStore else {
             return try fallbackPage(after: cursor, query: nil)
         }
         return try pagedStore.fetchPage(
@@ -47,7 +53,7 @@ final class HistoryService {
     }
 
     func searchPage(query: String, after cursor: HistoryPageCursor? = nil) throws -> HistoryPage {
-        guard let pagedStore = store as? HistoryPagingStoring else {
+        guard let pagedStore = pagingStore else {
             return try fallbackPage(after: cursor, query: query)
         }
         return try pagedStore.searchPage(
@@ -59,37 +65,94 @@ final class HistoryService {
     }
 
     func entry(id: UUID) throws -> HistoryEntry? {
-        guard let pagedStore = store as? HistoryPagingStoring else {
+        guard let pagedStore = pagingStore else {
             return try store.fetchCurrent(since: .distantPast).first { $0.id == id }
         }
         return try pagedStore.fetchEntry(id: id)
     }
 
     func occurrence(id: UUID) throws -> HistoryOccurrence? {
-        guard let pagedStore = store as? HistoryPagingStoring else { return nil }
+        guard let pagedStore = pagingStore else { return nil }
         return try pagedStore.fetchOccurrence(id: id)
     }
 
     @discardableResult
+    func capture(_ capture: HistoryCapture) throws -> HistoryCaptureResult? {
+        switch capture {
+        case let .text(text):
+            guard HistoryTextPolicy.shouldCapture(text) else { return nil }
+            return HistoryCaptureResult(
+                entry: try store.create(text: text, activityAt: clock.now),
+                notice: nil
+            )
+        case let .richText(text, items):
+            guard HistoryTextPolicy.shouldCapture(text),
+                  let richTextStore
+            else { return nil }
+            let result = try richTextStore.createRichText(
+                text: text,
+                items: items,
+                activityAt: clock.now
+            )
+            return HistoryCaptureResult(entry: result.entry, notice: result.notice)
+        case let .images(items):
+            guard !items.isEmpty,
+                  let typedStore
+            else { return nil }
+            return HistoryCaptureResult(
+                entry: try typedStore.createImage(items: items, activityAt: clock.now),
+                notice: nil
+            )
+        case let .references(items):
+            guard !items.isEmpty,
+                  let typedStore
+            else { return nil }
+            return HistoryCaptureResult(
+                entry: try typedStore.createReference(items: items, activityAt: clock.now),
+                notice: nil
+            )
+        case let .mixed(images, references):
+            guard !images.isEmpty,
+                  !references.isEmpty,
+                  let typedStore
+            else { return nil }
+            return HistoryCaptureResult(
+                entry: try typedStore.createImageAndReference(
+                    imageItems: images,
+                    referenceItems: references,
+                    activityAt: clock.now
+                ),
+                notice: nil
+            )
+        }
+    }
+
+    @discardableResult
     func capture(text: String) throws -> HistoryEntry? {
-        guard HistoryTextPolicy.shouldCapture(text) else { return nil }
-        return try store.create(text: text, activityAt: clock.now)
+        try capture(.text(text))?.entry
+    }
+
+    @discardableResult
+    func capture(
+        text: String,
+        richTextItems: [HistoryRichTextCaptureItem]
+    ) throws -> HistoryRichTextCaptureResult? {
+        guard let result = try capture(.richText(text: text, items: richTextItems)) else { return nil }
+        return HistoryRichTextCaptureResult(
+            entry: result.entry,
+            richTextSaved: result.notice == nil,
+            notice: result.notice
+        )
     }
 
     @discardableResult
     func capture(imageItems: [ManagedImageCaptureItem]) throws -> HistoryEntry? {
-        guard !imageItems.isEmpty,
-              let imageStore = store as? ManagedImageHistoryStoring
-        else { return nil }
-        return try imageStore.createImage(items: imageItems, activityAt: clock.now)
+        try capture(.images(imageItems))?.entry
     }
 
     @discardableResult
     func capture(referenceItems: [HistoryReferenceCaptureItem]) throws -> HistoryEntry? {
-        guard !referenceItems.isEmpty,
-              let referenceStore = store as? ManagedImageHistoryStoring
-        else { return nil }
-        return try referenceStore.createReference(items: referenceItems, activityAt: clock.now)
+        try capture(.references(referenceItems))?.entry
     }
 
     @discardableResult
@@ -97,23 +160,15 @@ final class HistoryService {
         imageItems: [ManagedImageCaptureItem],
         referenceItems: [HistoryReferenceCaptureItem]
     ) throws -> HistoryEntry? {
-        guard !imageItems.isEmpty,
-              !referenceItems.isEmpty,
-              let typedStore = store as? ManagedImageHistoryStoring
-        else { return nil }
-        return try typedStore.createImageAndReference(
-            imageItems: imageItems,
-            referenceItems: referenceItems,
-            activityAt: clock.now
-        )
+        try capture(.mixed(images: imageItems, references: referenceItems))?.entry
     }
 
     func pastePayload(id: UUID) throws -> HistoryPastePayload? {
-        try (store as? ManagedImageHistoryStoring)?.pastePayload(id: id)
+        try typedStore?.pastePayload(id: id)
     }
 
     func thumbnailData(id: UUID) throws -> Data? {
-        try (store as? ManagedImageHistoryStoring)?.thumbnailData(id: id)
+        try typedStore?.thumbnailData(id: id)
     }
 
     @discardableResult
@@ -163,8 +218,6 @@ final class HistoryService {
         }
         return HistoryPage(
             descriptors: descriptors,
-            textEntries: pageEntries.filter(\.isTextOnly),
-            entries: pageEntries,
             nextCursor: pageEntries.last.map {
                 HistoryPageCursor(activityAt: $0.activityAt, id: $0.id)
             },
@@ -206,8 +259,19 @@ actor SerializedHistoryService {
         try service.occurrence(id: id)
     }
 
+    func capture(_ capture: HistoryCapture) throws -> HistoryCaptureResult? {
+        try service.capture(capture)
+    }
+
     func capture(text: String) throws -> HistoryEntry? {
         try service.capture(text: text)
+    }
+
+    func capture(
+        text: String,
+        richTextItems: [HistoryRichTextCaptureItem]
+    ) throws -> HistoryRichTextCaptureResult? {
+        try service.capture(text: text, richTextItems: richTextItems)
     }
 
     func capture(imageItems: [ManagedImageCaptureItem]) throws -> HistoryEntry? {

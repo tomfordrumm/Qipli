@@ -1,8 +1,8 @@
 # Qipli — технический контракт
 
-Статус: архитектура публичного приложения, typed History и единой Top Notch оболочки History/Paste Stack
+Статус: архитектура публичного приложения, typed/formatted History и единой Top Notch оболочки History/Paste Stack
 
-Дата базовой проверки платформы: 2026-08-06; S004 input/panel contracts перепроверены: 2026-08-08; Accessibility identity/release signing перепроверены: 2026-08-09; Settings/onboarding/ServiceManagement перепроверены: 2026-08-12; Developer ID/notarization и GitHub Actions/Releases перепроверены: 2026-08-26; Sparkle `2.9.6` contracts перепроверены: 2026-08-28; typed pasteboard/UTType/bookmark contracts перепроверены: 2026-08-31; notch geometry/window/collection contracts перепроверены: 2026-09-01
+Дата базовой проверки платформы: 2026-08-06; S004 input/panel contracts перепроверены: 2026-08-08; Accessibility identity/release signing перепроверены: 2026-08-09; Settings/onboarding/ServiceManagement перепроверены: 2026-08-12; Developer ID/notarization и GitHub Actions/Releases перепроверены: 2026-08-26; Sparkle `2.9.6` contracts перепроверены: 2026-08-28; typed pasteboard/UTType/bookmark contracts перепроверены: 2026-08-31; notch geometry/window/collection contracts перепроверены: 2026-09-01; RTF/HTML pasteboard contracts и open-source precedents перепроверены: 2026-09-03
 
 Поддерживаемая платформа: macOS 14+
 
@@ -33,11 +33,13 @@ Qipli — нативное menu bar приложение на Swift. Интер�
 | NEED-015 | Сохранять reference на локальный file/video без копирования source bytes | file URL + Foundation URL bookmark data | supported с runtime recheck | Bookmark может разрешать URL позднее и сообщать stale data. S025 проверяет move/rename/delete, stale refresh и pasteback на реальных Finder items. |
 | NEED-016 | Привязать transient History к camera-safe верхней области конкретного display | `NSScreen.safeAreaInsets`, auxiliary top areas и `visibleFrame` | supported с hardware verification | AppKit предоставляет safe-area geometry; S027 проверяет MacBook с camera housing, notchless external display, full-screen Space и изменение screen parameters без hardcoded notch dimensions. |
 | NEED-017 | Показывать bounded карточки с reusable views, selection и prefetch | `NSCollectionView` + flow/custom layout | supported | AppKit collection view отделяет data source/layout, переиспользует item views и поддерживает selection/prefetch. S027 использует horizontal History shelf; S030 переиспользует bounded horizontal presentation contract для ordered text Stack cards. |
+| NEED-018 | Сохранить форматирование текста и дать явную plain-only вставку | `NSPasteboardItem` с `.string`, `.rtf`, `.html` + local History key routing | supported с source/target matrix | AppKit определяет стандартные RTF/HTML pasteboard types и multi-representation item. S031 проверяет raw round-trip, size policy, `Enter`/double-click rich paste и exact `⇧Enter` plain paste на macOS 14+. |
 
 ### Авторитетные источники
 
 - Apple, [`NSPasteboard`](https://developer.apple.com/documentation/appkit/nspasteboard), [`changeCount`](https://developer.apple.com/documentation/appkit/nspasteboard/changecount) и [`clearContents()`](https://developer.apple.com/documentation/appkit/nspasteboard/clearcontents()): ownership changes advance `changeCount`, while `clearContents()` returns the resulting count.
 - Apple, [`NSPasteboard.pasteboardItems`](https://developer.apple.com/documentation/appkit/nspasteboard/pasteboarditems), [`writeObjects(_:)`](https://developer.apple.com/documentation/appkit/nspasteboard/writeobjects(_:)), [`NSPasteboardItem`](https://developer.apple.com/documentation/appkit/nspasteboarditem), [`NSPasteboardReading`](https://developer.apple.com/documentation/appkit/nspasteboardreading) и [`NSPasteboardWriting`](https://developer.apple.com/documentation/appkit/nspasteboardwriting): один pasteboard может содержать несколько ordered items, а item может предоставлять несколько typed representations.
+- Apple, [`NSPasteboard.PasteboardType.string`](https://developer.apple.com/documentation/appkit/nspasteboard/pasteboardtype/string), [`rtf`](https://developer.apple.com/documentation/appkit/nspasteboard/pasteboardtype/rtf) и [`html`](https://developer.apple.com/documentation/appkit/nspasteboard/pasteboardtype/html): plain text, RTF и HTML являются стандартными representations одного pasteboard item; target выбирает поддерживаемое представление.
 - Apple, [`UniformTypeIdentifiers`](https://developer.apple.com/documentation/uniformtypeidentifiers), [system-declared UTTypes](https://developer.apple.com/documentation/uniformtypeidentifiers/system-declared-uniform-type-identifiers) и [`URL` bookmark APIs](https://developer.apple.com/documentation/foundation/url): типы text, URL, file URL, image и movie классифицируются через UTType, а bookmark data создаётся и позднее разрешяется с явным stale state.
 - Apple, [`CGEvent`](https://developer.apple.com/documentation/coregraphics/cgevent), включая event taps, и [`tapEnable`](https://developer.apple.com/documentation/coregraphics/cgevent/tapenable(tap:enable:)).
 - Apple, [`CGEventTapOptions.defaultTap`](https://developer.apple.com/documentation/coregraphics/cgeventtapoptions/defaulttap): active filter может возвращать `nil`, чтобы потребить exact event; passive tap не может менять stream. Callback вызывается на run loop, а разрешение/маска могут сделать создание tap недоступным.
@@ -60,7 +62,13 @@ Qipli — нативное menu bar приложение на Swift. Интер�
 - GitHub, [GitHub-hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners), [Using secrets in GitHub Actions](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets), [Triggering a workflow](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow) и [Managing releases](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository): macOS runners, protected secrets, tag filters и release assets поддерживают выбранный pipeline.
 - Sparkle, [Documentation](https://sparkle-project.org/documentation/) и [Publishing an update](https://sparkle-project.org/documentation/publishing/): regular app update требует возрастающий `CFBundleVersion`, HTTPS feed, Developer ID code signature и EdDSA-signed archive; `generate_appcast` является рекомендуемым способом создания feed.
 
-Базовые ссылки и выводы проверены 2026-08-06. S006/S007 повторно сверили scoped input/panel contracts 2026-08-08: `.defaultTap` как active filter, callback run-loop delivery, permission/mask failure, 64-bit `eventSourceUserData`, ownership `changeCount` и `clearContents()` result; `windowShouldClose(_:)` как user-close interception и `orderOut(_:)` для hiding reusable nonactivating panel. S009 design recheck 2026-08-08 подтвердил HIG material hierarchy и local macOS 26 SDK availability `NSGlassEffectView` при сохранении `NSVisualEffectView` fallback. S010/S011 recheck 2026-08-12 подтвердил `SMAppService.mainApp` и HIG optional/contextual onboarding guidance. S013/S014 platform recheck 2026-08-26 подтвердил GitHub-hosted macOS runners, protected secrets, tag triggers, same-repository Releases и Apple automated notarization. S015 recheck 2026-08-28 подтвердил current stable Sparkle `2.9.6`, programmatic `SPUStandardUpdaterController`, Info.plist `SUFeedURL`/`SUPublicEDKey`, explicit automatic-check preference и EdDSA appcast tooling. Typed-History recheck 2026-08-31 подтвердил multi-item pasteboard APIs, standard UTTypes и Foundation bookmark APIs; exact behavior на Finder/browser/image source apps остаётся ранним runtime probe S023–S025. Top Notch recheck 2026-09-01 подтвердил `NSScreen` safe/auxiliary geometry, auxiliary full-screen window behavior и AppKit collection-view layout/reuse contracts; фактическая форма camera housing и animation остаются hardware/visual gates S027. `v1.0.1` launch failure дополнительно подтвердил обязательный embedded-framework `LC_RPATH`; реальный old-to-new Sparkle update переносится на `v1.0.2 → v1.0.3`.
+Implementation precedents, проверенные 2026-09-03 и не являющиеся runtime dependencies:
+
+- [Maccy `Clipboard.swift` на commit `39e0ba5`](https://github.com/p0deje/Maccy/blob/39e0ba5e8161dc75ac082ea51bcedc74d6a23564/Maccy/Clipboard.swift) (MIT) allowlist-ит `.string`, `.rtf`, `.html`, сохраняет raw data и для plain mode оставляет только string representation. Qipli использует этот поведенческий паттерн, но сохраняет собственные typed-storage, paging и input contracts.
+- [CopyQ FAQ на commit `df0a192`](https://github.com/hluk/CopyQ/blob/df0a192ce3e21dffb102a6385092c23bcdb7d530/docs/faq.rst#L213-L242) (GPL) подтверждает multi-MIME history и необходимость per-format byte ceilings; его built-in default 100 MiB не переносится в Qipli, потому что Qipli выбирает более узкий formatted-text scope и bounded managed storage.
+- [Clipbara `PasteService.swift` на commit `d64bc61`](https://github.com/mobrava/Clipbara/blob/d64bc61f5a0f73c6f539643b5261c43ae3afa4e5/Clipbara/Services/PasteService.swift#L8-L49) (GPL) подтверждает UX с modifier-controlled plain paste. GPL-код не копируется; Qipli реализует собственный exact `⇧Enter` History action.
+
+Базовые ссылки и выводы проверены 2026-08-06. S006/S007 повторно сверили scoped input/panel contracts 2026-08-08: `.defaultTap` как active filter, callback run-loop delivery, permission/mask failure, 64-bit `eventSourceUserData`, ownership `changeCount` и `clearContents()` result; `windowShouldClose(_:)` как user-close interception и `orderOut(_:)` для hiding reusable nonactivating panel. S009 design recheck 2026-08-08 подтвердил HIG material hierarchy и local macOS 26 SDK availability `NSGlassEffectView` при сохранении `NSVisualEffectView` fallback. S010/S011 recheck 2026-08-12 подтвердил `SMAppService.mainApp` и HIG optional/contextual onboarding guidance. S013/S014 platform recheck 2026-08-26 подтвердил GitHub-hosted macOS runners, protected secrets, tag triggers, same-repository Releases и Apple automated notarization. S015 recheck 2026-08-28 подтвердил current stable Sparkle `2.9.6`, programmatic `SPUStandardUpdaterController`, Info.plist `SUFeedURL`/`SUPublicEDKey`, explicit automatic-check preference и EdDSA appcast tooling. Typed-History recheck 2026-08-31 подтвердил multi-item pasteboard APIs, standard UTTypes и Foundation bookmark APIs; exact behavior на Finder/browser/image source apps остаётся ранним runtime probe S023–S025. Top Notch recheck 2026-09-01 подтвердил `NSScreen` safe/auxiliary geometry, auxiliary full-screen window behavior и AppKit collection-view layout/reuse contracts; фактическая форма camera housing и animation остаются hardware/visual gates S027. Formatted-text recheck 2026-09-03 подтвердил standard `.string`/`.rtf`/`.html` types, raw multi-representation storage и modifier-controlled plain-paste precedents; exact source/target representation mix остаётся controlled/manual gate S031. `v1.0.1` launch failure дополнительно подтвердил обязательный embedded-framework `LC_RPATH`; реальный old-to-new Sparkle update переносится на `v1.0.2 → v1.0.3`.
 
 ## 3. Компоненты и ответственность
 
@@ -145,6 +153,9 @@ Sparkle updater ──> public HTTPS appcast ──> EdDSA-verified ZIP ──> 
 - thumbnail является производным cache artifact, не источником paste payload. UI запрашивает его только для visible rows; cache miss не блокирует список и не меняет occurrence availability;
 - delete/expiry/Clear All удаляют owned assets и derivatives. Они никогда не удаляют referenced source. Startup maintenance трогает только файлы, безопасно распознанные как Qipli-owned temp/orphan artifacts;
 - per-item и total-byte limits инъецируются в policy tests. Production values фиксируются решением до перевода S024 в `ready`; overflow отклоняет новый managed item и не запускает auto-eviction старой истории.
+- S031 расширяет managed storage отдельным rich-text manifest для raw RTF/HTML bytes. Rich assets используют opaque Qipli IDs, integrity digest и atomic temp-to-final commit; они не переиспользуют filename, URL или markup-derived path и не входят в descriptors.
+- Canonical plain text остаётся Core Data/search/preview/Stack value. Наличие rich manifest является отдельным materialization capability и не выводится из `HistoryEntry.isTypedEntry`, потому что formatted text по-прежнему имеет text primary kind.
+- Rich capacity policy: 16 MiB на representation, 32 MiB на occurrence и 512 MiB на все durable rich assets. Overflow не отменяет допустимый text capture: occurrence сохраняется как plain-only, а partial rich temp files удаляются. Missing/corrupt committed rich asset, напротив, не приводит к silent plain fallback во время default paste. Поскольку `NSPasteboardItem.data(forType:)` не даёт pre-read byte length или streaming API, adapter запрашивает allowlisted representations последовательно и избегает дополнительных полных копий, но один candidate может быть materialized системой до admission check.
 
 ### Performance boundary
 
@@ -175,6 +186,8 @@ Sparkle updater ──> public HTTPS appcast ──> EdDSA-verified ZIP ──> 
 - после системного prompt или открытия Accessibility Settings выполняют ограниченный polling официального trust API; реальный переход grant/revoke публикуется в UI и соответственно запускает/останавливает event tap без перезапуска приложения. При повторной активации Qipli trust также перепроверяется; clipboard/search payload в этот путь не попадает.
 
 S010 заменяет hard-coded History/Stack/Reactivate Previous match значениями из immutable validated shortcut snapshot. Event tap по-прежнему потребляет только exact untagged keyDown текущих трёх Qipli commands; ordinary `⌘V`, active-Stack `Esc`, synthetic marker, keyUp и narrow reactivation admission остаются отдельными неизменяемыми контрактами. Snapshot меняется атомарно без teardown здорового event tap. Валидация гарантирует уникальность Qipli bindings и защищает системные/продуктовые input actions, но не заявляет глобальную осведомлённость о shortcuts сторонних приложений.
+
+S031 не добавляет global event-tap binding. History-owned local key routing различает unmodified `Enter`/keypad Enter и exact Shift-only `⇧Enter`: первый выбирает default rich materialization, второй — plain-only payload. Command/Control/Option combinations, keyUp и unrelated input возвращаются текущему responder; double-click использует default rich mode.
 
 ### Settings, preferences и launch at login
 
@@ -232,6 +245,15 @@ S010 заменяет hard-coded History/Stack/Reactivate Previous match зна�
 5. После durable asset placement repository commits occurrence/items/representations metadata. Только затем main actor вставляет новый descriptor в первую page. Interrupted process до commit не оставляет видимую partial occurrence; maintenance может удалить только распознанный Qipli temp/orphan.
 6. Active text-only Stack получает item только если occurrence имеет допустимый exact text payload. Media occurrence остаётся в History и не меняет session order, next или traversal state.
 
+### Formatted text capture и publication (S031)
+
+1. После self-write rejection reader snapshots ordered pasteboard items и canonical `.string`. Только occurrence с допустимым непробельным canonical text допускает rich capture.
+2. Для каждого того же item classifier allowlist-ит `.rtf` и `.html`; RTFD, WebArchive, private/dynamic и source-specific types игнорируются без вызова их data providers.
+3. Adapter последовательно запрашивает каждый allowlisted `Data` не более одного раза, проверяет materialized byte count против 16 MiB per-representation, 32 MiB per-occurrence и 512 MiB total durable policy и немедленно отбрасывает oversized candidate. AppKit не позволяет гарантировать rejection до materialization; Qipli не создаёт вторую полную in-memory копию. Допустимые raw bytes один раз пишутся в opaque temporary files вне main actor.
+4. Repository атомарно commits text occurrence и rich manifest после durable asset placement. Если rich overflow/write fails, временные rich assets удаляются, а та же occurrence commits plain-only и публикует bounded non-payload notice.
+5. Page/search descriptor содержит canonical bounded text preview и capability flag/representation descriptors, но не markup, raw bytes, byte count или source metadata. Search не парсит RTF/HTML.
+6. Active Stack после successful History commit получает только canonical text snapshot; rich manifest не входит в StackSession.
+
 ### Сбор Paste Stack (S004)
 
 1. Deferred global `⌘⇧C` action snapshots/starts session with current pasteboard `changeCount`, показывает nonactivating Paste Stack Top Notch и только затем dispatch-ит tagged ordinary `⌘C`; repeated hotkey сохраняет session/occurrences, но повторяет Copy. Target app остаётся active и владеет resulting pasteboard write.
@@ -245,7 +267,7 @@ S010 заменяет hard-coded History/Stack/Reactivate Previous match зна�
 
 1. До активации History сохраняются frontmost non-Qipli application и контекст, достаточный для возврата; текущий display определяется из active target window/mouse fallback без чтения clipboard payload.
 2. После startup History reload reusable Top Notch prewarm-ится без показа. Явный `⌘⇧V`/menu action вычисляет safe top frame, раскрывает panel вниз и через единственный AppKit adapter запрашивает strong user-initiated activation; после `isActive` panel становится key и Search получает focus. Fresh show синхронно выбирает first occurrence и card shelf возвращает viewport к leading anchor; paste-failure reopen не сбрасывает retry context.
-3. До S023 по `Enter` immutable selected text становится внутренней записью в system pasteboard. Typed History materializes selected occurrence only after reservation: text/URL берутся из metadata, image читается из managed asset, file/video reference разрешается без чтения всего source в память. Writer восстанавливает ordered pasteboard items и retained supported representations. Exact final `changeCount` сразу регистрируется как self-write.
+3. До S023 по `Enter` immutable selected text становился внутренней записью в system pasteboard. Typed History materializes selected occurrence only after reservation: text/URL берутся из metadata, image читается из managed asset, file/video reference разрешается без чтения всего source в память. В S031 default `Enter`/double-click добавляет сохранённые RTF/HTML рядом с canonical `.string`, а exact `⇧Enter` materializes только `.string`. Writer восстанавливает ordered pasteboard items и выбранные supported representations. Exact final `changeCount` сразу регистрируется как self-write.
 4. Сразу после successful write активное History presentation в том же обработчике становится прозрачным и перестаёт принимать mouse events. Пока невидимая Qipli ещё active, оно yield/request-activates captured application; command не отправляется до подтверждённого active target.
 5. Bounded deadline с main-run-loop retries проверяет `NSRunningApplication.isActive`; при active target presentation выполняет `orderOut` перед synthetic `⌘V`. Пользователь не видит activation wait.
 6. После accepted-but-exhausted activation или dispatch failure presentation восстанавливается с retryable error. Pasteboard не переписывается и команда не дублируется.
@@ -300,10 +322,13 @@ S023 выполняет lightweight migration каждой legacy row в typed o
 
 - `inlineText`: exact string или URL metadata в Core Data;
 - `managedAsset`: opaque relative path, expected byte count и integrity metadata для Qipli-owned image;
+- `managedRichText`: opaque relative path, expected byte count и integrity digest для raw `public.rtf`/`public.html`; canonical plain text остаётся отдельной `inlineText` representation того же item;
 - `fileReference`: bookmark/reference data plus last known local display metadata; source bytes не принадлежат Qipli;
 - `derivedThumbnail`: не persisted representation и не участвует в pasteback; это удаляемый cache по item/revision.
 
 Page/search API возвращает только `HistoryOccurrenceDescriptor`: occurrence ID, activity, primary kind, bounded title/search presentation, item count и availability summary. Exact text, bookmark data, managed path, image bytes и thumbnail bytes не входят в descriptor.
+
+Все pasteboard variants входят в History через один `HistoryCapture` boundary. Capture result содержит только committed descriptor и bounded user notice; production UI не кэширует full `HistoryEntry`, а materializes exact payload по UUID непосредственно перед paste. Image и rich stores используют общий managed-directory boundary для root containment, symlink rejection, temp cleanup и digest verification.
 
 ### StackOccurrence — только память
 
@@ -330,11 +355,11 @@ Launch-at-login state не дублируется в `UserDefaults`: источ�
 ### Владение и жизненный цикл
 
 - Store находится в Application Support текущего пользователя и не синхронизируется через iCloud.
-- Core Data SQLite является каталогом metadata. Managed images и thumbnails находятся в отдельных Qipli-owned subdirectories Application Support; relative paths не принимаются от pasteboard и не могут выходить за эти roots.
+- Core Data SQLite является каталогом metadata. Managed images, rich-text payloads и thumbnails находятся в отдельных Qipli-owned subdirectories Application Support; relative paths не принимаются от pasteboard и не могут выходить за эти roots.
 - Qipli не создаёт сетевых копий, резервных копий или экспортов. Updater загружает только публичный appcast и выбранный release artifact.
 - Просроченные записи исключаются из запросов синхронно с пользовательской точки зрения и удаляются из store обслуживающей операцией.
 - Удаление отдельной записи и auto-prune — логическое удаление; из-за SQLite/SSD приложение не обещает forensic secure erase.
-- Delete/expiry сначала делает occurrence недоступной новым page/search/paste operations, затем удаляет owned assets/derivatives. Сбой cleanup оставляет только Qipli-owned orphan для следующего maintenance и не возвращает occurrence в UI.
+- Delete/expiry сначала делает occurrence недоступной новым page/search/paste operations, затем удаляет owned image/rich assets и derivatives. Сбой cleanup оставляет только Qipli-owned orphan для следующего maintenance и не возвращает occurrence в UI.
 - «Очистить всё» должно удалить управляемые store/SQLite/WAL/SHM, managed-assets, thumbnails и temp files после безопасного закрытия owners, но также не заявляется как secure erase накопителя. Referenced source files не удаляются.
 
 ## 6. Разрешения и безопасность
@@ -349,11 +374,11 @@ Launch-at-login state не дублируется в `UserDefaults`: источ�
 - Автоматическая проверка не стартует без локального opt-in. Manual check создаёт один понятный user-triggered request; offline state не мешает clipboard flows.
 - Release workflow не запускается на pull request code с secrets. Developer ID `.p12`, App Store Connect `.p8`, passwords и Sparkle private EdDSA key живут только в protected GitHub Environment и ephemeral runner files/Keychain.
 - Git history и текущий tree проходят credential/user-data audit до смены visibility. Обнаруженный реальный secret удаляется из history и ротируется до публикации, а не только добавляется в `.gitignore`.
-- Clipboard text, URL, filename/path, image/media metadata, поисковые запросы и превью не попадают в логи, `print`, signpost metadata или имена managed файлов.
+- Clipboard text, RTF/HTML bytes/markup, URL, filename/path, image/media metadata, поисковые запросы и превью не попадают в логи, `print`, signpost metadata или имена managed файлов.
 - UI предупреждает, что автоматической фильтрации секретов нет. Preview должен избегать лишнего раскрытия длинного текста и media, но exact retained representation остаётся доступным для явной вставки.
 - Все операции с Core Data выполняются в последовательной модели конкурентности; UI не получает managed objects, привязанные к чужому context.
 - Managed asset path строится только из Qipli-owned opaque IDs и проверенного root. Pasteboard filename/path не используется как destination path; symbolic-link/path traversal не может вывести write/delete за managed roots.
-- Capacity admission выполняется до durable publication. Per-item и total owned-byte limits применяются также к representations, которые обещают большое содержимое; Qipli не materializes unsupported/custom provider data без allowlist и bounded read policy.
+- Capacity admission выполняется до durable publication. Per-item и total owned-byte limits применяются также к representations, которые обещают большое содержимое. Unsupported/custom provider data не materialize-ится; allowlisted RTF/HTML запрашивается по одному и проверяется сразу после единственного AppKit `Data` read, поскольку pre-read length/streaming API отсутствует.
 - Перед synthetic `Command-V` writer связывает reserved occurrence с prepared representation manifest и exact final `changeCount`. External pasteboard mutation до dispatch приводит к fail-closed retryable error, а не к отправке неизвестного payload.
 
 ## 7. Состояние фокуса и совместимость приложений
@@ -381,7 +406,7 @@ Qipli app target
   Application/       lifecycle, status item, panel coordination
   Clipboard/         pasteboard adapter and monitor
   History/           model, repository/service, history feature
-  MediaAssets/       managed image storage, reference resolution and thumbnail cache
+  MediaAssets/       managed image/rich-text storage, reference resolution and thumbnail cache
   PasteStack/        state machine, panel feature
   Input/             permissions, hotkeys, event tap, paste executor
   Settings/          validated preferences, Settings/onboarding UI, login item adapter
@@ -424,6 +449,7 @@ QipliUITests/         in-app keyboard and panel flows
 - S026: upgrade migration from public text store, interrupted capture/delete recovery, orphan cleanup restricted to managed roots, Clear All inventory, update preservation и payload-free privacy/log scan;
 - S027: pure safe-area placement для camera/notchless/multi-display frames, presentation state machine, horizontal card reuse, Search focus, one-dimensional selection, click-away и прежний single paste transaction;
 - S030: shared safe-area shape/motion with separate nonactivating Stack lifecycle, source/target focus preservation, horizontal ordered cards, reorder/direction, Next/Processing/Used/reactivation/error states, reverse finish/cancel и отсутствие legacy floating-window placement;
+- S031: allowlisted `.string`/`.rtf`/`.html` capture, sequential one-read admission, raw-byte restart round-trip, rich capacity/plain-only fallback, exact `Enter`/`⇧Enter` routing, default/plain paste payloads, corrupt asset handling и managed-rich lifecycle;
 - build: Debug и Release для deployment target macOS 14.
 
 ### Вручную на чистой системе
@@ -446,6 +472,7 @@ QipliUITests/         in-app keyboard and panel flows
 - S026 clean-machine signed update from the last text-only public build preserves text History and starts with empty managed asset roots; privacy/network inspection confirms no media payload leaves the Mac.
 - S027 MacBook camera-housing plus notchless external-display matrix: current-screen placement, menu-bar clearance, full-screen Space, Search focus, arrows/Enter/Delete/Escape/click-away, Light/Dark, Reduce Motion/Transparency и unchanged ordinary `⌘V`.
 - S030 Top Notch Stack matrix: source Copy, menu-empty Start, reorder/direction, exact sequential paste, Reactivate/`⌘⇧Z`, failure retry, cancel/Escape, auto-finish, camera-housing/notchless/second-display/full-screen placement and nonactivation in at least two external apps.
+- S031 formatted text matrix: TextEdit, browser contenteditable, Notes и один installed office editor как source/target; rich default paste, `⇧Enter` plain paste, IDE/plain target, restart, oversize fallback, corrupt asset retry, active Stack и Delete/Clear All.
 
 ## 10. Сборка и распространение
 
@@ -487,6 +514,7 @@ CI использует тот же verifier, но создаёт временн
 - S023 заменяет полный cached retention snapshot bounded descriptors и database-backed paging/search до добавления media. `fetchBatchSize` без `fetchLimit` не считается paging, потому что descriptor mapping не должен обходить весь result set.
 - AppKit документирует multi-item/typed pasteboard contract, UTType и URL bookmarks, но representation mix зависит от source app. S023–S025 обязаны сначала записать payload-free inventories типов/счётчиков на synthetic или controlled clipboard и проверить Finder, browser и native image app до фиксации allowlist.
 - Production managed-image policy принята в D-035: 32 MiB на image item, 64 MiB на occurrence, 1 GiB на durable original bytes, 128 MiB на пересоздаваемый thumbnail cache и 512 px на длинную сторону thumbnail. Значения являются defaults без UI; overflow отклоняет новую occurrence целиком и не запускает auto-eviction старой истории.
+- S031 использует отдельные rich-text defaults 16 MiB на RTF/HTML representation, 32 MiB на occurrence и 512 MiB total durable storage. До production code controlled TextEdit/browser probe проверяет advertised types, raw sizes, sequential materialization и peak behavior; если эти ceilings дают неприемлемую latency/memory или отсекают обычные formatted copies, D-039 и slice обновляются до продолжения. Persistence limits не считаются pre-read memory limits: AppKit может вернуть один полный `Data` до size check.
 - Одного Accessibility-разрешения достаточно для выбранного event tap/paste flow на macOS 14+; S001 обязан проверить это на чистом профиле и не скрывать дополнительное системное требование, если оно появится.
 - Локальный Developer ID/notary pipeline подтверждён. Для S014 отдельно нужно подтвердить exportable Developer ID private key и App Store Connect API key в protected GitHub Environment; локальный Data Protection Keychain profile сам по себе не переносится на hosted runner.
 - `UserDefaults` достаточно для малых несекретных preferences; несовместимая shortcut schema должна fail closed к defaults, а login-item status никогда не кэшируется как source of truth.

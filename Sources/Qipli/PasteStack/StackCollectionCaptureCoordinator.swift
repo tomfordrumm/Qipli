@@ -1,7 +1,8 @@
 import Foundation
 
-/// Bridges a single external clipboard event to both product features in the
-/// required order: durable History first, transient Stack second.
+/// Routes one normalized clipboard occurrence through durable History first and
+/// the transient Paste Stack second. Captures stay ordered even when storage is
+/// slower than the pasteboard polling cadence.
 @MainActor
 final class StackCollectionCaptureCoordinator {
     private let historyViewModel: HistoryViewModel
@@ -13,20 +14,41 @@ final class StackCollectionCaptureCoordinator {
         self.stackSessionController = stackSessionController
     }
 
-    func enqueueExternalText(
-        _ text: String,
+    func enqueue(
+        _ capture: HistoryCapture,
         observedChangeCount: Int,
         stackCaptureContext: StackCaptureContext?
     ) {
         let previousCapture = pendingCapture
         pendingCapture = Task { @MainActor [weak self] in
             await previousCapture?.value
-            await self?.recordExternalText(
-                text,
+            await self?.record(
+                capture,
                 observedChangeCount: observedChangeCount,
                 stackCaptureContext: stackCaptureContext
             )
         }
+    }
+
+    func enqueueExternalText(
+        _ text: String,
+        observedChangeCount: Int,
+        stackCaptureContext: StackCaptureContext?
+    ) {
+        enqueue(.text(text), observedChangeCount: observedChangeCount, stackCaptureContext: stackCaptureContext)
+    }
+
+    func enqueueExternalRichText(
+        _ items: [HistoryRichTextCaptureItem],
+        canonicalText: String,
+        observedChangeCount: Int,
+        stackCaptureContext: StackCaptureContext?
+    ) {
+        enqueue(
+            .richText(text: canonicalText, items: items),
+            observedChangeCount: observedChangeCount,
+            stackCaptureContext: stackCaptureContext
+        )
     }
 
     func enqueueExternalImage(
@@ -34,15 +56,7 @@ final class StackCollectionCaptureCoordinator {
         observedChangeCount: Int,
         stackCaptureContext: StackCaptureContext?
     ) {
-        let previousCapture = pendingCapture
-        pendingCapture = Task { @MainActor [weak self] in
-            await previousCapture?.value
-            await self?.recordExternalImage(
-                items,
-                observedChangeCount: observedChangeCount,
-                stackCaptureContext: stackCaptureContext
-            )
-        }
+        enqueue(.images(items), observedChangeCount: observedChangeCount, stackCaptureContext: stackCaptureContext)
     }
 
     func enqueueExternalReference(
@@ -50,15 +64,7 @@ final class StackCollectionCaptureCoordinator {
         observedChangeCount: Int,
         stackCaptureContext: StackCaptureContext?
     ) {
-        let previousCapture = pendingCapture
-        pendingCapture = Task { @MainActor [weak self] in
-            await previousCapture?.value
-            await self?.recordExternalReference(
-                items,
-                observedChangeCount: observedChangeCount,
-                stackCaptureContext: stackCaptureContext
-            )
-        }
+        enqueue(.references(items), observedChangeCount: observedChangeCount, stackCaptureContext: stackCaptureContext)
     }
 
     func enqueueExternalMixed(
@@ -67,16 +73,11 @@ final class StackCollectionCaptureCoordinator {
         observedChangeCount: Int,
         stackCaptureContext: StackCaptureContext?
     ) {
-        let previousCapture = pendingCapture
-        pendingCapture = Task { @MainActor [weak self] in
-            await previousCapture?.value
-            await self?.recordExternalMixed(
-                imageItems: imageItems,
-                referenceItems: referenceItems,
-                observedChangeCount: observedChangeCount,
-                stackCaptureContext: stackCaptureContext
-            )
-        }
+        enqueue(
+            .mixed(images: imageItems, references: referenceItems),
+            observedChangeCount: observedChangeCount,
+            stackCaptureContext: stackCaptureContext
+        )
     }
 
     func drainPendingCaptures() async {
@@ -88,85 +89,49 @@ final class StackCollectionCaptureCoordinator {
         observedChangeCount: Int,
         stackCaptureContext: StackCaptureContext?
     ) async {
-        guard HistoryTextPolicy.shouldCapture(text) else { return }
-        guard let entry = await historyViewModel.recordExternalText(text) else {
-            stackSessionController.recordCaptureFailure(
-                observedChangeCount: observedChangeCount,
-                for: stackCaptureContext
-            )
-            return
-        }
-        stackSessionController.appendPersistedHistoryEntry(
-            entry,
+        await record(
+            .text(text),
             observedChangeCount: observedChangeCount,
-            for: stackCaptureContext
+            stackCaptureContext: stackCaptureContext
         )
     }
 
-    private func recordExternalImage(
-        _ items: [ManagedImageCaptureItem],
+    private func record(
+        _ capture: HistoryCapture,
         observedChangeCount: Int,
         stackCaptureContext: StackCaptureContext?
     ) async {
-        guard await historyViewModel.recordExternalImage(items) != nil else {
-            let message = historyViewModel.imageCaptureNotice
-                ?? "Qipli could not save the copied image."
-            stackSessionController.recordNonTextCaptureFailure(
-                message: message,
-                observedChangeCount: observedChangeCount,
-                for: stackCaptureContext
-            )
+        if let text = capture.stackText, !HistoryTextPolicy.shouldCapture(text) {
             return
         }
-        stackSessionController.recordNonTextCapture(
-            observedChangeCount: observedChangeCount,
-            for: stackCaptureContext
-        )
-    }
 
-    private func recordExternalReference(
-        _ items: [HistoryReferenceCaptureItem],
-        observedChangeCount: Int,
-        stackCaptureContext: StackCaptureContext?
-    ) async {
-        guard await historyViewModel.recordExternalReference(items) != nil else {
-            let message = historyViewModel.imageCaptureNotice
-                ?? "Qipli could not save the copied file reference."
-            stackSessionController.recordNonTextCaptureFailure(
-                message: message,
-                observedChangeCount: observedChangeCount,
-                for: stackCaptureContext
-            )
+        guard let entry = await historyViewModel.recordExternalCapture(capture) else {
+            if capture.stackText != nil {
+                stackSessionController.recordCaptureFailure(
+                    observedChangeCount: observedChangeCount,
+                    for: stackCaptureContext
+                )
+            } else {
+                stackSessionController.recordNonTextCaptureFailure(
+                    message: historyViewModel.captureNotice ?? capture.failureMessage,
+                    observedChangeCount: observedChangeCount,
+                    for: stackCaptureContext
+                )
+            }
             return
         }
-        stackSessionController.recordNonTextCapture(
-            observedChangeCount: observedChangeCount,
-            for: stackCaptureContext
-        )
-    }
 
-    private func recordExternalMixed(
-        imageItems: [ManagedImageCaptureItem],
-        referenceItems: [HistoryReferenceCaptureItem],
-        observedChangeCount: Int,
-        stackCaptureContext: StackCaptureContext?
-    ) async {
-        guard await historyViewModel.recordExternalMixed(
-            imageItems: imageItems,
-            referenceItems: referenceItems
-        ) != nil else {
-            let message = historyViewModel.imageCaptureNotice
-                ?? "Qipli could not save the copied item."
-            stackSessionController.recordNonTextCaptureFailure(
-                message: message,
+        if capture.stackText != nil {
+            stackSessionController.appendPersistedHistoryEntry(
+                entry,
                 observedChangeCount: observedChangeCount,
                 for: stackCaptureContext
             )
-            return
+        } else {
+            stackSessionController.recordNonTextCapture(
+                observedChangeCount: observedChangeCount,
+                for: stackCaptureContext
+            )
         }
-        stackSessionController.recordNonTextCapture(
-            observedChangeCount: observedChangeCount,
-            for: stackCaptureContext
-        )
     }
 }

@@ -120,14 +120,12 @@ final class PanelMaterialProvider {
 }
 
 enum PanelKind: CaseIterable, Equatable {
-    case history
     case topNotchHistory
     case pasteStack
 }
 
-enum PanelWindowChrome: Equatable {
-    case native
-    case custom(cornerRadius: CGFloat)
+struct PanelWindowChrome: Equatable {
+    let cornerRadius: CGFloat
 }
 
 /// Explicitly preserves each panel's pre-S009 AppKit contract while allowing
@@ -141,20 +139,12 @@ struct PanelWindowConfiguration {
 
     static func make(for kind: PanelKind) -> Self {
         switch kind {
-        case .history:
-            Self(
-                title: "History",
-                contentRect: NSRect(x: 0, y: 0, width: 460, height: 340),
-                styleMask: [.titled, .closable, .utilityWindow, .fullSizeContentView],
-                chrome: .native,
-                dismissesOnOutsideClick: true
-            )
         case .topNotchHistory:
             Self(
                 title: "History",
                 contentRect: NSRect(origin: .zero, size: TopNotchHistoryGeometry.defaultPanelSize),
                 styleMask: [.borderless],
-                chrome: .custom(cornerRadius: 20),
+                chrome: PanelWindowChrome(cornerRadius: 20),
                 dismissesOnOutsideClick: true
             )
         case .pasteStack:
@@ -162,7 +152,7 @@ struct PanelWindowConfiguration {
                 title: "Paste Stack",
                 contentRect: NSRect(origin: .zero, size: TopNotchHistoryGeometry.pasteStackPanelSize),
                 styleMask: [.borderless, .nonactivatingPanel],
-                chrome: .custom(cornerRadius: 0),
+                chrome: PanelWindowChrome(cornerRadius: 0),
                 dismissesOnOutsideClick: false
             )
         }
@@ -178,29 +168,13 @@ struct PanelWindowConfiguration {
         panel.backgroundColor = .clear
         panel.hasShadow = true
 
-        switch chrome {
-        case .native:
-            // `.fullSizeContentView` puts the material behind native titled/closable
-            // chrome; content itself is constrained to `contentLayoutGuide` above.
-            panel.titlebarAppearsTransparent = true
-            // `contentRect` is the feature-owned SwiftUI size. Full-size content
-            // extends the material under native chrome, so compensate for that
-            // chrome before pinning SwiftUI to the unobscured layout rect.
-            let titleBarHeight = panel.contentView!.bounds.height - panel.contentLayoutRect.height
-            panel.setContentSize(NSSize(
-                width: contentRect.width,
-                height: contentRect.height + titleBarHeight
-            ))
-        case .custom:
-            panel.setContentSize(contentRect.size)
-        }
+        panel.setContentSize(contentRect.size)
     }
 
     func applySurfacePresentation(to surface: NSView) {
-        guard case let .custom(cornerRadius) = chrome else { return }
         surface.wantsLayer = true
         surface.layer?.cornerCurve = .continuous
-        surface.layer?.cornerRadius = cornerRadius
+        surface.layer?.cornerRadius = chrome.cornerRadius
         surface.layer?.masksToBounds = true
     }
 }

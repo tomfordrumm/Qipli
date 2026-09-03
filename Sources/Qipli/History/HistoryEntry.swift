@@ -1,5 +1,95 @@
 import Foundation
 
+enum HistoryRichTextTypePolicy {
+    static let supportedTypes: [String] = ["public.rtf", "public.html"]
+
+    static func isSupported(_ typeIdentifier: String) -> Bool {
+        supportedTypes.contains(typeIdentifier)
+    }
+}
+
+struct HistoryRichTextStoragePolicy: Equatable, Sendable {
+    static let production = HistoryRichTextStoragePolicy(
+        maxRepresentationBytes: 16 * 1024 * 1024,
+        maxOccurrenceBytes: 32 * 1024 * 1024,
+        maxTotalBytes: 512 * 1024 * 1024
+    )
+
+    let maxRepresentationBytes: Int
+    let maxOccurrenceBytes: Int
+    let maxTotalBytes: Int
+
+    init(maxRepresentationBytes: Int, maxOccurrenceBytes: Int, maxTotalBytes: Int) {
+        precondition(maxRepresentationBytes > 0)
+        precondition(maxOccurrenceBytes >= maxRepresentationBytes)
+        precondition(maxTotalBytes >= maxOccurrenceBytes)
+        self.maxRepresentationBytes = maxRepresentationBytes
+        self.maxOccurrenceBytes = maxOccurrenceBytes
+        self.maxTotalBytes = maxTotalBytes
+    }
+}
+
+struct HistoryRichTextCaptureRepresentation: Equatable, Sendable {
+    let typeIdentifier: String
+    let data: Data
+}
+
+struct HistoryRichTextCaptureItem: Equatable, Sendable {
+    let order: Int
+    let canonicalText: String?
+    let representations: [HistoryRichTextCaptureRepresentation]
+
+    init(
+        order: Int,
+        canonicalText: String? = nil,
+        representations: [HistoryRichTextCaptureRepresentation]
+    ) {
+        self.order = order
+        self.canonicalText = canonicalText
+        self.representations = representations
+    }
+}
+
+struct HistoryRichTextRepresentationManifest: Codable, Equatable, Sendable {
+    let typeIdentifier: String
+    let relativePath: String
+    let byteCount: Int
+    let sha256: String
+}
+
+struct HistoryRichTextItemManifest: Codable, Equatable, Sendable {
+    let id: UUID
+    let order: Int
+    let canonicalText: String?
+    let representations: [HistoryRichTextRepresentationManifest]
+
+    init(
+        id: UUID,
+        order: Int,
+        canonicalText: String? = nil,
+        representations: [HistoryRichTextRepresentationManifest]
+    ) {
+        self.id = id
+        self.order = order
+        self.canonicalText = canonicalText
+        self.representations = representations
+    }
+}
+
+struct HistoryRichTextManifest: Codable, Equatable, Sendable {
+    let occurrenceID: UUID
+    let items: [HistoryRichTextItemManifest]
+    let capturedAt: Date
+
+    var representations: [HistoryRichTextRepresentationManifest] {
+        items.flatMap(\.representations)
+    }
+
+    var totalBytes: Int {
+        representations.reduce(0) { $0 + $1.byteCount }
+    }
+}
+
 /// The representation kinds understood by the typed History catalogue.
 /// Typed History keeps text, URLs, managed images, and local references in a
 /// stable occurrence contract while payload bytes stay outside UI descriptors.
@@ -122,6 +212,38 @@ struct HistoryPastePayload: Equatable, Sendable {
     let items: [HistoryPasteboardItemPayload]
 }
 
+/// The normalized input to History. Clipboard routing decides the variant once;
+/// persistence, UI updates, and Paste Stack collection share the same value.
+enum HistoryCapture: Equatable, Sendable {
+    case text(String)
+    case richText(text: String, items: [HistoryRichTextCaptureItem])
+    case images([ManagedImageCaptureItem])
+    case references([HistoryReferenceCaptureItem])
+    case mixed(images: [ManagedImageCaptureItem], references: [HistoryReferenceCaptureItem])
+
+    var stackText: String? {
+        switch self {
+        case let .text(text), let .richText(text, _): text
+        case .images, .references, .mixed: nil
+        }
+    }
+
+    var failureMessage: String {
+        switch self {
+        case .text: "Qipli could not save the copied text."
+        case .richText: "Qipli could not save the copied formatted text."
+        case .images: "Qipli could not save the copied image."
+        case .references: "Qipli could not save the copied file reference."
+        case .mixed: "Qipli could not save the copied item."
+        }
+    }
+}
+
+struct HistoryCaptureResult: Equatable, Sendable {
+    let entry: HistoryEntry
+    let notice: String?
+}
+
 struct HistoryPayloadItem: Identifiable, Equatable, Sendable {
     let id: UUID
     let order: Int
@@ -199,26 +321,15 @@ struct HistoryPageCursor: Equatable, Sendable {
 
 struct HistoryPage: Equatable, Sendable {
     let descriptors: [HistoryOccurrenceDescriptor]
-    /// Exact text is materialized only for this bounded text page so the
-    /// existing synchronous paste bridge remains exact. Media payloads never
-    /// enter this collection.
-    let textEntries: [HistoryEntry]
-    /// Bounded entries used by the existing History UI. Media entries contain
-    /// only typed metadata and managed asset references, never image bytes.
-    let entries: [HistoryEntry]
     let nextCursor: HistoryPageCursor?
     let hasMore: Bool
 
     init(
         descriptors: [HistoryOccurrenceDescriptor],
-        textEntries: [HistoryEntry] = [],
-        entries: [HistoryEntry]? = nil,
         nextCursor: HistoryPageCursor?,
         hasMore: Bool
     ) {
         self.descriptors = descriptors
-        self.textEntries = textEntries
-        self.entries = entries ?? textEntries
         self.nextCursor = nextCursor
         self.hasMore = hasMore
     }
@@ -236,6 +347,9 @@ struct HistoryEntry: Identifiable, Equatable, Sendable {
     let managedImageItems: [ManagedImageAssetItemManifest]
     let managedImageName: String?
     let referenceMetadata: [HistoryReferenceMetadata]
+    /// Rich text remains text-primary. This flag is the explicit materialization
+    /// capability used by the selected-paste path.
+    let hasRichText: Bool
 
     init(
         id: UUID,
@@ -248,7 +362,8 @@ struct HistoryEntry: Identifiable, Equatable, Sendable {
         managedImages: [HistoryManagedImageRepresentation] = [],
         managedImageItems: [ManagedImageAssetItemManifest] = [],
         managedImageName: String? = nil,
-        referenceMetadata: [HistoryReferenceMetadata] = []
+        referenceMetadata: [HistoryReferenceMetadata] = [],
+        hasRichText: Bool = false
     ) {
         self.id = id
         self.text = text
@@ -259,6 +374,7 @@ struct HistoryEntry: Identifiable, Equatable, Sendable {
         self.managedImageItems = managedImageItems
         self.managedImageName = managedImageName
         self.referenceMetadata = referenceMetadata
+        self.hasRichText = hasRichText
     }
 
     var isImageEntry: Bool {
@@ -270,7 +386,7 @@ struct HistoryEntry: Identifiable, Equatable, Sendable {
     }
 
     var isTypedEntry: Bool {
-        !isTextOnly
+        !isTextOnly || hasRichText
     }
 
     var isTextOnly: Bool {

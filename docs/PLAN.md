@@ -1,6 +1,6 @@
 # Qipli — план поставки и развития продукта
 
-Статус: core MVP подтверждён; signed public release опубликован; typed History, S027 и S030 завершены; S014 остаётся с отдельными release gates
+Статус: core MVP подтверждён; signed public release опубликован; typed History, S027 и S030 завершены; formatted-text History S031 реализована, manual acceptance подтверждена и ожидает clean Xcode/release verification; S014 остаётся с отдельными release gates
 
 Дата: 2026-09-03
 
@@ -91,6 +91,14 @@
 
 Результат: History и Paste Stack используют одну визуальную Top Notch оболочку. History принимает Search focus и закрывается по своим transient rules; Stack не активирует Qipli, остаётся видимым во время работы во внешнем приложении и схлопывается только после Cancel/Escape/auto-finish.
 
+## Milestone M10 — Форматированный текст в History
+
+После milestone text occurrence сохраняет canonical plain text и bounded source-provided RTF/HTML. Обычная History-вставка сохраняет поддерживаемое target-приложением форматирование, а `⇧Enter` явно вставляет только plain text без изменения default `⌘⇧V` или Paste Stack.
+
+31. [`S031 — Форматированный текст в History`](slices/S031-formatted-text-history.md) — `needs_verification`; implementation, focused tests и manual acceptance подтверждены, остаётся clean Xcode/release verification; зависит от завершённых S023/S026/S027 и расширяет typed storage/paste materialization без нового network owner или rich-text UI renderer.
+
+Результат: форматированный фрагмент можно найти по canonical plain text, вставить с formatting по `Enter`/double-click или без formatting по `⇧Enter`. Oversize rich payload сохраняется plain-only; Paste Stack остаётся text-only. Manual acceptance подтверждена; остаётся clean Xcode/release verification.
+
 ## Граф зависимостей
 
 ```text
@@ -107,9 +115,10 @@ S018 + S019 + S020 -> S023 -> S024 -> S025
 S014 + S015 + S024 + S025 -> S026
 S016 + S024 -> S027
 S007 + S012 + S021 + S027 -> S030
+S023 + S026 + S027 -> S031
 ```
 
-Граф ацикличен. Performance hardening S017–S022 завершён. Typed History начинается с bounded schema/query boundary в S023; managed images добавляются в S024; reference-only URL/file/video — в S025; migration/release proof — в S026. S023–S026 завершены. Top Notch S027 реализован и принят по manual geometry/focus/paste/accessibility matrix. Решением D-038 S028/S029 перенесены в backlog. S030 реализован и принят по manual Stack matrix, без специального active-Stack-to-History flow. Известное ограничение отключения дисплея во время reveal сохранено в BL-006. S013 завершён после локальных и hosted main/PR/fork CI runs. S014 опубликовал реальный `v1.0.5`, clean-machine proof подтверждён, остаётся immutable rerun. S015 завершён после ручной update/failure/accessibility matrix; production feed указывает на `v1.0.5`. S008 остаётся финальным gate только до operational rerun proof. Изменения pasteboard/input, permission, ServiceManagement, network, dependency, signing, update или performance contracts должны сначала согласовываться в `TECHNICAL.md` и `DECISIONS.md`.
+Граф ацикличен. Performance hardening S017–S022 завершён. Typed History начинается с bounded schema/query boundary в S023; managed images добавляются в S024; reference-only URL/file/video — в S025; migration/release proof — в S026. S023–S026 завершены. Top Notch S027 реализован и принят по manual geometry/focus/paste/accessibility matrix. Решением D-038 S028/S029 перенесены в backlog. S030 реализован и принят по manual Stack matrix, без специального active-Stack-to-History flow. S031 реализован по accepted text-primary RTF/HTML contract, manual acceptance подтверждена, остаётся clean Xcode/release verification; Stack не менялся. Известное ограничение отключения дисплея во время reveal сохранено в BL-006. S013 завершён после локальных и hosted main/PR/fork CI runs. S014 опубликовал реальный `v1.0.5`, clean-machine proof подтверждён, остаётся immutable rerun. S015 завершён после ручной update/failure/accessibility matrix; production feed указывает на `v1.0.5`. S008 остаётся финальным gate только до operational rerun proof. Изменения pasteboard/input, permission, ServiceManagement, network, dependency, signing, update или performance contracts должны сначала согласовываться в `TECHNICAL.md` и `DECISIONS.md`.
 
 ## Покрытие требований
 
@@ -119,7 +128,7 @@ S007 + S012 + S021 + S027 -> S030
 | FR-002 | S002 |
 | FR-003 | S003, S027 |
 | FR-004 | S003, S027 |
-| FR-005 | S003, S027 |
+| FR-005 | S003, S027, S031 |
 | FR-006 | S002, S003, S008, S026 |
 | FR-007 | S004, S030 |
 | FR-008 | S004, S030 |
@@ -148,6 +157,7 @@ S007 + S012 + S021 + S027 -> S030
 | FR-032 | S024, S026 |
 | FR-033 | S027 |
 | FR-036 | S030 |
+| FR-037–FR-039 | S031 |
 | BR-001–BR-004 | S002, S004 |
 | BR-005 | S005 |
 | BR-006 | S007 |
@@ -159,35 +169,37 @@ S007 + S012 + S021 + S027 -> S030
 | BR-015–BR-016 | S013, S014 |
 | BR-017 | S014, S015 |
 | BR-018 | S015 |
-| BR-019–BR-020 | S024, S025 |
+| BR-019–BR-020 | S024, S025, S031 |
 | BR-021 | S024, S026 |
-| BR-022 | S024, S025, S027 |
+| BR-022 | S024, S025, S027, S031 |
 | BR-023 | S024, S025, S026 |
-| BR-024 | S024, S025, S030 |
+| BR-024 | S024, S025, S030, S031 |
 | BR-027 | S027, S030 |
 | BR-028 | S030 |
+| BR-029–BR-031 | S031 |
 | NFR-001 | S001, S008 |
 | NFR-002–NFR-003 | S002, S008, S015 |
 | NFR-004 | S001, S006, S010, S008, S030 |
-| NFR-005 | S003, S004, S006, S007, S009, S012, S016, S027, S030 |
-| NFR-006 | S003, S004, S006, S007, S009, S012, S016, S030 |
+| NFR-005 | S003, S004, S006, S007, S009, S012, S016, S027, S030, S031 |
+| NFR-006 | S003, S004, S006, S007, S009, S012, S016, S030, S031 |
 | NFR-007 | S008 |
-| NFR-008 | S001–S007, S009–S016 |
+| NFR-008 | S001–S007, S009–S016, S031 |
 | NFR-009 | S009, S012, S027, S030 |
 | NFR-010–NFR-011 | S010, S011 |
 | NFR-012–NFR-013 | S013, S014 |
 | NFR-014 | S014, S015, S008 |
 | NFR-015 | S015, S008 |
-| NFR-016 | S018, S019 |
+| NFR-016 | S018, S019, S031 |
 | NFR-017 | S019 |
 | NFR-018–NFR-019 | S017, S020, S030 |
 | NFR-020 | S017, S019, S022 |
-| NFR-021 | S023, S027 |
+| NFR-021 | S023, S027, S031 |
 | NFR-022 | S024, S025 |
-| NFR-023–NFR-024 | S024, S025, S026 |
+| NFR-023–NFR-024 | S024, S025, S026, S031 |
 | NFR-025 | S023, S026 |
 | NFR-026 | S027, S030 |
 | NFR-027–NFR-029 | S027, S030 |
+| NFR-030 | S031 |
 
 Каждое must-have требование покрыто хотя бы одним активным срезом. Отложенные FR-034/FR-035 и BR-025/BR-026 сохранены как evidence в BL-004/BL-005 и S028/S029, но не входят в coverage текущей поставки. Детальные acceptance criteria и verification находятся только в соответствующих slice-файлах.
 

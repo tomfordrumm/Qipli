@@ -151,6 +151,11 @@ enum HistoryPasteFailure: Error, Equatable {
     }
 }
 
+enum HistoryPasteMode: Equatable, Sendable {
+    case rich
+    case plainText
+}
+
 /// `NSRunningApplication` updates dynamic activation state on the main run loop.
 /// This deadline-based policy lets a user-initiated handoff settle without
 /// sleeping or spinning the event loop.
@@ -262,6 +267,7 @@ final class HistoryPasteExecutor {
     func paste(
         entry: HistoryEntry,
         target: HistoryPasteTarget?,
+        mode: HistoryPasteMode = .rich,
         concealPanel: @escaping () -> Void,
         closePanel: @escaping () -> Void,
         completion: @escaping (Result<Void, HistoryPasteFailure>) -> Void
@@ -280,7 +286,7 @@ final class HistoryPasteExecutor {
         }
 
         // Copy the immutable value before any UI or activation side effect can change the selected row.
-        if entry.isTypedEntry {
+        if mode == .rich, entry.isTypedEntry {
             guard let payloadProvider,
                   let typedWriter = pasteboardWriter as? TypedHistoryPasteboardWriting
             else {

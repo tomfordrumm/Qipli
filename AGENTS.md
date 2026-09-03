@@ -40,6 +40,7 @@
 - `docs/slices/S028-full-card-history-library.md` — отложенная в backlog историческая спецификация отдельного полноразмерного окна History.
 - `docs/slices/S029-history-favorites-navigation.md` — отложенная в backlog историческая спецификация Favorites.
 - `docs/slices/S030-top-notch-paste-stack.md` — перенос полного Paste Stack user path в nonactivating Top Notch presentation.
+- `docs/slices/S031-formatted-text-history.md` — bounded RTF/HTML representations, rich paste и явная plain-text вставка из History.
 
 ### Подход к поставке
 

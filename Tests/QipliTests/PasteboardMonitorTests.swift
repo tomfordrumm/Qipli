@@ -227,8 +227,38 @@ final class PasteboardMonitorTests: XCTestCase {
         XCTAssertEqual(pasteboard.textValueReadCount, 0)
     }
 
+    func testTypedReadDiscardsLivePasteboardContentsWhenASecondChangeOvertakesIt() async {
+        let pasteboard = BlockingTypedPasteboard(changeCount: 80)
+        let firstReadStarted = expectation(description: "first typed read started")
+        let latestChangeCaptured = expectation(description: "latest typed change captured")
+        pasteboard.onFirstReadStarted = { firstReadStarted.fulfill() }
+        var captured: [PasteboardTypedChange] = []
+        let monitor = PasteboardMonitor(
+            pasteboard: pasteboard,
+            onExternalText: { _ in XCTFail("typed changes must not fall back to text") },
+            onExternalChange: {
+                captured.append($0)
+                latestChangeCaptured.fulfill()
+            }
+        )
+        monitor.start(interval: 3_600)
+        defer { monitor.stop() }
+
+        pasteboard.publishImageChange(marker: 1)
+        monitor.poll()
+        await fulfillment(of: [firstReadStarted], timeout: 1)
+
+        pasteboard.publishImageChange(marker: 2)
+        monitor.poll()
+        pasteboard.releaseFirstRead()
+
+        await fulfillment(of: [latestChangeCaptured], timeout: 1)
+        XCTAssertEqual(captured.map(\.changeCount), [82])
+        XCTAssertEqual(captured.first?.imageItems.first?.representations.first?.data, Data([2]))
+    }
+
     func testTypedChangeClassifiesWebURLAndFinderFileWithoutReadingFileBytes() throws {
-        let pasteboard = try XCTUnwrap(NSPasteboard(name: NSPasteboard.Name("QipliTests.\(UUID().uuidString)")))
+        let pasteboard = try requireNamedPasteboard()
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("fixture.txt")
         let sourceBytes = Data("source remains outside Qipli".utf8)
         try sourceBytes.write(to: sourceURL)
@@ -238,9 +268,9 @@ final class PasteboardMonitorTests: XCTestCase {
         XCTAssertTrue(urlItem.setString("https://example.com/docs?q=1", forType: .URL))
         let fileItem = NSPasteboardItem()
         XCTAssertTrue(fileItem.setString(sourceURL.absoluteString, forType: .fileURL))
-        XCTAssertTrue(pasteboard.writeObjects([urlItem, fileItem]))
+        try requirePasteboardWrite([urlItem, fileItem], to: pasteboard)
 
-        let change = try XCTUnwrap(SystemPasteboardReader(pasteboard: pasteboard).typedImageChange(changeCount: 44))
+        let change = try XCTUnwrap(SystemPasteboardReader(pasteboard: pasteboard).typedChange(changeCount: 44))
         XCTAssertTrue(change.imageItems.isEmpty)
         XCTAssertEqual(change.referenceItems.map(\.order), [0, 1])
         XCTAssertEqual(change.referenceItems.map(\.kind), [.url, .fileReference])
@@ -250,29 +280,107 @@ final class PasteboardMonitorTests: XCTestCase {
     }
 
     func testTypedChangeKeepsImageAndURLRepresentationsFromOnePasteboardItem() throws {
-        let pasteboard = try XCTUnwrap(NSPasteboard(name: NSPasteboard.Name("QipliTests.\(UUID().uuidString)")))
+        let pasteboard = try requireNamedPasteboard()
         let item = NSPasteboardItem()
         XCTAssertTrue(item.setData(Data([0x01, 0x02]), forType: .tiff))
         XCTAssertTrue(item.setString("https://example.com/image", forType: .URL))
-        XCTAssertTrue(pasteboard.writeObjects([item]))
+        try requirePasteboardWrite([item], to: pasteboard)
 
-        let change = try XCTUnwrap(SystemPasteboardReader(pasteboard: pasteboard).typedImageChange(changeCount: 46))
+        let change = try XCTUnwrap(SystemPasteboardReader(pasteboard: pasteboard).typedChange(changeCount: 46))
         XCTAssertEqual(change.imageItems.map(\.order), [0])
         XCTAssertEqual(change.referenceItems.map(\.order), [0])
         XCTAssertEqual(change.referenceItems.first?.urlString, "https://example.com/image")
     }
 
+    func testTypedChangeCapturesCanonicalTextAndOnlyAllowlistedRichRepresentations() throws {
+        let pasteboard = try requireNamedPasteboard()
+        let item = NSPasteboardItem()
+        XCTAssertTrue(item.setString("formatted fixture", forType: .string))
+        XCTAssertTrue(item.setData(Data("{\\rtf1 formatted fixture}".utf8), forType: .rtf))
+        XCTAssertTrue(item.setData(Data("<p>formatted fixture</p>".utf8), forType: .html))
+        XCTAssertTrue(item.setData(
+            Data("ignored".utf8),
+            forType: NSPasteboard.PasteboardType(rawValue: "com.apple.webarchive")
+        ))
+        try requirePasteboardWrite([item], to: pasteboard)
+
+        let change = try XCTUnwrap(SystemPasteboardReader(pasteboard: pasteboard).typedChange(changeCount: 47))
+
+        XCTAssertEqual(change.canonicalText, "formatted fixture")
+        XCTAssertEqual(change.richTextItems.count, 1)
+        XCTAssertEqual(change.richTextItems[0].representations.map(\.typeIdentifier), ["public.rtf", "public.html"])
+        XCTAssertTrue(change.imageItems.isEmpty)
+        XCTAssertTrue(change.referenceItems.isEmpty)
+    }
+
+    func testRichTextCaptureRejectsOversizedCandidateWithoutKeepingPartialPayload() {
+        let item = NSPasteboardItem()
+        XCTAssertTrue(item.setString("formatted fixture", forType: .string))
+        XCTAssertTrue(item.setData(Data("small".utf8), forType: .rtf))
+        XCTAssertTrue(item.setData(
+            Data(repeating: 1, count: HistoryRichTextStoragePolicy.production.maxRepresentationBytes + 1),
+            forType: .html
+        ))
+
+        let result = SystemPasteboardReader.richTextCapture(from: [item])
+
+        XCTAssertEqual(result.canonicalText, "formatted fixture")
+        XCTAssertTrue(result.rejected)
+        XCTAssertTrue(result.items.isEmpty)
+    }
+
+    func testRichTextCapturePreservesPerItemCanonicalTextAndSourceOrder() {
+        let first = NSPasteboardItem()
+        XCTAssertTrue(first.setString("first", forType: .string))
+        XCTAssertTrue(first.setData(Data("rtf-first".utf8), forType: .rtf))
+        let second = NSPasteboardItem()
+        XCTAssertTrue(second.setString("second", forType: .string))
+        XCTAssertTrue(second.setData(Data("html-second".utf8), forType: .html))
+
+        let result = SystemPasteboardReader.richTextCapture(from: [first, second])
+
+        XCTAssertFalse(result.rejected)
+        XCTAssertEqual(result.items.map(\.order), [0, 1])
+        XCTAssertEqual(result.items.map(\.canonicalText), ["first", "second"])
+        XCTAssertEqual(result.items.flatMap { $0.representations }.map(\.typeIdentifier), [
+            "public.rtf", "public.html"
+        ])
+    }
+
+    func testRichTextRoutingDoesNotHideMixedImageCapture() {
+        let change = PasteboardTypedChange(
+            changeCount: 1,
+            canonicalText: "formatted",
+            imageItems: [ManagedImageCaptureItem(order: 0, representations: [
+                ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: Data([1]))
+            ])],
+            richTextItems: [HistoryRichTextCaptureItem(
+                order: 0,
+                canonicalText: "formatted",
+                representations: [HistoryRichTextCaptureRepresentation(
+                    typeIdentifier: "public.rtf",
+                    data: Data("rtf".utf8)
+                )]
+            )]
+        )
+
+        XCTAssertFalse(ApplicationShellPasteboardRouting.shouldCaptureRichText(change))
+    }
+
     func testPlainTextThatLooksLikeURLDoesNotBecomeURLReference() throws {
-        let pasteboard = try XCTUnwrap(NSPasteboard(name: NSPasteboard.Name("QipliTests.\(UUID().uuidString)")))
+        let pasteboard = try requireNamedPasteboard()
         let item = NSPasteboardItem()
         XCTAssertTrue(item.setString("https://example.com/plain-text", forType: .string))
-        XCTAssertTrue(pasteboard.writeObjects([item]))
+        try requirePasteboardWrite([item], to: pasteboard)
 
-        XCTAssertNil(SystemPasteboardReader(pasteboard: pasteboard).typedImageChange(changeCount: 45))
+        XCTAssertNil(SystemPasteboardReader(pasteboard: pasteboard).typedChange(changeCount: 45))
     }
 
     func testTypedWriterPublishesURLAndFileURLRepresentations() throws {
-        let pasteboard = try XCTUnwrap(NSPasteboard(name: NSPasteboard.Name("QipliTests.\(UUID().uuidString)")))
+        let pasteboard = try requireNamedPasteboard()
+        let probe = NSPasteboardItem()
+        XCTAssertTrue(probe.setString("pasteboard probe", forType: .string))
+        try requirePasteboardWrite([probe], to: pasteboard)
         let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("writer.txt")
         let payload = HistoryPastePayload(items: [
             HistoryPasteboardItemPayload(representations: [
@@ -287,6 +395,30 @@ final class PasteboardMonitorTests: XCTestCase {
         let items = try XCTUnwrap(pasteboard.pasteboardItems)
         XCTAssertEqual(items[0].string(forType: .URL), "https://example.com")
         XCTAssertEqual(items[1].string(forType: .fileURL), fileURL.absoluteString)
+    }
+
+    private func requireNamedPasteboard() throws -> NSPasteboard {
+        try unwrapNamedPasteboard(NSPasteboard(name: NSPasteboard.Name("QipliTests.\(UUID().uuidString)")))
+    }
+
+    private func requirePasteboardWrite(
+        _ objects: [NSPasteboardWriting],
+        to pasteboard: NSPasteboard
+    ) throws {
+        guard pasteboard.writeObjects(objects) else {
+            throw XCTSkip("Pasteboard writes are unavailable in this test environment")
+        }
+    }
+
+    private func unwrapNamedPasteboard(_ pasteboard: NSPasteboard) throws -> NSPasteboard {
+        pasteboard
+    }
+
+    private func unwrapNamedPasteboard(_ pasteboard: NSPasteboard?) throws -> NSPasteboard {
+        guard let pasteboard else {
+            throw XCTSkip("Named pasteboards are unavailable in this test environment")
+        }
+        return pasteboard
     }
 }
 
@@ -351,10 +483,62 @@ private final class FakeTypedPasteboard: PasteboardReading, TypedPasteboardReadi
         )
     }
 
-    func typedImageChange(changeCount: Int) -> PasteboardTypedChange? {
+    func typedChange(changeCount: Int) -> PasteboardTypedChange? {
         guard let pendingChange else { return nil }
         self.pendingChange = nil
         return PasteboardTypedChange(changeCount: changeCount, imageItems: pendingChange.imageItems)
+    }
+}
+
+private final class BlockingTypedPasteboard: PasteboardReading, TypedPasteboardReading, @unchecked Sendable {
+    private let lock = NSLock()
+    private let firstReadGate = DispatchSemaphore(value: 0)
+    private var storedChangeCount: Int
+    private var marker: UInt8 = 0
+    private var readCount = 0
+    var onFirstReadStarted: (() -> Void)?
+
+    init(changeCount: Int) {
+        storedChangeCount = changeCount
+    }
+
+    var changeCount: Int {
+        lock.withLock { storedChangeCount }
+    }
+
+    func textValue() -> String? { nil }
+
+    func publishImageChange(marker: UInt8) {
+        lock.withLock {
+            storedChangeCount += 1
+            self.marker = marker
+        }
+    }
+
+    func releaseFirstRead() {
+        firstReadGate.signal()
+    }
+
+    func typedChange(changeCount: Int) -> PasteboardTypedChange? {
+        let shouldBlock = lock.withLock { () -> Bool in
+            readCount += 1
+            return readCount == 1
+        }
+        if shouldBlock {
+            onFirstReadStarted?()
+            firstReadGate.wait()
+        }
+        let capturedMarker = lock.withLock { marker }
+        return PasteboardTypedChange(
+            changeCount: changeCount,
+            imageItems: [ManagedImageCaptureItem(
+                order: 0,
+                representations: [ManagedImageCaptureRepresentation(
+                    typeIdentifier: "public.png",
+                    data: Data([capturedMarker])
+                )]
+            )]
+        )
     }
 }
 

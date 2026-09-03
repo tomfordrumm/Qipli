@@ -21,7 +21,7 @@ protocol HistoryPagingStoring: AnyObject {
     func fetchOccurrence(id: UUID) throws -> HistoryOccurrence?
 }
 
-protocol ManagedImageHistoryStoring: AnyObject {
+protocol TypedHistoryStoring: AnyObject {
     func createImage(items: [ManagedImageCaptureItem], activityAt: Date) throws -> HistoryEntry
     func createReference(items: [HistoryReferenceCaptureItem], activityAt: Date) throws -> HistoryEntry
     func createImageAndReference(
@@ -32,6 +32,7 @@ protocol ManagedImageHistoryStoring: AnyObject {
     func pastePayload(id: UUID) throws -> HistoryPastePayload?
     func thumbnailData(id: UUID) throws -> Data?
 }
+
 
 enum HistoryStoreError: LocalizedError, Equatable {
     case unavailable
@@ -48,16 +49,23 @@ enum HistoryStoreError: LocalizedError, Equatable {
 }
 
 /// A local-only SQLite store. No managed objects cross this boundary.
-final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedImageHistoryStoring {
+final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHistoryStoring, RichTextHistoryStoring {
     private enum ImageManifestRecord {
         case absent
         case valid(ManagedImageAssetManifest)
         case corrupt
     }
 
+    private enum RichTextManifestRecord {
+        case absent
+        case valid(HistoryRichTextManifest)
+        case corrupt
+    }
+
     private static let entityName = "HistoryEntry"
     private let storeURL: URL
     private let imageStore: ManagedImageStoring
+    private let richTextStore: HistoryRichTextAssetStoring
     private var container: NSPersistentContainer
     private var context: NSManagedObjectContext!
 
@@ -74,14 +82,24 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
             storeURL: directory.appendingPathComponent("History.sqlite"),
             imageStore: ManagedImageAssetStore(
                 rootURL: directory.appendingPathComponent("ManagedImages", isDirectory: true)
+            ),
+            richTextStore: try HistoryRichTextAssetStore(
+                rootURL: directory.appendingPathComponent("RichText", isDirectory: true)
             )
         )
     }
 
-    init(storeURL: URL, imageStore: ManagedImageStoring? = nil) throws {
+    init(
+        storeURL: URL,
+        imageStore: ManagedImageStoring? = nil,
+        richTextStore: HistoryRichTextAssetStoring? = nil
+    ) throws {
         self.storeURL = storeURL
         self.imageStore = try imageStore ?? ManagedImageAssetStore(
             rootURL: storeURL.deletingLastPathComponent().appendingPathComponent("ManagedImages", isDirectory: true)
+        )
+        self.richTextStore = try richTextStore ?? HistoryRichTextAssetStore(
+            rootURL: storeURL.deletingLastPathComponent().appendingPathComponent("RichText", isDirectory: true)
         )
         container = Self.makeContainer()
         try loadStore()
@@ -138,6 +156,26 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
             guard let object = try context.fetch(request).first,
                   let entry = Self.entry(from: object)
             else { return nil }
+            if let richManifest = Self.richTextManifest(from: object) {
+                return HistoryOccurrence(
+                    id: entry.id,
+                    items: richManifest.items.sorted { $0.order < $1.order }.map { item in
+                        HistoryPayloadItem(
+                            id: item.id,
+                            order: item.order,
+                            representations: [
+                                HistoryRepresentationDescriptor(
+                                    kind: .text,
+                                    typeIdentifier: "public.utf8-plain-text"
+                                )
+                            ] + item.representations.map {
+                                HistoryRepresentationDescriptor(kind: .text, typeIdentifier: $0.typeIdentifier)
+                            }
+                        )
+                    },
+                    activityAt: entry.activityAt
+                )
+            }
             let imageManifest = Self.manifest(from: object)
             let referenceManifest = Self.referenceManifest(from: object)
             if let imageManifest, let referenceManifest {
@@ -435,6 +473,38 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
     }
 
     func pastePayload(id: UUID) throws -> HistoryPastePayload? {
+        let richRecord = try richTextManifestRecord(id: id)
+        if case .corrupt = richRecord {
+            throw HistoryRichTextStoreError.corruptAsset
+        }
+        if case let .valid(richManifest) = richRecord {
+            try richTextStore.validate(richManifest)
+            let sortedItems = richManifest.items.sorted { $0.order < $1.order }
+            let payloadItems = try sortedItems.enumerated().map { index, item in
+                var representations: [HistoryPasteboardRepresentationPayload] = []
+                let fallbackText: String? = if let canonicalText = item.canonicalText {
+                    canonicalText
+                } else if index == 0 {
+                    try fetchEntry(id: id)?.text
+                } else {
+                    nil
+                }
+                if let fallbackText {
+                    representations.append(HistoryPasteboardRepresentationPayload(
+                        typeIdentifier: "public.utf8-plain-text",
+                        data: Data(fallbackText.utf8)
+                    ))
+                }
+                representations.append(contentsOf: try item.representations.map { representation in
+                    HistoryPasteboardRepresentationPayload(
+                        typeIdentifier: representation.typeIdentifier,
+                        data: try richTextStore.read(representation)
+                    )
+                })
+                return HistoryPasteboardItemPayload(representations: representations)
+            }
+            return HistoryPastePayload(items: payloadItems)
+        }
         let imageRecord = try imageManifestRecord(id: id)
         if case .corrupt = imageRecord {
             throw ManagedImageStoreError.corruptAsset
@@ -560,6 +630,35 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         return try imageStore.makeThumbnail(for: manifest)
     }
 
+    func createRichText(
+        text: String,
+        items: [HistoryRichTextCaptureItem],
+        activityAt: Date
+    ) throws -> HistoryRichTextCaptureResult {
+        let occurrenceID = UUID()
+        do {
+            let manifest = try richTextStore.commit(
+                occurrenceID: occurrenceID,
+                items: items,
+                capturedAt: activityAt
+            )
+            do {
+                let entry = try create(text: text, richTextManifest: manifest, activityAt: activityAt)
+                return HistoryRichTextCaptureResult(entry: entry, richTextSaved: true, notice: nil)
+            } catch {
+                try? richTextStore.remove(manifest: manifest)
+                throw error
+            }
+        } catch {
+            let entry = try create(text: text, activityAt: activityAt)
+            return HistoryRichTextCaptureResult(
+                entry: entry,
+                richTextSaved: false,
+                notice: "Formatting was not saved; plain text was kept."
+            )
+        }
+    }
+
     func create(text: String, activityAt: Date) throws -> HistoryEntry {
         try contextSync { context in
             let id = UUID()
@@ -573,6 +672,41 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
             object.setValue("public.utf8-plain-text", forKey: "itemTypeIdentifier")
             try context.save()
             return HistoryEntry(id: id, text: text, activityAt: activityAt)
+        }
+    }
+
+    private func create(
+        text: String,
+        richTextManifest: HistoryRichTextManifest,
+        activityAt: Date
+    ) throws -> HistoryEntry {
+        let encoded = try JSONEncoder().encode(richTextManifest)
+        guard let encodedManifest = String(data: encoded, encoding: .utf8) else {
+            throw HistoryStoreError.unavailable
+        }
+        return try contextSync { context in
+            let id = richTextManifest.occurrenceID
+            let object = NSEntityDescription.insertNewObject(forEntityName: Self.entityName, into: context)
+            object.setValue(id, forKey: "id")
+            object.setValue(text, forKey: "text")
+            object.setValue(activityAt, forKey: "capturedAt")
+            object.setValue(HistoryRepresentationKind.text.rawValue, forKey: "itemKind")
+            object.setValue(0, forKey: "itemOrder")
+            object.setValue("public.utf8-plain-text", forKey: "itemTypeIdentifier")
+            object.setValue(encodedManifest, forKey: "richTextManifest")
+            do {
+                try context.save()
+            } catch {
+                context.rollback()
+                throw HistoryStoreError.unavailable
+            }
+            return Self.entry(from: object) ?? HistoryEntry(
+                id: id,
+                text: text,
+                activityAt: activityAt,
+                representations: [HistoryRepresentationDescriptor(kind: .text, typeIdentifier: "public.utf8-plain-text")],
+                hasRichText: true
+            )
         }
     }
 
@@ -591,19 +725,28 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
     }
 
     func delete(id: UUID) throws {
-        switch try imageManifestRecord(id: id) {
-        case let .valid(manifest):
-            try markImageDeletionPending(id: id)
-            try imageStore.remove(manifest: manifest)
+        let imageRecord = try imageManifestRecord(id: id)
+        let richRecord = try richTextManifestRecord(id: id)
+        let hasManagedAssets: Bool = {
+            switch (imageRecord, richRecord) {
+            case (.absent, .absent): return false
+            default: return true
+            }
+        }()
+        if hasManagedAssets {
+            try markAssetDeletionPending(id: id)
+            switch imageRecord {
+            case let .valid(manifest): try imageStore.remove(manifest: manifest)
+            case .corrupt: try imageStore.removeOwnedAssets(for: id)
+            case .absent: break
+            }
+            switch richRecord {
+            case let .valid(manifest): try richTextStore.remove(manifest: manifest)
+            case .corrupt: try richTextStore.removeOwnedAssets(for: id)
+            case .absent: break
+            }
             try removePendingImageEntry(id: id)
             return
-        case .corrupt:
-            try markImageDeletionPending(id: id)
-            try imageStore.removeOwnedAssets(for: id)
-            try removePendingImageEntry(id: id)
-            return
-        case .absent:
-            break
         }
         try contextSync { context in
             let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
@@ -619,7 +762,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
 
     /// Destroys Qipli-managed SQLite data and recreates an empty store. It never touches NSPasteboard.
     func clearAll() throws {
-        try markAllImageDeletionsPending()
+        try markAllAssetDeletionsPending()
         try imageStore.removeAllOwnedAssets()
         try contextSync { context in
             context.reset()
@@ -654,6 +797,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
 
     private func loadStore() throws {
         try imageStore.cleanupTemporaryAssets()
+        try richTextStore.cleanupTemporaryAssets()
         var loadError: Error?
         let description = NSPersistentStoreDescription(url: storeURL)
         description.type = NSSQLiteStoreType
@@ -670,6 +814,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         try backfillManagedImageNames()
         try cleanupPendingImageDeletions()
         try cleanupOrphanImageAssets()
+        try cleanupOrphanRichTextAssets()
     }
 
     private func backfillManagedImageNames() throws {
@@ -713,7 +858,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         let manifestRequest = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
         manifestRequest.predicate = NSPredicate(format: "capturedAt <= %@", cutoff as NSDate)
         let expiredObjects = try context.fetch(manifestRequest)
-        for object in expiredObjects where Self.manifest(from: object) != nil {
+        for object in expiredObjects where Self.manifest(from: object) != nil || Self.richTextManifest(from: object) != nil {
             object.setValue(true, forKey: "managedImageDeletionPending")
         }
         if context.hasChanges {
@@ -722,6 +867,13 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         for object in expiredObjects {
             if let manifest = Self.manifest(from: object) {
                 try imageStore.remove(manifest: manifest)
+            }
+            if let manifest = Self.richTextManifest(from: object) {
+                try richTextStore.remove(manifest: manifest)
+            } else if object.value(forKey: "richTextManifest") as? String != nil {
+                if let id = object.value(forKey: "id") as? UUID {
+                    try richTextStore.removeOwnedAssets(for: id)
+                }
             }
         }
         let request = NSFetchRequest<NSFetchRequestResult>(entityName: Self.entityName)
@@ -784,8 +936,6 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
             }
             return HistoryPage(
                 descriptors: descriptors,
-                textEntries: pageEntries.filter(\.isTextOnly),
-                entries: pageEntries,
                 nextCursor: nextCursor,
                 hasMore: matchedEntries.count > limit
             )
@@ -814,11 +964,22 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         else { return nil }
         let manifest = Self.manifest(from: object)
         let referenceManifest = Self.referenceManifest(from: object)
+        let richTextManifest = Self.richTextManifest(from: object)
         let representations: [HistoryRepresentationDescriptor]
         let imageMetadata: [HistoryImageMetadata]
         let managedImages: [HistoryManagedImageRepresentation]
         let managedImageItems: [ManagedImageAssetItemManifest]
-        if manifest != nil || referenceManifest != nil {
+        if let richTextManifest {
+            representations = [HistoryRepresentationDescriptor(
+                kind: .text,
+                typeIdentifier: "public.utf8-plain-text"
+            )] + richTextManifest.representations.map {
+                HistoryRepresentationDescriptor(kind: .text, typeIdentifier: $0.typeIdentifier)
+            }
+            imageMetadata = []
+            managedImages = []
+            managedImageItems = []
+        } else if manifest != nil || referenceManifest != nil {
             let imageItemsByOrder = Dictionary(
                 grouping: manifest?.items ?? [],
                 by: \.order
@@ -862,11 +1023,12 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
             managedImages: managedImages,
             managedImageItems: managedImageItems,
             managedImageName: managedImageName,
-            referenceMetadata: referenceManifest?.items.map(\.metadata) ?? []
+            referenceMetadata: referenceManifest?.items.map(\.metadata) ?? [],
+            hasRichText: object.value(forKey: "richTextManifest") as? String != nil
         )
     }
 
-    private func markImageDeletionPending(id: UUID) throws {
+    private func markAssetDeletionPending(id: UUID) throws {
         try contextSync { context in
             let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
             request.fetchLimit = 1
@@ -879,10 +1041,10 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         }
     }
 
-    private func markAllImageDeletionsPending() throws {
+    private func markAllAssetDeletionsPending() throws {
         try contextSync { context in
             let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
-            request.predicate = NSPredicate(format: "managedImageManifest != nil")
+            request.predicate = NSPredicate(format: "managedImageManifest != nil OR richTextManifest != nil")
             for object in try context.fetch(request) {
                 object.setValue(true, forKey: "managedImageDeletionPending")
             }
@@ -918,6 +1080,11 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
             } else if let id = object.value(forKey: "id") as? UUID {
                 try imageStore.removeOwnedAssets(for: id)
             }
+            if let manifest = Self.richTextManifest(from: object) {
+                try richTextStore.remove(manifest: manifest)
+            } else if let id = object.value(forKey: "id") as? UUID {
+                try richTextStore.removeOwnedAssets(for: id)
+            }
             context.delete(object)
         }
         if context.hasChanges {
@@ -933,6 +1100,17 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
                 try context.fetch(request).compactMap { $0.value(forKey: "id") as? UUID }
             )
             try imageStore.cleanupOrphanAssets(knownOccurrenceIDs: knownOccurrenceIDs)
+        }
+    }
+
+    private func cleanupOrphanRichTextAssets() throws {
+        try contextSync { context in
+            let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
+            request.predicate = NSPredicate(format: "richTextManifest != nil")
+            let knownOccurrenceIDs = Set(
+                try context.fetch(request).compactMap { $0.value(forKey: "id") as? UUID }
+            )
+            try richTextStore.cleanupOrphanAssets(knownOccurrenceIDs: knownOccurrenceIDs)
         }
     }
 
@@ -981,7 +1159,9 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         resolvedURL: URL
     ) -> HistoryReferenceMetadata {
         let values = try? resolvedURL.resourceValues(forKeys: [.nameKey, .fileSizeKey, .contentTypeKey])
-        let name = values?.name ?? existing.displayName
+        let name = resolvedURL.lastPathComponent.isEmpty
+            ? (values?.name ?? existing.displayName)
+            : resolvedURL.lastPathComponent
         let fileExtension = resolvedURL.pathExtension.lowercased()
         let typeIdentifier = values?.contentType?.identifier ?? existing.typeIdentifier
         let byteCount = values?.fileSize.map(Int64.init) ?? existing.byteCount
@@ -1009,6 +1189,13 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         return try? JSONDecoder().decode(HistoryReferenceManifest.self, from: data)
     }
 
+    private static func richTextManifest(from object: NSManagedObject) -> HistoryRichTextManifest? {
+        guard let encoded = object.value(forKey: "richTextManifest") as? String,
+              let data = encoded.data(using: .utf8)
+        else { return nil }
+        return try? JSONDecoder().decode(HistoryRichTextManifest.self, from: data)
+    }
+
     private func imageManifestRecord(id: UUID) throws -> ImageManifestRecord {
         try contextSync { context in
             let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
@@ -1031,6 +1218,21 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
             request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
             guard let object = try context.fetch(request).first else { return nil }
             return Self.referenceManifest(from: object)
+        }
+    }
+
+    private func richTextManifestRecord(id: UUID) throws -> RichTextManifestRecord {
+        try contextSync { context in
+            let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
+            request.fetchLimit = 1
+            request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+            guard let object = try context.fetch(request).first,
+                  let encoded = object.value(forKey: "richTextManifest") as? String
+            else { return .absent }
+            guard let data = encoded.data(using: .utf8),
+                  let manifest = try? JSONDecoder().decode(HistoryRichTextManifest.self, from: data)
+            else { return .corrupt }
+            return .valid(manifest)
         }
     }
 
@@ -1057,7 +1259,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         // Fetch indexes are not part of Core Data's compatibility hash by default.
         // Bump the entity hash so existing stores perform a lightweight migration
         // and receive the S018 index layout instead of keeping their legacy index.
-        entry.versionHashModifier = "performance-indexes-v1-managed-image-delete-v1-reference-v1"
+        entry.versionHashModifier = "performance-indexes-v1-managed-image-delete-v1-reference-v1-rich-text-v1"
 
         let id = NSAttributeDescription()
         id.name = "id"
@@ -1104,7 +1306,12 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         referenceManifest.attributeType = .stringAttributeType
         referenceManifest.isOptional = true
 
-        entry.properties = [id, text, capturedAt, itemKind, itemOrder, itemTypeIdentifier, managedImageManifest, managedImageDeletionPending, referenceManifest]
+        let richTextManifest = NSAttributeDescription()
+        richTextManifest.name = "richTextManifest"
+        richTextManifest.attributeType = .stringAttributeType
+        richTextManifest.isOptional = true
+
+        entry.properties = [id, text, capturedAt, itemKind, itemOrder, itemTypeIdentifier, managedImageManifest, managedImageDeletionPending, referenceManifest, richTextManifest]
         let idIndex = NSFetchIndexDescription(
             name: "idIndex",
             elements: [NSFetchIndexElementDescription(property: id, collationType: .binary)]
@@ -1123,7 +1330,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
 }
 
 /// Delays opening the default store until it is needed, so a transient launch-time failure can be retried.
-final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedImageHistoryStoring {
+final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHistoryStoring, RichTextHistoryStoring {
     private let makeStore: () throws -> HistoryStoring
     private var loadedStore: HistoryStoring?
 
@@ -1183,13 +1390,11 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
     }
 
     func createImage(items: [ManagedImageCaptureItem], activityAt: Date) throws -> HistoryEntry {
-        guard let store = try store() as? ManagedImageHistoryStoring else { throw HistoryStoreError.unavailable }
-        return try store.createImage(items: items, activityAt: activityAt)
+        try typedStore().createImage(items: items, activityAt: activityAt)
     }
 
     func createReference(items: [HistoryReferenceCaptureItem], activityAt: Date) throws -> HistoryEntry {
-        guard let store = try store() as? ManagedImageHistoryStoring else { throw HistoryStoreError.unavailable }
-        return try store.createReference(items: items, activityAt: activityAt)
+        try typedStore().createReference(items: items, activityAt: activityAt)
     }
 
     func createImageAndReference(
@@ -1197,22 +1402,30 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         referenceItems: [HistoryReferenceCaptureItem],
         activityAt: Date
     ) throws -> HistoryEntry {
-        guard let store = try store() as? ManagedImageHistoryStoring else { throw HistoryStoreError.unavailable }
-        return try store.createImageAndReference(
+        try typedStore().createImageAndReference(
             imageItems: imageItems,
             referenceItems: referenceItems,
             activityAt: activityAt
         )
     }
 
+    func createRichText(
+        text: String,
+        items: [HistoryRichTextCaptureItem],
+        activityAt: Date
+    ) throws -> HistoryRichTextCaptureResult {
+        guard let store = try store() as? RichTextHistoryStoring else {
+            throw HistoryStoreError.unavailable
+        }
+        return try store.createRichText(text: text, items: items, activityAt: activityAt)
+    }
+
     func pastePayload(id: UUID) throws -> HistoryPastePayload? {
-        guard let store = try store() as? ManagedImageHistoryStoring else { return nil }
-        return try store.pastePayload(id: id)
+        try typedStore().pastePayload(id: id)
     }
 
     func thumbnailData(id: UUID) throws -> Data? {
-        guard let store = try store() as? ManagedImageHistoryStoring else { return nil }
-        return try store.thumbnailData(id: id)
+        try typedStore().thumbnailData(id: id)
     }
 
     private func fallbackPage(
@@ -1249,8 +1462,6 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         let nextCursor = pageEntries.last.map { HistoryPageCursor(activityAt: $0.activityAt, id: $0.id) }
         return HistoryPage(
             descriptors: descriptors,
-            textEntries: pageEntries.filter(\.isTextOnly),
-            entries: pageEntries,
             nextCursor: nextCursor,
             hasMore: hasMore
         )
@@ -1261,5 +1472,12 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, ManagedI
         let store = try makeStore()
         loadedStore = store
         return store
+    }
+
+    private func typedStore() throws -> TypedHistoryStoring {
+        guard let typedStore = try store() as? TypedHistoryStoring else {
+            throw HistoryStoreError.unavailable
+        }
+        return typedStore
     }
 }

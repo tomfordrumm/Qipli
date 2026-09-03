@@ -9,17 +9,26 @@ struct PasteboardRepresentationInventory: Equatable, Sendable {
 
 struct PasteboardTypedChange: Equatable, Sendable {
     let changeCount: Int
+    let canonicalText: String?
     let imageItems: [ManagedImageCaptureItem]
     let referenceItems: [HistoryReferenceCaptureItem]
+    let richTextItems: [HistoryRichTextCaptureItem]
+    let richTextCaptureRejected: Bool
 
     init(
         changeCount: Int,
+        canonicalText: String? = nil,
         imageItems: [ManagedImageCaptureItem] = [],
-        referenceItems: [HistoryReferenceCaptureItem] = []
+        referenceItems: [HistoryReferenceCaptureItem] = [],
+        richTextItems: [HistoryRichTextCaptureItem] = [],
+        richTextCaptureRejected: Bool = false
     ) {
         self.changeCount = changeCount
+        self.canonicalText = canonicalText
         self.imageItems = imageItems
         self.referenceItems = referenceItems
+        self.richTextItems = richTextItems
+        self.richTextCaptureRejected = richTextCaptureRejected
     }
 }
 
@@ -50,7 +59,7 @@ protocol PasteboardReading: AnyObject {
 }
 
 protocol TypedPasteboardReading: PasteboardReading {
-    func typedImageChange(changeCount: Int) -> PasteboardTypedChange?
+    func typedChange(changeCount: Int) -> PasteboardTypedChange?
 }
 
 struct PasteboardTextChange: Equatable {
@@ -77,8 +86,9 @@ final class SystemPasteboardReader: TypedPasteboardReading, @unchecked Sendable 
         PasteboardPlatformProbe.inventory(for: pasteboard)
     }
 
-    func typedImageChange(changeCount: Int) -> PasteboardTypedChange? {
+    func typedChange(changeCount: Int) -> PasteboardTypedChange? {
         guard let items = pasteboard.pasteboardItems else { return nil }
+        let richCapture = Self.richTextCapture(from: items)
         var imageItems: [ManagedImageCaptureItem] = []
         var referenceItems: [HistoryReferenceCaptureItem] = []
         for (index, item) in items.enumerated() {
@@ -97,11 +107,73 @@ final class SystemPasteboardReader: TypedPasteboardReading, @unchecked Sendable 
                 referenceItems.append(reference)
             }
         }
-        guard !imageItems.isEmpty || !referenceItems.isEmpty else { return nil }
+        guard !imageItems.isEmpty || !referenceItems.isEmpty || !richCapture.items.isEmpty || richCapture.rejected else { return nil }
         return PasteboardTypedChange(
             changeCount: changeCount,
+            canonicalText: richCapture.canonicalText,
             imageItems: imageItems,
-            referenceItems: referenceItems
+            referenceItems: referenceItems,
+            richTextItems: richCapture.items,
+            richTextCaptureRejected: richCapture.rejected
+        )
+    }
+
+    struct RichTextCaptureResult: Equatable, Sendable {
+        let canonicalText: String?
+        let items: [HistoryRichTextCaptureItem]
+        let rejected: Bool
+    }
+
+    static func richTextCapture(from items: [NSPasteboardItem]) -> RichTextCaptureResult {
+        let hasRichType = items.contains { item in
+            item.types.contains { HistoryRichTextTypePolicy.isSupported($0.rawValue) }
+        }
+        guard hasRichType else {
+            return RichTextCaptureResult(canonicalText: nil, items: [], rejected: false)
+        }
+
+        var capturedItems: [HistoryRichTextCaptureItem] = []
+        var rejected = false
+        var totalBytes = 0
+        var canonicalText: String?
+        for (index, item) in items.enumerated() {
+            let itemText = item.string(forType: .string)
+            if canonicalText == nil {
+                canonicalText = itemText
+            }
+            guard let itemText else { continue }
+            var representations: [HistoryRichTextCaptureRepresentation] = []
+            for type in item.types where HistoryRichTextTypePolicy.isSupported(type.rawValue) {
+                guard let data = item.data(forType: type), !data.isEmpty else {
+                    rejected = true
+                    continue
+                }
+                guard data.count <= HistoryRichTextStoragePolicy.production.maxRepresentationBytes else {
+                    rejected = true
+                    continue
+                }
+                guard totalBytes + data.count <= HistoryRichTextStoragePolicy.production.maxOccurrenceBytes else {
+                    rejected = true
+                    continue
+                }
+                totalBytes += data.count
+                representations.append(HistoryRichTextCaptureRepresentation(
+                    typeIdentifier: type.rawValue,
+                    data: data
+                ))
+            }
+            if !representations.isEmpty {
+                capturedItems.append(HistoryRichTextCaptureItem(
+                    order: index,
+                    canonicalText: itemText,
+                    representations: representations
+                ))
+            }
+        }
+        return RichTextCaptureResult(
+            canonicalText: canonicalText,
+            items: rejected ? [] : capturedItems,
+            rejected: rejected
         )
     }
 
@@ -249,6 +321,8 @@ final class PasteboardMonitor {
     private var lastChangeCount: Int?
     private var ignoredChanges = Set<Int>()
     private var scheduledPoll: PasteboardPollCancellation?
+    private var typedReadInFlight = false
+    private var lifecycleGeneration = 0
 
     init(
         pasteboard: PasteboardReading = SystemPasteboardReader(),
@@ -269,6 +343,7 @@ final class PasteboardMonitor {
         tolerance: TimeInterval = productionTolerance
     ) {
         guard scheduledPoll == nil else { return }
+        lifecycleGeneration &+= 1
         lastChangeCount = pasteboard.changeCount
         scheduledPoll = scheduler.schedule(interval: interval, tolerance: tolerance) { [weak self] in
             self?.poll()
@@ -276,8 +351,10 @@ final class PasteboardMonitor {
     }
 
     func stop() {
+        lifecycleGeneration &+= 1
         scheduledPoll?.cancel()
         scheduledPoll = nil
+        typedReadInFlight = false
     }
 
     /// Called by future Qipli writers immediately after their pasteboard write completes.
@@ -292,20 +369,41 @@ final class PasteboardMonitor {
             return
         }
         guard currentChangeCount != lastChangeCount else { return }
+
+        // Leave the new change pending while an older typed read is in flight.
+        // Its completion will either publish the still-current snapshot or
+        // discard it and immediately poll this newer change.
+        if pasteboard is TypedPasteboardReading, onExternalChange != nil, typedReadInFlight {
+            return
+        }
         self.lastChangeCount = currentChangeCount
 
         // A newer external change makes every older expected self-write irrelevant.
         ignoredChanges = ignoredChanges.filter { $0 >= currentChangeCount }
         guard ignoredChanges.remove(currentChangeCount) == nil else { return }
         if let typedReader = pasteboard as? TypedPasteboardReading,
-           let onExternalChange {
+           onExternalChange != nil {
+            typedReadInFlight = true
+            let generation = lifecycleGeneration
             Task { @MainActor [weak self] in
                 let typedChange = await Task.detached(priority: .userInitiated) {
-                    typedReader.typedImageChange(changeCount: currentChangeCount)
+                    typedReader.typedChange(changeCount: currentChangeCount)
                 }.value
-                guard let self else { return }
+                guard let self,
+                      self.lifecycleGeneration == generation,
+                      self.scheduledPoll != nil
+                else { return }
+                self.typedReadInFlight = false
+
+                // NSPasteboard is live mutable state. A read performed for an
+                // older count must never be published under that count after a
+                // newer clipboard write has arrived.
+                guard self.pasteboard.changeCount == currentChangeCount else {
+                    self.poll()
+                    return
+                }
                 if let typedChange {
-                    onExternalChange(typedChange)
+                    self.onExternalChange?(typedChange)
                     return
                 }
                 guard let text = self.pasteboard.textValue() else { return }

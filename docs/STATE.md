@@ -16,6 +16,7 @@
 - Milestone M7 — bounded typed History — завершён: S023–S026 закрыты, включая manual browser/Finder matrix S025.
 - Milestone M8 — Top Notch History — завершён: S027 закрыт после manual display/focus/paste/accessibility matrix.
 - Milestone M9 — Paste Stack в Top Notch — завершён: S030 принят по manual verification; S028/S029 перенесены в backlog решением D-038.
+- Milestone M10 — formatted-text History — активен: S031 реализован и имеет статус `needs_verification`; focused automated checks и manual acceptance подтверждены, clean Xcode/release gates остаются.
 - S030 закрыт после подтверждения пользователем display, focus, sequence и accessibility matrix. Известное ограничение отключения дисплея во время reveal сохранено в BL-006.
 - S008 остаётся финальным blocked release gate до operational immutable rerun proof и связанной clean-machine/manual release matrix. Локальные Developer ID и notarization credentials подтверждены 2026-08-26.
 - Fail-closed release workflow опубликовал первый Developer ID-signed и notarized GitHub Release `v1.0.0`; публичный ZIP независимо скачан и принят Gatekeeper.
@@ -57,12 +58,15 @@
 | S028 | Полноценная карточная History | `backlog` | BL-004; не входит в активный план |
 | S029 | Favorites navigation | `backlog` | BL-005; presentation/retention требуют нового решения |
 | S030 | Paste Stack в Top Notch | `done` | S007, S012, S021, S027 |
+| S031 | Форматированный текст в History | `needs_verification` | S023, S026, S027 |
 
 ## Блокеры и recheck points
 
 Product-code blockers для S011, S012 и S016 отсутствуют. Основной History responsiveness path S016 принят пользователем и закрыт. S013 завершён после local и hosted main/PR/fork CI.
 
 S030 не имеет product или dependency blocker: все prerequisites завершены, а manual acceptance подтверждён. Ограничение BL-006 не блокирует принятый пользовательский путь. Отдельное full History window, Favorites и active-Stack-to-History handoff не являются prerequisite и остаются вне текущей acceptance matrix.
+
+S031 не имеет dependency blocker: S023/S026/S027 завершены. Реализованы default rich paste по `Enter`/double-click, plain-only paste по exact `⇧Enter`, allowlist `public.rtf`/`public.html`, text-only Paste Stack и plain-only fallback при rich overflow; full SwiftPM suite, clean unsigned universal Xcode Debug build и manual acceptance подтверждены. До `done` остаётся signed Release/update verification. Production defaults 16 MiB на rich representation, 32 MiB на occurrence и 512 MiB total являются техническим safety assumption D-039; probe при необходимости обновляет решение до изменения production capture. AppKit не предоставляет pre-read length/stream для `data(forType:)`, поэтому ceiling ограничивает admission/persistence, а не исходную materialization одного blob.
 
 S017–S022 не имеют внешнего blocker и закрыты. Их performance contracts сохраняют exact full clipboard text, duplicate occurrences, History-first persistence, self-write suppression, ordinary `Command-V` вне active Stack и fresh capture перед History show.
 
@@ -130,7 +134,7 @@ S026 завершён: HistoryStore `33/33`, полный SwiftPM `222/222`, mig
 
 ## Следующее действие
 
-Следующее действие: продолжить release verification S014; S030 закрыт, а BL-006 остаётся отложенным edge case.
+Следующее действие: пройти manual TextEdit/browser/Notes/office representation-and-size probe и source/target paste matrix S031; затем повторить clean Xcode/release verification. S014 сохраняет отдельный operational release gate; S030 закрыт, BL-006 остаётся отложенным edge case.
 
 ## Журнал переходов
 
@@ -228,3 +232,6 @@ S026 завершён: HistoryStore `33/33`, полный SwiftPM `222/222`, mig
 | 2026-09-02 | S028/S029 перенесены в backlog; S030 создан и переведён в `ready`. | Пользователь отказался от ближайшего full History/Favorites flow и выбрал единый Top Notch shell для History и Paste Stack. D-038 фиксирует отдельные activating/nonactivating lifecycle contracts и исключает специальный active-Stack-to-History сценарий из текущего scope. |
 | 2026-09-02 | S030 реализован и переведён в `needs_verification`. | Paste Stack получил отдельную nonactivating Top Notch panel, горизонтальные bounded cards, shared safe-area/mask transitions и generation-guarded Cancel/auto-finish. Legacy floating position store удалён; после Terra review Stack получил source-display capture и reset interrupted dismissal. Focused UI suite 19/19, расширенный S030-relevant suite 63/63, полный SwiftPM 230/230. Manual multi-display, focus, sequence и accessibility matrix остаётся открытой. |
 | 2026-09-03 | S030 переведён в `done`. | Пользователь подтвердил manual acceptance matrix Paste Stack: source/menu start, collection, reorder/direction, sequential paste, Reactivate, Cancel/Escape, focus, notch/notchless display, full-screen и accessibility. Полный SwiftPM suite после финального теста: 231/231; unsigned Xcode Debug build и `git diff --check` прошли. Дисплейное отключение во время reveal принято как BL-006 и не блокирует slice. |
+| 2026-09-03 | Добавлен S031 `ready` для formatted-text History; D-039 принят. | Пользователь подтвердил default rich paste, exact `⇧Enter` plain paste и сохранение plain-only occurrence при rich overflow. Документация фиксирует raw allowlisted RTF/HTML, managed bounded storage, unchanged `⌘⇧V`/Paste Stack и source/target manual matrix; product code не менялся. |
+| 2026-09-03 | S031 реализован и переведён в `needs_verification`. | Добавлены canonical plain + allowlisted raw RTF/HTML capture, opaque managed storage с integrity/limits/lifecycle, default rich paste, exact `⇧Enter` plain paste, per-item fallback, mixed typed routing и plain-only overflow fallback. Focused S031 storage/paste/input checks: 30/30 без failures; отдельный reader contract test пропущен в headless-среде без named pasteboards. Full SwiftPM собрал 242 tests, но host `insufficientDiskSpace`, unavailable named pasteboards и inaccessible Xcode SwiftPM cache оставили unrelated/manual gates открытыми. |
+| 2026-09-03 | Пользователь подтвердил ручные проверки S031. | Manual source/target, relaunch, deletion/Clear All и active Stack checks считаются принятыми. Статус остаётся `needs_verification` до clean Xcode/release verification, недоступной в текущем окружении. |

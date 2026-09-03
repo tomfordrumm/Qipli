@@ -438,6 +438,12 @@ struct TopNotchHistoryShelfView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             searchField
+            if let notice = viewModel.captureNotice {
+                Label(notice, systemImage: "exclamationmark.triangle")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             content
             footer
         }
@@ -483,10 +489,10 @@ struct TopNotchHistoryShelfView: View {
                 TopNotchHistoryDeleteKeyMonitor(
                     isSearchFocused: { searchIsFocused },
                     query: { viewModel.query },
-                    selectedEntry: { viewModel.selectedEntry },
-                    onDelete: { entry in
+                    selectedEntryID: { viewModel.selectedEntryID },
+                    onDelete: { id in
                         HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
-                            Task { @MainActor in await viewModel.delete(entry) }
+                            Task { @MainActor in await viewModel.delete(id: id) }
                         }
                     }
                 )
@@ -520,8 +526,7 @@ struct TopNotchHistoryShelfView: View {
         case .empty:
             ContentUnavailableView("No History Yet", systemImage: "clipboard", description: Text("Copied items will appear here while Qipli is running."))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        case .list:
-            let descriptors = viewModel.visibleDescriptors
+        case let .list(descriptors):
             if descriptors.isEmpty {
                 if viewModel.isSearchInProgress {
                     ProgressView("Searching…")
@@ -580,16 +585,40 @@ struct TopNotchHistoryShelfView: View {
                         .font(.caption)
                 }
                 Spacer(minLength: 0)
-                Text("← → Navigate  ·  Return Paste")
+                HStack(spacing: 4) {
+                    keyboardHintKey(systemName: "arrow.left")
+                    keyboardHintKey(systemName: "arrow.right")
+                    Text("Navigate  ·")
+                    keyboardHintKey(systemName: "return")
+                    Text("Paste  ·")
+                    keyboardHintKey(systemName: "shift")
+                    keyboardHintKey(systemName: "return")
+                    Text("Plain")
+                }
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .accessibilityLabel("Use Left and Right Arrow to navigate. Press Return to paste.")
+                    .accessibilityLabel("Use Left and Right Arrow to navigate. Press Return to paste with formatting. Press Shift-Return to paste as plain text.")
             }
         }
     }
 
     private var canPaste: Bool {
         permissionService.state == .granted && !viewModel.isPasteInProgress
+    }
+
+    private func keyboardHintKey(systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 8, weight: .semibold))
+            .frame(width: 14, height: 13)
+            .background {
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                    }
+            }
+            .accessibilityHidden(true)
     }
 }
 
@@ -741,8 +770,8 @@ private final class TopNotchHistoryCollectionItem: NSCollectionViewItem {
 private struct TopNotchHistoryDeleteKeyMonitor: NSViewRepresentable {
     let isSearchFocused: () -> Bool
     let query: () -> String
-    let selectedEntry: () -> HistoryEntry?
-    let onDelete: (HistoryEntry) -> Void
+    let selectedEntryID: () -> UUID?
+    let onDelete: (UUID) -> Void
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
@@ -754,7 +783,7 @@ private struct TopNotchHistoryDeleteKeyMonitor: NSViewRepresentable {
         context.coordinator.configure(
             isSearchFocused: isSearchFocused,
             query: query,
-            selectedEntry: selectedEntry,
+            selectedEntryID: selectedEntryID,
             onDelete: onDelete
         )
     }
@@ -763,7 +792,7 @@ private struct TopNotchHistoryDeleteKeyMonitor: NSViewRepresentable {
         Coordinator(
             isSearchFocused: isSearchFocused,
             query: query,
-            selectedEntry: selectedEntry,
+            selectedEntryID: selectedEntryID,
             onDelete: onDelete
         )
     }
@@ -771,20 +800,20 @@ private struct TopNotchHistoryDeleteKeyMonitor: NSViewRepresentable {
     final class Coordinator {
         private var isSearchFocused: () -> Bool
         private var query: () -> String
-        private var selectedEntry: () -> HistoryEntry?
-        private var onDelete: (HistoryEntry) -> Void
+        private var selectedEntryID: () -> UUID?
+        private var onDelete: (UUID) -> Void
         private weak var hostView: NSView?
         private var monitor: Any?
 
         init(
             isSearchFocused: @escaping () -> Bool,
             query: @escaping () -> String,
-            selectedEntry: @escaping () -> HistoryEntry?,
-            onDelete: @escaping (HistoryEntry) -> Void
+            selectedEntryID: @escaping () -> UUID?,
+            onDelete: @escaping (UUID) -> Void
         ) {
             self.isSearchFocused = isSearchFocused
             self.query = query
-            self.selectedEntry = selectedEntry
+            self.selectedEntryID = selectedEntryID
             self.onDelete = onDelete
         }
 
@@ -798,12 +827,12 @@ private struct TopNotchHistoryDeleteKeyMonitor: NSViewRepresentable {
         func configure(
             isSearchFocused: @escaping () -> Bool,
             query: @escaping () -> String,
-            selectedEntry: @escaping () -> HistoryEntry?,
-            onDelete: @escaping (HistoryEntry) -> Void
+            selectedEntryID: @escaping () -> UUID?,
+            onDelete: @escaping (UUID) -> Void
         ) {
             self.isSearchFocused = isSearchFocused
             self.query = query
-            self.selectedEntry = selectedEntry
+            self.selectedEntryID = selectedEntryID
             self.onDelete = onDelete
         }
 
@@ -819,9 +848,9 @@ private struct TopNotchHistoryDeleteKeyMonitor: NSViewRepresentable {
                   !event.isARepeat,
                   event.keyCode == 51 || event.keyCode == 117,
                   event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
-                  let entry = selectedEntry()
+                  let entryID = selectedEntryID()
             else { return event }
-            onDelete(entry)
+            onDelete(entryID)
             return nil
         }
     }
