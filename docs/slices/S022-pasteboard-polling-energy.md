@@ -1,7 +1,7 @@
 ---
 id: S022
 title: Энергоэффективный pasteboard polling
-status: needs_verification
+status: done
 depends_on:
   - S021
 covers:
@@ -46,16 +46,16 @@ PasteboardMonitor сохраняет текущую capture latency и reliabili
 - [x] Stop отменяет future ticks, repeated start не создаёт второй timer.
 - [x] Self-write suppression и rapid duplicate external changes сохраняют поведение.
 - [x] Immediate History show poll/drain S019 не зависит от timer tolerance.
-- [ ] Idle observation не показывает регрессию CPU/wakeups относительно S017 baseline.
+- [x] Idle observation не показывает регрессию CPU/wakeups относительно S017 baseline.
 
 ## Verification
 
 - [x] Focused scheduler lifecycle/one-fire-one-poll tests с fake pasteboard.
 - [x] Rapid capture, self-write, onboarding baseline и fresh-show integration tests.
 - [x] S017 polling instrumentation до/после.
-- [ ] Локальный idle observation реального приложения.
+- [x] Локальный idle observation реального приложения.
 - [x] Full SwiftPM/Xcode suite и unsigned universal Release build.
-- [ ] Manual быстрые копирования, duplicate, History immediate show и sleep/wake smoke.
+- [x] Manual быстрые копирования, duplicate, History immediate show и sleep/wake smoke.
 
 ## Implementation report
 
@@ -77,4 +77,4 @@ Focused corrective run: `PasteboardMonitorTests` 10/10 и `PerformanceBaselineTe
 
 ### Отклонения и остаточные риски
 
-Реальный idle CPU/wakeup observation, быстрые копирования/duplicate, immediate History show и sleep/wake smoke не выполнялись автоматически. До их ручного прохождения срез остаётся `needs_verification`; polling frequency намеренно не снижалась.
+2026-08-30 пользователь подтвердил idle CPU/wakeup observation, быстрые копирования/duplicate, immediate History show и sleep/wake smoke на двух машинах. Срез переведён в `done`; polling frequency намеренно не снижалась.

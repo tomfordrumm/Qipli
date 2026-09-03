@@ -81,6 +81,220 @@ final class HistoryStoreTests: XCTestCase {
         store.close()
     }
 
+    func testFormattedTextSurvivesRestartAndRestoresRawRepresentationsWithPlainFallback() throws {
+        let clock = MutableClock(now: Date(timeIntervalSinceReferenceDate: 8_310_000))
+        let richStore = try HistoryRichTextAssetStore(
+            rootURL: directory.appendingPathComponent("RichText"),
+            policy: .production
+        )
+        let store = try CoreDataHistoryStore(
+            storeURL: directory.appendingPathComponent("History.sqlite"),
+            richTextStore: richStore
+        )
+        let service = HistoryService(store: store, clock: clock)
+        let rtf = Data("{\\rtf1\\b bold fixture}".utf8)
+        let html = Data("<p><strong>bold fixture</strong></p>".utf8)
+        let result = try XCTUnwrap(try service.capture(
+            text: "bold fixture",
+            richTextItems: [HistoryRichTextCaptureItem(
+                order: 0,
+                representations: [
+                    HistoryRichTextCaptureRepresentation(typeIdentifier: "public.rtf", data: rtf),
+                    HistoryRichTextCaptureRepresentation(typeIdentifier: "public.html", data: html)
+                ]
+            )]
+        ))
+
+        XCTAssertTrue(result.richTextSaved)
+        XCTAssertNil(result.notice)
+        XCTAssertTrue(result.entry.hasRichText)
+        XCTAssertTrue(result.entry.isTextOnly)
+        XCTAssertEqual(result.entry.text, "bold fixture")
+
+        store.close()
+        let restarted = try CoreDataHistoryStore(
+            storeURL: directory.appendingPathComponent("History.sqlite"),
+            richTextStore: richStore
+        )
+        let restored = try XCTUnwrap(restarted.fetchEntry(id: result.entry.id))
+        XCTAssertTrue(restored.hasRichText)
+        XCTAssertEqual(restored.text, "bold fixture")
+        let payload = try XCTUnwrap(restarted.pastePayload(id: result.entry.id))
+        XCTAssertEqual(payload.items.count, 1)
+        XCTAssertEqual(payload.items[0].representations.map(\.typeIdentifier), [
+            "public.utf8-plain-text", "public.rtf", "public.html"
+        ])
+        XCTAssertEqual(payload.items[0].representations[0].data, Data("bold fixture".utf8))
+        XCTAssertEqual(payload.items[0].representations[1].data, rtf)
+        XCTAssertEqual(payload.items[0].representations[2].data, html)
+        restarted.close()
+    }
+
+    func testFormattedTextMultiItemPasteKeepsEachItemPlainFallbackAndOrder() throws {
+        let clock = MutableClock(now: Date(timeIntervalSinceReferenceDate: 8_315_000))
+        let richStore = try HistoryRichTextAssetStore(rootURL: directory.appendingPathComponent("RichText"))
+        let store = try CoreDataHistoryStore(
+            storeURL: directory.appendingPathComponent("History.sqlite"),
+            richTextStore: richStore
+        )
+        let service = HistoryService(store: store, clock: clock)
+        let result = try XCTUnwrap(try service.capture(
+            text: "first item\nsecond item",
+            richTextItems: [
+                HistoryRichTextCaptureItem(
+                    order: 0,
+                    canonicalText: "first item",
+                    representations: [HistoryRichTextCaptureRepresentation(
+                        typeIdentifier: "public.rtf",
+                        data: Data("rtf-first".utf8)
+                    )]
+                ),
+                HistoryRichTextCaptureItem(
+                    order: 1,
+                    canonicalText: "second item",
+                    representations: [HistoryRichTextCaptureRepresentation(
+                        typeIdentifier: "public.html",
+                        data: Data("html-second".utf8)
+                    )]
+                )
+            ]
+        ))
+
+        let payload = try XCTUnwrap(service.pastePayload(id: result.entry.id))
+        XCTAssertEqual(payload.items.map { $0.representations.map(\.typeIdentifier) }, [
+            ["public.utf8-plain-text", "public.rtf"],
+            ["public.utf8-plain-text", "public.html"]
+        ])
+        XCTAssertEqual(payload.items.map { $0.representations[0].data }, [
+            Data("first item".utf8), Data("second item".utf8)
+        ])
+        store.close()
+    }
+
+    func testFormattedTextOverflowKeepsOnePlainOccurrenceWithoutManagedRichAsset() throws {
+        let clock = MutableClock(now: Date(timeIntervalSinceReferenceDate: 8_320_000))
+        let richStore = try HistoryRichTextAssetStore(
+            rootURL: directory.appendingPathComponent("RichText"),
+            policy: HistoryRichTextStoragePolicy(
+                maxRepresentationBytes: 4,
+                maxOccurrenceBytes: 6,
+                maxTotalBytes: 12
+            )
+        )
+        let store = try CoreDataHistoryStore(
+            storeURL: directory.appendingPathComponent("History.sqlite"),
+            richTextStore: richStore
+        )
+        let service = HistoryService(store: store, clock: clock)
+        let result = try XCTUnwrap(try service.capture(
+            text: "plain survives",
+            richTextItems: [HistoryRichTextCaptureItem(
+                order: 0,
+                representations: [HistoryRichTextCaptureRepresentation(
+                    typeIdentifier: "public.html",
+                    data: Data("<p>too big</p>".utf8)
+                )]
+            )]
+        ))
+
+        XCTAssertFalse(result.richTextSaved)
+        XCTAssertEqual(result.notice, "Formatting was not saved; plain text was kept.")
+        XCTAssertFalse(result.entry.hasRichText)
+        XCTAssertEqual(try service.entries().map(\.text), ["plain survives"])
+        let richRoot = directory.appendingPathComponent("RichText/rich")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: richRoot.path).count, 0)
+        store.close()
+    }
+
+    func testFormattedTextTotalLimitKeepsExistingRichAssetAndFallsBackWithoutEviction() throws {
+        let clock = MutableClock(now: Date(timeIntervalSinceReferenceDate: 8_321_000))
+        let richStore = try HistoryRichTextAssetStore(
+            rootURL: directory.appendingPathComponent("RichText"),
+            policy: HistoryRichTextStoragePolicy(
+                maxRepresentationBytes: 5,
+                maxOccurrenceBytes: 5,
+                maxTotalBytes: 5
+            )
+        )
+        let store = try CoreDataHistoryStore(
+            storeURL: directory.appendingPathComponent("History.sqlite"),
+            richTextStore: richStore
+        )
+        let service = HistoryService(store: store, clock: clock)
+        let first = try XCTUnwrap(try service.capture(
+            text: "first",
+            richTextItems: [HistoryRichTextCaptureItem(
+                order: 0,
+                representations: [HistoryRichTextCaptureRepresentation(
+                    typeIdentifier: "public.rtf",
+                    data: Data("12345".utf8)
+                )]
+            )]
+        ))
+        clock.now = clock.now.addingTimeInterval(1)
+        let second = try XCTUnwrap(try service.capture(
+            text: "second",
+            richTextItems: [HistoryRichTextCaptureItem(
+                order: 0,
+                representations: [HistoryRichTextCaptureRepresentation(
+                    typeIdentifier: "public.html",
+                    data: Data("6".utf8)
+                )]
+            )]
+        ))
+
+        XCTAssertTrue(first.richTextSaved)
+        XCTAssertFalse(second.richTextSaved)
+        XCTAssertFalse(second.entry.hasRichText)
+        XCTAssertEqual(try service.entries().map(\.text), ["second", "first"])
+        let richRoot = directory.appendingPathComponent("RichText/rich")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: richRoot.path).count, 1)
+        let firstPayload = try XCTUnwrap(service.pastePayload(id: first.entry.id))
+        XCTAssertEqual(firstPayload.items.first?.representations.map(\.typeIdentifier), [
+            "public.utf8-plain-text", "public.rtf"
+        ])
+        XCTAssertEqual(firstPayload.items.first?.representations.first?.data, Data("first".utf8))
+        XCTAssertEqual(second.entry.text, "second")
+        store.close()
+    }
+
+    func testFormattedTextCorruptionFailsDefaultPayloadButDeleteCleansOwnedAsset() throws {
+        let richStore = try HistoryRichTextAssetStore(rootURL: directory.appendingPathComponent("RichText"))
+        let store = try CoreDataHistoryStore(
+            storeURL: directory.appendingPathComponent("History.sqlite"),
+            richTextStore: richStore
+        )
+        let service = HistoryService(store: store)
+        let result = try XCTUnwrap(try service.capture(
+            text: "corruptible",
+            richTextItems: [HistoryRichTextCaptureItem(
+                order: 0,
+                representations: [HistoryRichTextCaptureRepresentation(
+                    typeIdentifier: "public.rtf",
+                    data: Data("{\\rtf1 corruptible}".utf8)
+                )]
+            )]
+        ))
+        let manifest = try XCTUnwrap(result.entry.representations.first { $0.typeIdentifier == "public.rtf" })
+        XCTAssertEqual(manifest.kind, .text)
+        let richDirectory = directory.appendingPathComponent("RichText/rich/\(result.entry.id.uuidString)")
+        let assetURL = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: richDirectory,
+                includingPropertiesForKeys: nil,
+                options: []
+            ).first
+        )
+        try Data("tampered".utf8).write(to: assetURL)
+
+        XCTAssertThrowsError(try service.pastePayload(id: result.entry.id)) { error in
+            XCTAssertEqual(error as? HistoryRichTextStoreError, .corruptAsset)
+        }
+        try service.delete(id: result.entry.id)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: richDirectory.path))
+        store.close()
+    }
+
     func testMixedImageAndReferenceRemainOneOccurrenceAndOnePasteboardItem() throws {
         let clock = MutableClock(now: Date(timeIntervalSinceReferenceDate: 8_325_000))
         let store = try makeStore()
@@ -335,7 +549,7 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertEqual(max(dimensions.width, dimensions.height), 32)
     }
 
-    func testTypedImagePageExcludesPayloadFromTextEntries() throws {
+    func testTypedImagePageContainsOnlyDescriptorMetadata() throws {
         let store = try makeStore()
         let service = HistoryService(store: store)
         _ = try service.capture(text: "text row")
@@ -346,8 +560,9 @@ final class HistoryStoreTests: XCTestCase {
         ]))
 
         let page = try store.fetchPage(since: .distantPast, after: nil, limit: 500)
-        XCTAssertTrue(page.entries.contains(where: { $0.id == image.id }))
-        XCTAssertFalse(page.textEntries.contains(where: { $0.id == image.id }))
+        let descriptor = try XCTUnwrap(page.descriptors.first { $0.id == image.id })
+        XCTAssertNil(descriptor.textPreview)
+        XCTAssertTrue(descriptor.representations.contains { $0.kind == .inlineImage })
         store.close()
     }
 
@@ -724,7 +939,7 @@ final class HistoryStoreTests: XCTestCase {
                 since: Date(timeIntervalSinceReferenceDate: 8_975_000 - 1),
                 after: nil,
                 limit: 500
-            ).textEntries.map(\.id)
+            ).descriptors.map(\.id)
             XCTAssertEqual(actual, expected, "query=\(query)")
         }
         store.close()
@@ -745,9 +960,9 @@ final class HistoryStoreTests: XCTestCase {
             limit: 500
         )
 
-        XCTAssertEqual(page.textEntries.map(\.id), [entry.id])
+        XCTAssertEqual(page.descriptors.map(\.id), [entry.id])
         XCTAssertFalse(page.descriptors[0].textPreview?.contains(marker) == true)
-        XCTAssertEqual(page.textEntries[0].text, longText)
+        XCTAssertEqual(try store.fetchEntry(id: entry.id)?.text, longText)
         store.close()
     }
 

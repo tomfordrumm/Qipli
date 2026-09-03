@@ -32,6 +32,15 @@
 - `docs/slices/S020-responsive-history-search.md` — отзывчивый поиск и ограниченные UI previews без потери полного текста.
 - `docs/slices/S021-paste-stack-scaling.md` — линейная обработка больших Paste Stack без скрытого квадратичного рендеринга.
 - `docs/slices/S022-pasteboard-polling-energy.md` — энергоэффективный pasteboard polling с прежней частотой и capture-контрактом.
+- `docs/slices/S023-paginated-typed-history-foundation.md` — typed schema, keyset pagination и database-backed History search.
+- `docs/slices/S024-managed-image-history.md` — managed inline images, quotas, thumbnails и typed pasteback.
+- `docs/slices/S025-referenced-url-file-video-history.md` — URL и reference-only file/video History без копирования source bytes.
+- `docs/slices/S026-typed-history-release-hardening.md` — migration, privacy, cleanup и signed update verification typed History.
+- `docs/slices/S027-top-notch-history-shelf.md` — верхняя transient History с Search, карточками и hardware-safe placement.
+- `docs/slices/S028-full-card-history-library.md` — отложенная в backlog историческая спецификация отдельного полноразмерного окна History.
+- `docs/slices/S029-history-favorites-navigation.md` — отложенная в backlog историческая спецификация Favorites.
+- `docs/slices/S030-top-notch-paste-stack.md` — перенос полного Paste Stack user path в nonactivating Top Notch presentation.
+- `docs/slices/S031-formatted-text-history.md` — bounded RTF/HTML representations, rich paste и явная plain-text вставка из History.
 
 ### Подход к поставке
 
@@ -57,7 +66,7 @@
 
 ### Правила Qipli
 
-- Никогда не добавляйте clipboard text, поисковые запросы или previews в логи и test fixtures с реальными пользовательскими данными.
+- Никогда не добавляйте clipboard text, поисковые запросы, URL, filenames/paths, media metadata, thumbnails или previews в логи и test fixtures с реальными пользовательскими данными.
 - Не меняйте обычный `⌘V`, когда Paste Stack не активен.
 - Внутренние записи Qipli в system pasteboard не должны возвращаться как новые history/stack items.
 - Не добавляйте сеть, telemetry, App Sandbox exceptions, helper process или стороннюю persistence dependency без решения в `docs/DECISIONS.md` и обновления технического контракта.

@@ -1,477 +1,7 @@
 import AppKit
 import SwiftUI
 
-struct HistoryPanelView: View {
-    @ObservedObject var viewModel: HistoryViewModel
-    @ObservedObject var permissionService: AccessibilityPermissionService
-    let openAccessibilitySettings: () -> Void
-    let pasteEntry: (HistoryEntry) -> Void
-    let close: () -> Void
-    let tableInteractionBridge: HistoryTableInteractionBridge
-    @FocusState private var searchIsFocused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            searchField
-
-            if let imageCaptureNotice = viewModel.imageCaptureNotice {
-                Label(imageCaptureNotice, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            content
-
-            footer
-        }
-        .padding(20)
-        .frame(width: 460, height: 340, alignment: .topLeading)
-        .onAppear {
-            HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
-                searchIsFocused = true
-            }
-        }
-        .onChange(of: viewModel.searchFocusRequestID) { _, _ in
-            HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
-                searchIsFocused = true
-            }
-        }
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            TextField("Search history", text: Binding(
-                get: { viewModel.query },
-                set: { viewModel.updateQuery($0) }
-            ))
-            .textFieldStyle(.plain)
-            .frame(maxWidth: .infinity)
-            .focused($searchIsFocused)
-            .accessibilityIdentifier("history-search")
-            .accessibilityHint("Type to filter history. Use Up and Down Arrow to choose an entry.")
-            .background {
-                HistorySearchDeleteKeyMonitor(
-                    isSearchFocused: { searchIsFocused },
-                    query: { viewModel.query },
-                    state: { viewModel.state },
-                    selectedEntry: { viewModel.selectedEntry },
-                    onDelete: { entry in schedule(.delete(entry)) }
-                )
-                .frame(width: 0, height: 0)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-        }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        switch viewModel.state {
-        case .loading:
-            ProgressView("Loading history…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .empty:
-            ContentUnavailableView("No History Yet", systemImage: "clipboard", description: Text("Copied text will appear here while Qipli is running."))
-        case let .list(entries):
-            if entries.isEmpty {
-                if viewModel.isSearchInProgress {
-                    ProgressView("Searching…")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ContentUnavailableView(
-                        "No Matching History",
-                        systemImage: "magnifyingglass",
-                        description: Text("Try a different search term.")
-                    )
-                }
-            } else {
-                HistoryTableView(
-                    entries: entries,
-                    snapshotRevision: viewModel.visibleSnapshotRevision,
-                    selectedEntryID: viewModel.selectedEntryID,
-                    viewportResetRequestID: viewModel.presentationViewportResetRequestID,
-                    interactionBridge: tableInteractionBridge,
-                    loadMore: {
-                        Task { @MainActor in
-                            await viewModel.loadMore()
-                        }
-                    },
-                    thumbnailData: { entry in viewModel.thumbnailDataByEntryID[entry.id] },
-                    requestThumbnail: { entry in viewModel.requestThumbnail(for: entry) },
-                    selectEntry: viewModel.select,
-                    pasteEntry: { entry in
-                        guard canPaste else { return }
-                        pasteEntry(entry)
-                    },
-                    deleteEntry: { entry in schedule(.delete(entry)) }
-                )
-            }
-        case .error:
-            VStack(alignment: .leading, spacing: 12) {
-                Text("History is unavailable.")
-                    .font(.headline)
-                Text("Qipli could not read or update local history. Your system clipboard was not changed.")
-                    .foregroundStyle(.secondary)
-                Button("Retry") {
-                    Task { @MainActor in
-                        await viewModel.reload()
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        }
-    }
-
-    @ViewBuilder
-    private var footer: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let failure = viewModel.pasteFailure {
-                Text(failure.message)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if permissionService.state != .granted {
-                HStack {
-                    Text("Accessibility access is needed to paste.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Open Settings", action: openAccessibilitySettings)
-                }
-            }
-
-            HStack {
-                Spacer(minLength: 0)
-                keyboardGuide
-            }
-            .frame(maxWidth: .infinity)
-        }
-    }
-
-    private var keyboardGuide: some View {
-        HStack(spacing: 12) {
-            keyboardGuideItem(HistoryKeyboardGuidePresentation.navigation)
-            keyboardGuideItem(HistoryKeyboardGuidePresentation.paste)
-        }
-        .font(.caption2)
-        .foregroundStyle(.secondary)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(HistoryKeyboardGuidePresentation.accessibilityLabel)
-    }
-
-    private func keyboardGuideItem(_ item: HistoryKeyboardGuideItem) -> some View {
-        HStack(spacing: 5) {
-            HStack(spacing: 2) {
-                ForEach(item.symbolSystemNames, id: \.self) { symbolSystemName in
-                    Image(systemName: symbolSystemName)
-                        .font(.system(size: 8, weight: .semibold))
-                        .frame(width: 16, height: 14)
-                        .background {
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .fill(Color(nsColor: .controlBackgroundColor))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-                                }
-                        }
-                        .accessibilityHidden(true)
-                }
-            }
-
-            Text(item.title)
-        }
-    }
-
-    private var canPaste: Bool {
-        permissionService.state == .granted && !viewModel.isPasteInProgress
-    }
-
-    private func schedule(_ intent: HistoryPanelIntent) {
-        HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
-            HistoryPanelIntentExecutor(
-                moveSelection: viewModel.moveSelection,
-                select: viewModel.select,
-                canPaste: { canPaste },
-                pasteEntry: pasteEntry,
-                close: close,
-                delete: { entry in
-                    Task { @MainActor in
-                        await viewModel.delete(entry)
-                    }
-                }
-            )
-            .execute(intent)
-        }
-    }
-
-}
-
-struct HistoryKeyboardGuideItem: Equatable {
-    let symbolSystemNames: [String]
-    let title: String
-}
-
-enum HistoryKeyboardGuidePresentation {
-    static let navigation = HistoryKeyboardGuideItem(
-        symbolSystemNames: ["arrow.up", "arrow.down"],
-        title: "Navigation"
-    )
-    static let paste = HistoryKeyboardGuideItem(
-        symbolSystemNames: ["return"],
-        title: "Paste"
-    )
-    static let accessibilityLabel = "Use Up and Down Arrow to navigate. Press Return to paste."
-}
-
-/// Intent is separated from SwiftUI event callbacks so keyboard and row actions
-/// can be verified without depending on an XCUI event loop.
-enum HistoryPanelIntent: Equatable {
-    case moveSelection(by: Int)
-    case paste(HistoryEntry)
-    case close
-    case select(UUID)
-    case selectAndPaste(HistoryEntry)
-    case delete(HistoryEntry)
-}
-
-/// Physical delete keys normalized before the local AppKit monitor decides
-/// whether a History action is allowed. This seam does not inspect text.
-enum HistorySearchDeleteKey: Equatable {
-    case backward
-    case forward
-    case other
-}
-
-struct HistorySearchDeleteEvent: Equatable {
-    let key: HistorySearchDeleteKey
-    let hasDisallowedModifiers: Bool
-    let isRepeat: Bool
-
-    init(key: HistorySearchDeleteKey, hasDisallowedModifiers: Bool, isRepeat: Bool) {
-        self.key = key
-        self.hasDisallowedModifiers = hasDisallowedModifiers
-        self.isRepeat = isRepeat
-    }
-
-    init(event: NSEvent) {
-        // These macOS virtual key codes distinguish physical Backspace (51)
-        // from Forward Delete (117), independent of the input source.
-        let key: HistorySearchDeleteKey = switch event.keyCode {
-        case 51: .backward
-        case 117: .forward
-        default: .other
-        }
-        // Caps Lock, Fn and numeric keypad flags do not change the delete
-        // command. Only semantic shortcut modifiers must pass through.
-        let disallowedModifiers: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
-        let hasDisallowedModifiers = !event.modifierFlags
-            .intersection(disallowedModifiers)
-            .isEmpty
-        self.init(
-            key: key,
-            hasDisallowedModifiers: hasDisallowedModifiers,
-            isRepeat: event.isARepeat
-        )
-    }
-}
-
-/// Limits the Search field's local delete shortcut to the one case where it
-/// represents a History action. All other delete keys continue to text editing.
-enum HistorySearchDeleteAdmission {
-    static func selectedEntry(
-        query: String,
-        state: HistoryViewState,
-        selectedEntry: HistoryEntry?
-    ) -> HistoryEntry? {
-        guard query.isEmpty, case .list = state else { return nil }
-        return selectedEntry
-    }
-
-    static func selectedEntry(
-        for event: HistorySearchDeleteEvent,
-        isSearchFocused: Bool,
-        isEventInKeyWindow: Bool,
-        query: String,
-        state: HistoryViewState,
-        selectedEntry: HistoryEntry?
-    ) -> HistoryEntry? {
-        guard isSearchFocused,
-              isEventInKeyWindow,
-              !event.hasDisallowedModifiers,
-              !event.isRepeat,
-              event.key == .backward || event.key == .forward
-        else { return nil }
-
-        return Self.selectedEntry(query: query, state: state, selectedEntry: selectedEntry)
-    }
-}
-
-/// A lifecycle-owned local monitor is required because an NSTextField-backed
-/// SwiftUI TextField consumes editing Delete before SwiftUI `.onKeyPress` sees it.
-/// The monitor is hosted only behind History Search and returns the original
-/// event for every case that is not an admitted exact-occurrence deletion.
-private struct HistorySearchDeleteKeyMonitor: NSViewRepresentable {
-    let isSearchFocused: () -> Bool
-    let query: () -> String
-    let state: () -> HistoryViewState
-    let selectedEntry: () -> HistoryEntry?
-    let onDelete: (HistoryEntry) -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(
-            isSearchFocused: isSearchFocused,
-            query: query,
-            state: state,
-            selectedEntry: selectedEntry,
-            onDelete: onDelete
-        )
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        context.coordinator.attach(to: view)
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        context.coordinator.configure(
-            isSearchFocused: isSearchFocused,
-            query: query,
-            state: state,
-            selectedEntry: selectedEntry,
-            onDelete: onDelete
-        )
-    }
-
-    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        coordinator.invalidate()
-    }
-
-    final class Coordinator {
-        private weak var hostView: NSView?
-        private var monitor: Any?
-        private var isSearchFocused: () -> Bool
-        private var query: () -> String
-        private var state: () -> HistoryViewState
-        private var selectedEntry: () -> HistoryEntry?
-        private var onDelete: (HistoryEntry) -> Void
-
-        init(
-            isSearchFocused: @escaping () -> Bool,
-            query: @escaping () -> String,
-            state: @escaping () -> HistoryViewState,
-            selectedEntry: @escaping () -> HistoryEntry?,
-            onDelete: @escaping (HistoryEntry) -> Void
-        ) {
-            self.isSearchFocused = isSearchFocused
-            self.query = query
-            self.state = state
-            self.selectedEntry = selectedEntry
-            self.onDelete = onDelete
-        }
-
-        deinit {
-            invalidate()
-        }
-
-        func attach(to view: NSView) {
-            hostView = view
-            guard monitor == nil else { return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                self?.process(event) ?? event
-            }
-        }
-
-        func configure(
-            isSearchFocused: @escaping () -> Bool,
-            query: @escaping () -> String,
-            state: @escaping () -> HistoryViewState,
-            selectedEntry: @escaping () -> HistoryEntry?,
-            onDelete: @escaping (HistoryEntry) -> Void
-        ) {
-            self.isSearchFocused = isSearchFocused
-            self.query = query
-            self.state = state
-            self.selectedEntry = selectedEntry
-            self.onDelete = onDelete
-        }
-
-        func invalidate() {
-            guard let monitor else { return }
-            NSEvent.removeMonitor(monitor)
-            self.monitor = nil
-        }
-
-        private func process(_ event: NSEvent) -> NSEvent? {
-            guard let hostWindow = hostView?.window else { return event }
-            let isEventInSearchKeyWindow = event.window === hostWindow && hostWindow.isKeyWindow
-            guard let entry = HistorySearchDeleteAdmission.selectedEntry(
-                for: HistorySearchDeleteEvent(event: event),
-                isSearchFocused: isSearchFocused(),
-                isEventInKeyWindow: isEventInSearchKeyWindow,
-                query: query(),
-                state: state(),
-                selectedEntry: selectedEntry()
-            ) else {
-                return event
-            }
-
-            onDelete(entry)
-            return nil
-        }
-    }
-}
-
-/// Executes a deferred History UI intent without depending on SwiftUI. Keeping
-/// this small seam makes selection, paste and destructive actions testable.
-@MainActor
-struct HistoryPanelIntentExecutor {
-    let moveSelection: (Int) -> Void
-    let select: (UUID) -> Void
-    let canPaste: () -> Bool
-    let pasteEntry: (HistoryEntry) -> Void
-    let close: () -> Void
-    let delete: (HistoryEntry) -> Void
-
-    func execute(_ intent: HistoryPanelIntent) {
-        switch intent {
-        case let .moveSelection(offset):
-            moveSelection(offset)
-        case let .paste(entry):
-            pasteIfAvailable(entry)
-        case .close:
-            close()
-        case let .select(id):
-            select(id)
-        case let .selectAndPaste(entry):
-            select(entry.id)
-            pasteIfAvailable(entry)
-        case let .delete(entry):
-            delete(entry)
-        }
-    }
-
-    private func pasteIfAvailable(_ entry: HistoryEntry) {
-        guard canPaste() else { return }
-        pasteEntry(entry)
-    }
-}
-
-private enum HistoryKeyboardActionScheduler {
+enum HistoryKeyboardActionScheduler {
     static func deferToNextMainRunLoop(_ action: @escaping () -> Void) {
         RunLoop.main.perform(inModes: [.common]) {
             action()
@@ -484,23 +14,30 @@ struct PasteStackPanelView: View {
     let close: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 6) {
             header
-            Divider()
             stackContent
-
             if let statusMessage {
-                Divider()
                 Text(statusMessage)
                     .font(.caption)
                     .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
             }
         }
-        .frame(width: 400, height: 360, alignment: .topLeading)
+        .padding(.top, 4)
+        .padding(.horizontal, TopNotchHistoryGeometry.contentHorizontalInset)
+        .padding(.bottom, 8)
+        .frame(
+            minWidth: TopNotchHistoryGeometry.pasteStackMinimumPanelSize.width,
+            idealWidth: TopNotchHistoryGeometry.pasteStackPanelSize.width,
+            maxWidth: .infinity,
+            minHeight: TopNotchHistoryGeometry.pasteStackMinimumPanelSize.height,
+            idealHeight: TopNotchHistoryGeometry.pasteStackPanelSize.height,
+            maxHeight: .infinity,
+            alignment: .topLeading
+        )
+        .environment(\.colorScheme, .dark)
         .accessibilityIdentifier("paste-stack-panel")
     }
 
@@ -512,10 +49,8 @@ struct PasteStackPanelView: View {
             }
             .modifier(PasteStackHeaderButtonChrome())
             .accessibilityLabel("Cancel Paste Stack")
-            .accessibilityHint("Closes the panel and cancels the unfinished stack.")
+            .accessibilityHint("Cancels the unfinished stack.")
             .help("Cancel Paste Stack")
-
-            Spacer(minLength: 0)
 
             Text("Paste Stack")
                 .font(.system(size: 15, weight: .semibold))
@@ -523,15 +58,9 @@ struct PasteStackPanelView: View {
                 .accessibilityAddTraits(.isHeader)
 
             Spacer(minLength: 0)
-
             directionToggle
         }
-        .padding(.horizontal, 14)
-        .frame(height: 52)
-        .background {
-            PasteStackWindowDragRegion()
-                .accessibilityHidden(true)
-        }
+        .frame(height: 30)
     }
 
     @ViewBuilder
@@ -543,22 +72,16 @@ struct PasteStackPanelView: View {
                 description: Text("This stack starts empty and collects new copies only.")
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(24)
         } else {
-            List {
-                ForEach(sessionController.occurrences) { occurrence in
-                    occurrenceRow(occurrence)
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 10) {
+                    ForEach(sessionController.occurrences) { occurrence in
+                        occurrenceCard(occurrence)
+                    }
                 }
-                .onMove { source, destination in
-                    execute(.moveOccurrences(source, to: destination))
-                }
-                .moveDisabled(!canReorder)
+                .padding(.vertical, 2)
             }
-            .listStyle(.plain)
-            .contentMargins(.horizontal, 0, for: .scrollContent)
-            .scrollContentBackground(.hidden)
+            .scrollIndicators(.hidden)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -597,7 +120,7 @@ struct PasteStackPanelView: View {
         .help(configuration.accessibilityHint)
     }
 
-    private func occurrenceRow(_ occurrence: StackOccurrence) -> some View {
+    private func occurrenceCard(_ occurrence: StackOccurrence) -> some View {
         let index = occurrence.position
         let isReactivationPriority = sessionController.reactivationPriorityID == occurrence.id
         let isNext = !sessionController.hasReactivationPriority
@@ -606,74 +129,80 @@ struct PasteStackPanelView: View {
         let isPriorityNext = isNext || isReactivationPriority
         let accessibleMoves = controlState.accessibilityMoveDirections(position: index)
 
-        return HStack(alignment: .top, spacing: 8) {
-            if occurrence.state == .pending && canReorder {
-                Image(systemName: "line.3.horizontal")
-                    .foregroundStyle(.tertiary)
-                    .accessibilityHidden(true)
-            }
-            Text("\(index + 1).")
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .frame(width: 28, alignment: .trailing)
-            Text(StackPreview.text(for: occurrence.text))
-                .lineLimit(3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if occurrence.state == .processing {
-                ProgressView()
-                    .controlSize(.small)
-                    .accessibilityLabel("Preparing paste")
-            } else if isUsed {
-                Label("Used", systemImage: "checkmark.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("Used item")
-            }
-            if isReactivationPriority {
-                Image(systemName: "arrow.counterclockwise.circle.fill")
-                    .foregroundStyle(.orange)
-                    .accessibilityLabel(
-                        occurrence.state == .processing
-                            ? PasteStackPanelAccessibility.reactivatingItemLabel
-                            : PasteStackPanelAccessibility.reactivatedNextItemLabel
-                    )
-            } else if isNext {
-                Image(systemName: "arrow.right.circle.fill")
-                    .foregroundStyle(.tint)
-                    .accessibilityLabel(PasteStackPanelAccessibility.nextItemLabel)
-            }
-            if isUsed {
-                Button {
-                    execute(.reactivate(occurrence.id))
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("\(index + 1)")
+                    .font(.headline.monospacedDigit())
+                if isNext {
+                    Label("Next", systemImage: "arrow.right.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.tint)
+                } else if isReactivationPriority {
+                    Label("Next again", systemImage: "arrow.counterclockwise.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
                 }
-                .buttonStyle(.borderless)
-                .accessibilityLabel(PasteStackPanelAccessibility.reactivateLabel(position: index))
-                .accessibilityHint("Makes this used item the next stack paste. Press Command-V to send it.")
-                .help("Reactivate")
+                Spacer(minLength: 0)
+                if occurrence.state == .processing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Preparing paste")
+                } else if isUsed {
+                    Label("Used", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Text(StackPreview.text(for: occurrence.text))
+                .font(.system(size: 14, weight: .medium))
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            HStack(spacing: 4) {
+                if canReorder {
+                    Button {
+                        execute(.moveOccurrence(occurrence.id, by: -1))
+                    } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .modifier(PasteStackCardButtonChrome())
+                    .disabled(!accessibleMoves.contains(.up))
+                    .accessibilityLabel(PasteStackPanelAccessibility.moveActionLabel(direction: .up))
+
+                    Button {
+                        execute(.moveOccurrence(occurrence.id, by: 1))
+                    } label: {
+                        Image(systemName: "chevron.right")
+                    }
+                    .modifier(PasteStackCardButtonChrome())
+                    .disabled(!accessibleMoves.contains(.down))
+                    .accessibilityLabel(PasteStackPanelAccessibility.moveActionLabel(direction: .down))
+                }
+                Spacer(minLength: 0)
+                if isUsed {
+                    Button {
+                        execute(.reactivate(occurrence.id))
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                    }
+                    .modifier(PasteStackCardButtonChrome())
+                    .accessibilityLabel(PasteStackPanelAccessibility.reactivateLabel(position: index))
+                    .accessibilityHint("Makes this used item the next stack paste.")
+                    .help("Reactivate")
+                }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
+        .padding(10)
+        .frame(width: 208, height: 136, alignment: .topLeading)
         .opacity(isUsed && !isReactivationPriority ? 0.55 : 1)
         .background {
-            if isPriorityNext {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.10))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.accentColor.opacity(0.45))
-                    }
-            }
-        }
-        // Keep native separators full-width, independent of compact status icons.
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .alignmentGuide(.listRowSeparatorLeading) { dimensions in
-            dimensions[.leading]
-        }
-        .alignmentGuide(.listRowSeparatorTrailing) { dimensions in
-            dimensions[.trailing]
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(isPriorityNext ? Color.accentColor.opacity(0.16) : Color.white.opacity(0.08))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(isPriorityNext ? Color.accentColor.opacity(0.60) : Color.white.opacity(0.12))
+                }
         }
         .accessibilityElement(children: .contain)
         .accessibilityActions {
@@ -718,6 +247,18 @@ struct PasteStackPanelView: View {
     }
 }
 
+private struct PasteStackCardButtonChrome: ViewModifier {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func body(content: Content) -> some View {
+        content
+            .buttonStyle(.plain)
+            .foregroundStyle(isEnabled ? Color.primary : Color.secondary.opacity(0.45))
+            .frame(width: 26, height: 26)
+            .background(Color.white.opacity(isEnabled ? 0.08 : 0.03), in: Circle())
+    }
+}
+
 private struct PasteStackHeaderButtonChrome: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
@@ -733,20 +274,6 @@ private struct PasteStackHeaderButtonChrome: ViewModifier {
             }
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
-    }
-}
-
-private struct PasteStackWindowDragRegion: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        WindowDragView()
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
-
-    private final class WindowDragView: NSView {
-        override func mouseDown(with event: NSEvent) {
-            window?.performDrag(with: event)
-        }
     }
 }
 

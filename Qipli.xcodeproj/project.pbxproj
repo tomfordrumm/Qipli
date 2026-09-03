@@ -47,8 +47,11 @@
 		A00100000000000000000042 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000042 /* Assets.xcassets */; };
 		A00100000000000000000043 /* PerformanceInstrumentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000043 /* PerformanceInstrumentation.swift */; };
 		A00100000000000000000044 /* PerformanceBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000044 /* PerformanceBaselineTests.swift */; };
-		A00100000000000000000045 /* HistoryTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000045 /* HistoryTableView.swift */; };
 		A00100000000000000000046 /* ManagedImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000046 /* ManagedImageStore.swift */; };
+		A00100000000000000000047 /* TopNotchHistoryShelf.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000047 /* TopNotchHistoryShelf.swift */; };
+		A00100000000000000000048 /* TopNotchHistoryShelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000048 /* TopNotchHistoryShelfTests.swift */; };
+		A00100000000000000000049 /* ManagedAssetDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000049 /* ManagedAssetDirectory.swift */; };
+		A00100000000000000000050 /* HistoryRichTextAssetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000050 /* HistoryRichTextAssetStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -106,8 +109,11 @@
 		A00200000000000000000042 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A00200000000000000000043 /* PerformanceInstrumentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceInstrumentation.swift; sourceTree = "<group>"; };
 		A00200000000000000000044 /* PerformanceBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceBaselineTests.swift; sourceTree = "<group>"; };
-		A00200000000000000000045 /* HistoryTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryTableView.swift; sourceTree = "<group>"; };
 		A00200000000000000000046 /* ManagedImageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedImageStore.swift; sourceTree = "<group>"; };
+		A00200000000000000000047 /* TopNotchHistoryShelf.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopNotchHistoryShelf.swift; sourceTree = "<group>"; };
+		A00200000000000000000048 /* TopNotchHistoryShelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopNotchHistoryShelfTests.swift; sourceTree = "<group>"; };
+		A00200000000000000000049 /* ManagedAssetDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedAssetDirectory.swift; sourceTree = "<group>"; };
+		A00200000000000000000050 /* HistoryRichTextAssetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryRichTextAssetStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -184,8 +190,8 @@
 			children = (
 				A00200000000000000000006 /* PanelController.swift */,
 				A00200000000000000000007 /* PlaceholderViews.swift */,
-				A00200000000000000000045 /* HistoryTableView.swift */,
 				A00200000000000000000029 /* PanelMaterialProvider.swift */,
+				A00200000000000000000047 /* TopNotchHistoryShelf.swift */,
 				A00200000000000000000034 /* SettingsWindowController.swift */,
 				A00200000000000000000037 /* OnboardingWindowController.swift */,
 			);
@@ -205,6 +211,7 @@
 				A00200000000000000000038 /* OnboardingTests.swift */,
 				A00200000000000000000041 /* UpdatesTests.swift */,
 				A00200000000000000000044 /* PerformanceBaselineTests.swift */,
+				A00200000000000000000048 /* TopNotchHistoryShelfTests.swift */,
 			);
 			path = Tests/QipliTests;
 			sourceTree = "<group>";
@@ -241,6 +248,8 @@
 			children = (
 				A00200000000000000000016 /* HistoryEntry.swift */,
 				A00200000000000000000046 /* ManagedImageStore.swift */,
+				A00200000000000000000049 /* ManagedAssetDirectory.swift */,
+				A00200000000000000000050 /* HistoryRichTextAssetStore.swift */,
 				A00200000000000000000017 /* HistoryStore.swift */,
 				A00200000000000000000018 /* HistoryService.swift */,
 				A00200000000000000000019 /* HistoryViewModel.swift */,
@@ -407,6 +416,8 @@
 				A00100000000000000000011 /* PasteboardMonitor.swift in Sources */,
 				A00100000000000000000012 /* HistoryEntry.swift in Sources */,
 				A00100000000000000000046 /* ManagedImageStore.swift in Sources */,
+				A00100000000000000000049 /* ManagedAssetDirectory.swift in Sources */,
+				A00100000000000000000050 /* HistoryRichTextAssetStore.swift in Sources */,
 				A00100000000000000000013 /* HistoryStore.swift in Sources */,
 				A00100000000000000000014 /* HistoryService.swift in Sources */,
 				A00100000000000000000015 /* HistoryViewModel.swift in Sources */,
@@ -417,8 +428,8 @@
 				A00100000000000000000018 /* HistoryPasteExecutor.swift in Sources */,
 				A00100000000000000000006 /* PanelController.swift in Sources */,
 				A00100000000000000000007 /* PlaceholderViews.swift in Sources */,
-				A00100000000000000000045 /* HistoryTableView.swift in Sources */,
 				A00100000000000000000029 /* PanelMaterialProvider.swift in Sources */,
+				A00100000000000000000047 /* TopNotchHistoryShelf.swift in Sources */,
 				A00100000000000000000031 /* ShortcutPreferences.swift in Sources */,
 				A00100000000000000000032 /* LaunchAtLoginService.swift in Sources */,
 				A00100000000000000000033 /* SettingsViewModel.swift in Sources */,
@@ -444,6 +455,7 @@
 				A00100000000000000000038 /* OnboardingTests.swift in Sources */,
 				A00100000000000000000041 /* UpdatesTests.swift in Sources */,
 				A00100000000000000000044 /* PerformanceBaselineTests.swift in Sources */,
+				A00100000000000000000048 /* TopNotchHistoryShelfTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -523,7 +535,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGNING_ALLOWED = NO;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 3N2R5K4J63;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.qipli.tests;
@@ -540,7 +554,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGNING_ALLOWED = NO;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 3N2R5K4J63;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.qipli.tests;

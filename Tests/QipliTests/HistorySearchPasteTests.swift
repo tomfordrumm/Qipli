@@ -5,57 +5,6 @@ import XCTest
 
 @MainActor
 final class HistoryViewModelSearchTests: XCTestCase {
-    func testHistoryTableRowsStayCompactAndGrowForMultilinePreviews() {
-        let singleLineHeight = HistoryTableRowLayout.height(
-            for: "Short entry",
-            textWidth: 500
-        )
-        let twoLineHeight = HistoryTableRowLayout.height(
-            for: "First line\nSecond line",
-            textWidth: 500
-        )
-        let threeLineHeight = HistoryTableRowLayout.height(
-            for: "First line\nSecond line\nThird line",
-            textWidth: 500
-        )
-        let fourLineHeight = HistoryTableRowLayout.height(
-            for: "First line\nSecond line\nThird line\nFourth line",
-            textWidth: 500
-        )
-
-        XCTAssertEqual(singleLineHeight, HistoryTableRowLayout.minimumRowHeight)
-        XCTAssertGreaterThan(twoLineHeight, singleLineHeight)
-        XCTAssertGreaterThan(threeLineHeight, twoLineHeight)
-        XCTAssertEqual(fourLineHeight, threeLineHeight)
-    }
-
-    func testHistoryTableRowHeightCacheStaysBoundedAndEvictsOldestEntry() {
-        let firstID = UUID()
-        let secondID = UUID()
-        let thirdID = UUID()
-        var cache = HistoryTableRowHeightCache(capacity: 2)
-
-        cache.insert(height: 38, for: firstID, textWidth: 300)
-        cache.insert(height: 54, for: secondID, textWidth: 300)
-        cache.insert(height: 70, for: thirdID, textWidth: 300)
-
-        XCTAssertEqual(cache.count, 2)
-        XCTAssertNil(cache.height(for: firstID, textWidth: 300))
-        XCTAssertEqual(cache.height(for: secondID, textWidth: 300), 54)
-        XCTAssertEqual(cache.height(for: thirdID, textWidth: 300), 70)
-    }
-
-    func testHistoryTableRowHeightCacheReplacesWidthWithoutGrowing() {
-        let id = UUID()
-        var cache = HistoryTableRowHeightCache(capacity: 2)
-
-        cache.insert(height: 38, for: id, textWidth: 300)
-        cache.insert(height: 54, for: id, textWidth: 220)
-
-        XCTAssertEqual(cache.count, 1)
-        XCTAssertNil(cache.height(for: id, textWidth: 300))
-        XCTAssertEqual(cache.height(for: id, textWidth: 220), 54)
-    }
 
     func testLocalizedCaseInsensitiveSearchSelectsFirstResultAndKeepsStoredText() async throws {
         let first = makeEntry("first", offset: 1)
@@ -71,6 +20,16 @@ final class HistoryViewModelSearchTests: XCTestCase {
         XCTAssertEqual(viewModel.visibleEntries, [matching])
         XCTAssertEqual(viewModel.selectedEntryID, matching.id)
         XCTAssertEqual(store.entries.first { $0.id == matching.id }?.text, "Äpfel")
+    }
+
+    func testEntryForPasteReportsMissingOccurrenceInsteadOfFailingSilently() async {
+        let viewModel = HistoryViewModel(
+            service: HistoryService(store: InMemoryHistoryStore(entries: []))
+        )
+
+        let result = await viewModel.entryForPaste(id: UUID())
+
+        XCTAssertEqual(result, .failure(.entryUnavailable))
     }
 
     func testSelectionMovesWithinVisibleResultsAndResetsAfterQueryChange() async {
@@ -203,24 +162,6 @@ final class HistoryViewModelSearchTests: XCTestCase {
         XCTAssertEqual(store.fetchCount, fetchCountAfterReload)
         XCTAssertEqual(viewModel.visibleEntries, [fresh])
         XCTAssertEqual(viewModel.selectedEntryID, fresh.id)
-    }
-
-    func testFreshPresentationViewportResetSignalIsIndependentFromSearchFocus() async {
-        let first = makeEntry("first", offset: 2)
-        let second = makeEntry("second", offset: 1)
-        let viewModel = HistoryViewModel(service: HistoryService(store: InMemoryHistoryStore(entries: [first, second])))
-
-        await viewModel.reload()
-        viewModel.prepareForPresentation()
-        viewModel.requestPresentationViewportReset()
-
-        XCTAssertEqual(viewModel.selectedEntryID, first.id)
-        XCTAssertEqual(viewModel.presentationViewportResetRequestID, 1)
-        XCTAssertEqual(viewModel.searchFocusRequestID, 0)
-
-        viewModel.requestSearchFocus()
-        XCTAssertEqual(viewModel.presentationViewportResetRequestID, 1)
-        XCTAssertEqual(viewModel.searchFocusRequestID, 1)
     }
 
     func testClearAllReportsSuccessAndFailureWithoutClaimingAFalseEmptyState() async {
@@ -487,6 +428,38 @@ final class HistoryPasteExecutorTests: XCTestCase {
         XCTAssertEqual(registeredChanges, [41])
         XCTAssertEqual(trace.events, ["write", "conceal", "activate", "close", "dispatch"])
         XCTAssertNoThrow(try result?.get())
+    }
+
+    func testPlainTextModeSkipsTypedPayloadAndWritesOnlyCanonicalText() {
+        let trace = Trace()
+        let writer = FakeHistoryPasteboardWriter(changeCount: 43, trace: trace)
+        let executor = makeExecutor(
+            writer: writer,
+            dispatcher: FakePasteCommandDispatcher(trace: trace, result: true),
+            register: { _ in }
+        )
+        let richEntry = HistoryEntry(
+            id: UUID(),
+            text: "plain fixture",
+            activityAt: .now,
+            representations: [
+                HistoryRepresentationDescriptor(kind: .text, typeIdentifier: "public.utf8-plain-text"),
+                HistoryRepresentationDescriptor(kind: .text, typeIdentifier: "public.rtf")
+            ],
+            hasRichText: true
+        )
+
+        executor.paste(
+            entry: richEntry,
+            target: FakeHistoryPasteTarget(trace: trace),
+            mode: .plainText,
+            concealPanel: { trace.events.append("conceal") },
+            closePanel: { trace.events.append("close") },
+            completion: { _ in }
+        )
+
+        XCTAssertEqual(writer.writtenTexts, ["plain fixture"])
+        XCTAssertTrue(writer.writtenPayloads.isEmpty)
     }
 
     func testImagePasteWritesTheExactTypedPayloadBeforeActivation() async {
@@ -874,223 +847,21 @@ final class PanelActivationPresenterTests: XCTestCase {
     }
 }
 
-final class HistoryKeyboardGuidePresentationTests: XCTestCase {
-    func testGuideShowsNavigationAndPasteKeysWithOneAccessibleInstruction() {
-        XCTAssertEqual(
-            HistoryKeyboardGuidePresentation.navigation,
-            HistoryKeyboardGuideItem(
-                symbolSystemNames: ["arrow.up", "arrow.down"],
-                title: "Navigation"
-            )
-        )
-        XCTAssertEqual(
-            HistoryKeyboardGuidePresentation.paste,
-            HistoryKeyboardGuideItem(symbolSystemNames: ["return"], title: "Paste")
-        )
-        XCTAssertEqual(
-            HistoryKeyboardGuidePresentation.accessibilityLabel,
-            "Use Up and Down Arrow to navigate. Press Return to paste."
-        )
-    }
-}
-
 @MainActor
-final class HistoryPanelIntentTests: XCTestCase {
-    func testKeyboardIntentsDriveSelectionPasteAndClose() {
-        let entry = makeEntry("fixture", offset: 1)
-        let trace = HistoryPanelIntentTrace(selectedEntryID: entry.id)
-        let executor = makeExecutor(trace: trace)
-
-        executor.execute(.moveSelection(by: 1))
-        executor.execute(.paste(entry))
-        executor.execute(.close)
-
-        XCTAssertEqual(trace.selectionOffsets, [1])
-        XCTAssertEqual(trace.pastedEntries, [entry])
-        XCTAssertEqual(trace.closeCount, 1)
-    }
-
-    func testWindowKeyboardDownThenEnterPastesTheMovedSelectionSnapshot() async {
-        let first = makeEntry("first fixture", offset: 2)
-        let second = makeEntry("second fixture", offset: 1)
-        let viewModel = HistoryViewModel(
-            service: HistoryService(store: InMemoryHistoryStore(entries: [first, second]))
+final class HistoryPanelInteractionTests: XCTestCase {
+    func testTopNotchPanelConsumesSemanticCancelThroughItsOwner() {
+        let panel = TopNotchHistoryPanel(
+            contentRect: .zero,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
         )
-        await viewModel.reload()
-        viewModel.prepareForPresentation()
-        var pastedEntries: [HistoryEntry] = []
-        var closeCount = 0
-        let executor = HistoryPanelKeyActionExecutor(
-            moveSelection: viewModel.moveSelection,
-            selectedEntry: { viewModel.selectedEntry },
-            pasteEntry: { pastedEntries.append($0) },
-            close: { closeCount += 1 }
-        )
+        var cancellationCount = 0
+        panel.onCancel = { cancellationCount += 1 }
 
-        XCTAssertTrue(executor.execute(.moveSelection(by: 1)))
-        XCTAssertEqual(viewModel.selectedEntryID, second.id)
-        XCTAssertTrue(executor.execute(.pasteSelection))
+        panel.cancelOperation(nil)
 
-        viewModel.select(id: first.id)
-        XCTAssertEqual(pastedEntries.map(\.id), [second.id])
-        XCTAssertEqual(closeCount, 0)
-    }
-
-    func testDoubleClickSelectsExactIDThenPastesOnceWhenAllowed() {
-        let entry = makeEntry("fixture", offset: 1)
-        let trace = HistoryPanelIntentTrace(selectedEntryID: nil)
-        let executor = makeExecutor(trace: trace)
-
-        executor.execute(.selectAndPaste(entry))
-
-        XCTAssertEqual(trace.selectedIDs, [entry.id])
-        XCTAssertEqual(trace.pastedEntries, [entry])
-    }
-
-    func testDoubleClickDoesNotPasteWhenPermissionIsUnavailable() {
-        let entry = makeEntry("fixture", offset: 1)
-        let trace = HistoryPanelIntentTrace(selectedEntryID: nil, canPaste: false)
-
-        makeExecutor(trace: trace).execute(.selectAndPaste(entry))
-
-        XCTAssertEqual(trace.selectedIDs, [entry.id])
-        XCTAssertTrue(trace.pastedEntries.isEmpty)
-    }
-
-    func testPasteIntentCarriesExactFilteredEntryInsteadOfReadingPreviousSelection() {
-        let previous = makeEntry("previous fixture", offset: 2)
-        let filtered = makeEntry("filtered fixture", offset: 1)
-        let trace = HistoryPanelIntentTrace(selectedEntryID: previous.id)
-
-        makeExecutor(trace: trace).execute(.paste(filtered))
-
-        XCTAssertEqual(trace.selectedEntryID, previous.id)
-        XCTAssertEqual(trace.pastedEntries, [filtered])
-    }
-
-    func testDeleteDoesNotSelectOrPaste() {
-        let entry = makeEntry("fixture", offset: 1)
-        let trace = HistoryPanelIntentTrace(selectedEntryID: nil)
-
-        makeExecutor(trace: trace).execute(.delete(entry))
-
-        XCTAssertEqual(trace.deletedIDs, [entry.id])
-        XCTAssertTrue(trace.selectedIDs.isEmpty)
-        XCTAssertTrue(trace.pastedEntries.isEmpty)
-    }
-
-    func testEmptyQueryAdmitsTheExactSelectedEntryForSearchDelete() {
-        let selected = makeEntry("selected fixture", offset: 1)
-        let other = makeEntry("other fixture", offset: 2)
-
-        let admitted = HistorySearchDeleteAdmission.selectedEntry(
-            query: "",
-            state: .list([selected, other]),
-            selectedEntry: selected
-        )
-
-        XCTAssertEqual(admitted?.id, selected.id)
-    }
-
-    func testNonEmptyQueryNoSelectionAndNonListStatePassSearchDeleteThrough() {
-        let entry = makeEntry("fixture", offset: 1)
-
-        XCTAssertNil(HistorySearchDeleteAdmission.selectedEntry(
-            query: "f",
-            state: .list([entry]),
-            selectedEntry: entry
-        ))
-        XCTAssertNil(HistorySearchDeleteAdmission.selectedEntry(
-            query: "",
-            state: .list([entry]),
-            selectedEntry: nil
-        ))
-        XCTAssertNil(HistorySearchDeleteAdmission.selectedEntry(
-            query: "",
-            state: .empty,
-            selectedEntry: entry
-        ))
-    }
-
-    func testLocalDeleteMonitorAdmissionRequiresFocusedKeyWindowAndPhysicalUnmodifiedNonrepeatDelete() {
-        let entry = makeEntry("selected fixture", offset: 1)
-        let sharedContext: (query: String, state: HistoryViewState, selectedEntry: HistoryEntry?) = (
-            "",
-            .list([entry]),
-            entry
-        )
-        let backward = HistorySearchDeleteEvent(key: .backward, hasDisallowedModifiers: false, isRepeat: false)
-        let forward = HistorySearchDeleteEvent(key: .forward, hasDisallowedModifiers: false, isRepeat: false)
-
-        XCTAssertEqual(HistorySearchDeleteAdmission.selectedEntry(
-            for: backward,
-            isSearchFocused: true,
-            isEventInKeyWindow: true,
-            query: sharedContext.query,
-            state: sharedContext.state,
-            selectedEntry: sharedContext.selectedEntry
-        )?.id, entry.id)
-        XCTAssertEqual(HistorySearchDeleteAdmission.selectedEntry(
-            for: forward,
-            isSearchFocused: true,
-            isEventInKeyWindow: true,
-            query: sharedContext.query,
-            state: sharedContext.state,
-            selectedEntry: sharedContext.selectedEntry
-        )?.id, entry.id)
-
-        let rejectedEvents = [
-            HistorySearchDeleteEvent(key: .backward, hasDisallowedModifiers: true, isRepeat: false),
-            HistorySearchDeleteEvent(key: .forward, hasDisallowedModifiers: false, isRepeat: true),
-            HistorySearchDeleteEvent(key: .other, hasDisallowedModifiers: false, isRepeat: false)
-        ]
-        for event in rejectedEvents {
-            XCTAssertNil(HistorySearchDeleteAdmission.selectedEntry(
-                for: event,
-                isSearchFocused: true,
-                isEventInKeyWindow: true,
-                query: sharedContext.query,
-                state: sharedContext.state,
-                selectedEntry: sharedContext.selectedEntry
-            ))
-        }
-
-        XCTAssertNil(HistorySearchDeleteAdmission.selectedEntry(
-            for: backward,
-            isSearchFocused: false,
-            isEventInKeyWindow: true,
-            query: sharedContext.query,
-            state: sharedContext.state,
-            selectedEntry: sharedContext.selectedEntry
-        ))
-        XCTAssertNil(HistorySearchDeleteAdmission.selectedEntry(
-            for: backward,
-            isSearchFocused: true,
-            isEventInKeyWindow: false,
-            query: sharedContext.query,
-            state: sharedContext.state,
-            selectedEntry: sharedContext.selectedEntry
-        ))
-    }
-
-    func testPhysicalDeleteEventNormalizationAcceptsCapsFnAndNumericPadButRejectsShortcutModifiers() throws {
-        let backward = HistorySearchDeleteEvent(event: try makeKeyEvent(keyCode: 51))
-        let forward = HistorySearchDeleteEvent(event: try makeKeyEvent(keyCode: 117))
-        let other = HistorySearchDeleteEvent(event: try makeKeyEvent(keyCode: 0))
-        let modified = HistorySearchDeleteEvent(event: try makeKeyEvent(
-            keyCode: 51,
-            modifierFlags: [.command, .capsLock, .function, .numericPad]
-        ))
-        let acceptedFlags = HistorySearchDeleteEvent(event: try makeKeyEvent(
-            keyCode: 51,
-            modifierFlags: [.capsLock, .function, .numericPad]
-        ))
-
-        XCTAssertEqual(backward.key, .backward)
-        XCTAssertEqual(forward.key, .forward)
-        XCTAssertEqual(other.key, .other)
-        XCTAssertFalse(acceptedFlags.hasDisallowedModifiers)
-        XCTAssertTrue(modified.hasDisallowedModifiers)
+        XCTAssertEqual(cancellationCount, 1)
     }
 
     func testWindowKeyboardAdmissionRoutesExactKeysAndKeepsNativeModifiedInput() {
@@ -1124,19 +895,65 @@ final class HistoryPanelIntentTests: XCTestCase {
         ))
     }
 
+    func testShiftReturnSelectsPlainTextPasteAndOtherEnterModifiersPassThrough() {
+        XCTAssertEqual(HistoryPanelKeyAdmission.action(
+            for: HistoryPanelKeyEvent(
+                key: .enter,
+                hasDisallowedModifiers: false,
+                hasShiftModifier: true,
+                isRepeat: false
+            ),
+            isEventInKeyHistoryWindow: true
+        ), .pasteSelectionAsPlainText)
+        XCTAssertNil(HistoryPanelKeyAdmission.action(
+            for: HistoryPanelKeyEvent(key: .enter, hasDisallowedModifiers: true, isRepeat: false),
+            isEventInKeyHistoryWindow: true
+        ))
+    }
+
+    func testTopNotchKeyboardAdmissionUsesHorizontalArrowsWithoutChangingHistoryAxis() {
+        XCTAssertEqual(HistoryPanelKeyAdmission.action(
+            for: HistoryPanelKeyEvent(key: .left, hasDisallowedModifiers: false, isRepeat: true),
+            isEventInKeyHistoryWindow: true,
+            selectionAxis: .horizontal
+        ), .moveSelection(by: -1))
+        XCTAssertEqual(HistoryPanelKeyAdmission.action(
+            for: HistoryPanelKeyEvent(key: .right, hasDisallowedModifiers: false, isRepeat: true),
+            isEventInKeyHistoryWindow: true,
+            selectionAxis: .horizontal
+        ), .moveSelection(by: 1))
+        XCTAssertNil(HistoryPanelKeyAdmission.action(
+            for: HistoryPanelKeyEvent(key: .up, hasDisallowedModifiers: false, isRepeat: true),
+            isEventInKeyHistoryWindow: true,
+            selectionAxis: .horizontal
+        ))
+        XCTAssertNil(HistoryPanelKeyAdmission.action(
+            for: HistoryPanelKeyEvent(key: .left, hasDisallowedModifiers: false, isRepeat: true),
+            isEventInKeyHistoryWindow: true
+        ))
+    }
+
     func testPassiveDismissHidesOnlyWhileExplicitDismissCancelsAndRestoresFocus() {
         var events: [String] = []
+        var finishHide: (() -> Void)?
         let executor = HistoryPanelDismissalExecutor(
             cancelPaste: { events.append("cancel") },
-            hide: { events.append("hide") },
+            hide: { completion in
+                events.append("hide")
+                finishHide = completion
+            },
             restoreFocus: { events.append("restore") }
         )
 
         executor.execute(.passive)
         XCTAssertEqual(events, ["hide"])
+        finishHide?()
+        XCTAssertEqual(events, ["hide"])
 
         events.removeAll()
         executor.execute(.explicit)
+        XCTAssertEqual(events, ["cancel", "hide"])
+        finishHide?()
         XCTAssertEqual(events, ["cancel", "hide", "restore"])
     }
 
@@ -1165,112 +982,6 @@ final class HistoryPanelIntentTests: XCTestCase {
         .execute()
 
         XCTAssertEqual(events, ["poll", "present", "drain"])
-    }
-
-    func testHistoryTableBridgeAppliesSelectionSynchronously() {
-        let id = UUID()
-        let target = HistoryTableSelectionTargetSpy()
-        let bridge = HistoryTableInteractionBridge()
-        bridge.attach(target)
-
-        bridge.applySelection(id: id)
-
-        XCTAssertEqual(target.calls, [.init(id: id, resetViewport: false)])
-    }
-
-    func testHistoryTableBridgeForwardsEveryRapidSelectionWithoutCoalescing() {
-        let ids = (0..<20).map { _ in UUID() }
-        let target = HistoryTableSelectionTargetSpy()
-        let bridge = HistoryTableInteractionBridge()
-        bridge.attach(target)
-
-        ids.forEach { bridge.applySelection(id: $0) }
-
-        XCTAssertEqual(target.calls.map(\.id), ids)
-        XCTAssertTrue(target.calls.allSatisfy { !$0.resetViewport })
-    }
-
-    func testHistoryTableBridgeResetsViewportInTheSameCall() {
-        let id = UUID()
-        let target = HistoryTableSelectionTargetSpy()
-        let bridge = HistoryTableInteractionBridge()
-        bridge.attach(target)
-
-        bridge.applySelection(id: id, resetViewport: true)
-
-        XCTAssertEqual(target.calls, [.init(id: id, resetViewport: true)])
-    }
-
-    func testHistoryTableBridgeAppliesFreshSnapshotBeforePresentation() {
-        let entries = [makeEntry("first", offset: 2), makeEntry("second", offset: 1)]
-        let target = HistoryTableSelectionTargetSpy()
-        let bridge = HistoryTableInteractionBridge()
-        bridge.attach(target)
-
-        bridge.applySnapshot(
-            entries: entries,
-            revision: 7,
-            selectedEntryID: entries[0].id,
-            resetViewport: true
-        )
-
-        XCTAssertEqual(
-            target.snapshotCalls,
-            [.init(entryIDs: entries.map(\.id), revision: 7, selectedEntryID: entries[0].id, resetViewport: true)]
-        )
-    }
-
-    private func makeKeyEvent(
-        keyCode: UInt16,
-        modifierFlags: NSEvent.ModifierFlags = [],
-        isARepeat: Bool = false
-    ) throws -> NSEvent {
-        try XCTUnwrap(NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: modifierFlags,
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            characters: "",
-            charactersIgnoringModifiers: "",
-            isARepeat: isARepeat,
-            keyCode: keyCode
-        ))
-    }
-
-    private func makeEntry(_ text: String, offset: TimeInterval) -> HistoryEntry {
-        HistoryEntry(id: UUID(), text: text, activityAt: Date.now.addingTimeInterval(offset))
-    }
-
-    private func makeExecutor(trace: HistoryPanelIntentTrace) -> HistoryPanelIntentExecutor {
-        HistoryPanelIntentExecutor(
-            moveSelection: { trace.selectionOffsets.append($0) },
-            select: {
-                trace.selectedIDs.append($0)
-                trace.selectedEntryID = $0
-            },
-            canPaste: { trace.canPaste },
-            pasteEntry: { trace.pastedEntries.append($0) },
-            close: { trace.closeCount += 1 },
-            delete: { trace.deletedIDs.append($0.id) }
-        )
-    }
-}
-
-@MainActor
-private final class HistoryPanelIntentTrace {
-    var selectedEntryID: UUID?
-    var canPaste: Bool
-    var selectionOffsets: [Int] = []
-    var selectedIDs: [UUID] = []
-    var pastedEntries: [HistoryEntry] = []
-    var closeCount = 0
-    var deletedIDs: [UUID] = []
-
-    init(selectedEntryID: UUID?, canPaste: Bool = true) {
-        self.selectedEntryID = selectedEntryID
-        self.canPaste = canPaste
     }
 }
 
@@ -1492,40 +1203,6 @@ private final class FakeQipliApplication: QipliApplicationActivating {
     }
 }
 
-@MainActor
-private final class HistoryTableSelectionTargetSpy: HistoryTableSelectionApplying {
-    struct Call: Equatable {
-        let id: UUID?
-        let resetViewport: Bool
-    }
-
-    private(set) var calls: [Call] = []
-    struct SnapshotCall: Equatable {
-        let entryIDs: [UUID]
-        let revision: Int
-        let selectedEntryID: UUID?
-        let resetViewport: Bool
-    }
-    private(set) var snapshotCalls: [SnapshotCall] = []
-
-    func applySelection(id: UUID?, resetViewport: Bool) {
-        calls.append(Call(id: id, resetViewport: resetViewport))
-    }
-
-    func applySnapshot(
-        entries: [HistoryEntry],
-        revision: Int,
-        selectedEntryID: UUID?,
-        resetViewport: Bool
-    ) {
-        snapshotCalls.append(SnapshotCall(
-            entryIDs: entries.map(\.id),
-            revision: revision,
-            selectedEntryID: selectedEntryID,
-            resetViewport: resetViewport
-        ))
-    }
-}
 
 private extension Result where Success == Void, Failure == HistoryPasteFailure {
     var failureValue: HistoryPasteFailure? {

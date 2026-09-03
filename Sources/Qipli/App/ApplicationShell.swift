@@ -1,6 +1,32 @@
 import AppKit
 import Combine
 
+enum ApplicationShellPasteboardRouting {
+    static func shouldCaptureRichText(_ change: PasteboardTypedChange) -> Bool {
+        (change.richTextCaptureRejected || !change.richTextItems.isEmpty) &&
+            change.imageItems.isEmpty &&
+            change.referenceItems.isEmpty &&
+            change.canonicalText != nil
+    }
+
+
+    static func capture(from change: PasteboardTypedChange) -> HistoryCapture? {
+        if shouldCaptureRichText(change), let canonicalText = change.canonicalText {
+            return .richText(text: canonicalText, items: change.richTextItems)
+        }
+        if !change.imageItems.isEmpty, !change.referenceItems.isEmpty {
+            return .mixed(images: change.imageItems, references: change.referenceItems)
+        }
+        if !change.imageItems.isEmpty {
+            return .images(change.imageItems)
+        }
+        if !change.referenceItems.isEmpty {
+            return .references(change.referenceItems)
+        }
+        return nil
+    }
+}
+
 /// Owns AppKit lifecycle concerns. Product rules remain in the injected services.
 @MainActor
 final class ApplicationShell: NSObject {
@@ -62,30 +88,17 @@ final class ApplicationShell: NSObject {
             // persistence work. A later Start/Cancel cannot claim this copy;
             // the session watermark also rejects a write that predates Start.
             let captureContext = stackSessionController?.captureContext
-            stackCaptureCoordinator?.enqueueExternalText(
-                change.text,
+            stackCaptureCoordinator?.enqueue(
+                .text(change.text),
                 observedChangeCount: change.changeCount,
                 stackCaptureContext: captureContext
             )
             },
             onExternalChange: { [weak stackCaptureCoordinator, weak stackSessionController] change in
                 let captureContext = stackSessionController?.captureContext
-                if !change.imageItems.isEmpty, !change.referenceItems.isEmpty {
-                    stackCaptureCoordinator?.enqueueExternalMixed(
-                        imageItems: change.imageItems,
-                        referenceItems: change.referenceItems,
-                        observedChangeCount: change.changeCount,
-                        stackCaptureContext: captureContext
-                    )
-                } else if !change.imageItems.isEmpty {
-                    stackCaptureCoordinator?.enqueueExternalImage(
-                        change.imageItems,
-                        observedChangeCount: change.changeCount,
-                        stackCaptureContext: captureContext
-                    )
-                } else if !change.referenceItems.isEmpty {
-                    stackCaptureCoordinator?.enqueueExternalReference(
-                        change.referenceItems,
+                if let capture = ApplicationShellPasteboardRouting.capture(from: change) {
+                    stackCaptureCoordinator?.enqueue(
+                        capture,
                         observedChangeCount: change.changeCount,
                         stackCaptureContext: captureContext
                     )

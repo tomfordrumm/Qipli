@@ -25,7 +25,7 @@ covers:
 
 ## Блокеры
 
-Hosted signing/notarization blocker снят: protected Environment содержит exportable Developer ID Application `.p12` и App Store Connect API credentials, а real tag run создал публичный notarized release. До `done` остаются clean-machine launch на macOS 14 и реальный immutable rerun уже опубликованного tag.
+Hosted signing/notarization blocker снят: protected Environment содержит exportable Developer ID Application `.p12` и App Store Connect API credentials, а real tag run создал публичный notarized release. До `done` остаётся реальный immutable rerun уже опубликованного tag.
 
 Лицензия MIT, copyright `Sviatoslav Zhilichev`, сохранение безопасной Git-истории, approver `tomfordrumm` и public visibility после финального audit подтверждены 2026-08-28. S013 завершён.
 
@@ -81,7 +81,7 @@ Hosted signing/notarization blocker снят: protected Environment содерж
 - [x] Реальный protected tag run на GitHub-hosted macOS runner.
 - [x] До публикации ZIP, повторно скачанный из draft через API, проходит SHA-256, archive inventory, strict verifier, `stapler validate` и Gatekeeper; после публикации та же проверка повторяется через публичный URL без GitHub authentication.
 - [x] До и после публикации DMG проходит SHA-256, inventory/layout, Developer ID signature, stapler и Gatekeeper; `releases/latest/download/Qipli.dmg` совпадает с versioned asset.
-- [ ] Clean-machine launch на минимальной поддерживаемой macOS 14 показывает ожидаемый Developer ID/Gatekeeper path.
+- [x] Clean-machine launch на минимальной поддерживаемой macOS 14 показывает ожидаемый Developer ID/Gatekeeper path.
 - [x] Repository public-view smoke подтверждает README/LICENSE/SECURITY, release notes и доступность ZIP без GitHub authentication.
 
 ## Implementation report
@@ -117,6 +117,6 @@ Hosted signing/notarization blocker снят: protected Environment содерж
 
 ### Отклонения и остаточные риски
 
-- Реальный rerun опубликованного `v1.0.0` ещё не выполнен; contract fail closed запрещает второй release или замену immutable assets, но operational proof остаётся открытым.
-- Clean-machine launch на macOS 14 остаётся отдельным release gate S008 и незакрытым verification step S014.
+- 2026-08-30 пользователь подтвердил clean-machine launch и установочный smoke на двух машинах, включая ожидаемый Developer ID/Gatekeeper path.
+- Реальный rerun опубликованного tag ещё не выполнен; contract fail closed запрещает второй release или замену immutable assets, но operational proof остаётся открытым.
 - `v1.0.3` и более ранние releases остаются immutable и не получают DMG задним числом; latest install path начинается с `v1.0.4`.

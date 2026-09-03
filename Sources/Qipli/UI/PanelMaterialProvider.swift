@@ -62,9 +62,27 @@ final class PanelMaterialProvider {
     /// Installs one full-size material surface behind the native title bar while
     /// pinning SwiftUI content to the window's safe content layout rect.
     @discardableResult
-    func install(content: NSView, in panel: NSPanel) -> NSView {
+    func install(
+        content: NSView,
+        in panel: NSPanel,
+        opaqueBackground: NSColor? = nil,
+        opaqueSurface: NSView? = nil
+    ) -> NSView {
         let contentContainer = NSView()
-        let surface = makeSurface(wrapping: contentContainer)
+        let surface: NSView
+        if let opaqueBackground {
+            let resolvedSurface = opaqueSurface ?? NSView()
+            resolvedSurface.wantsLayer = true
+            resolvedSurface.layer?.backgroundColor = opaqueBackground.cgColor
+            resolvedSurface.addSubview(contentContainer)
+            contentContainer.frame = resolvedSurface.bounds
+            contentContainer.autoresizingMask = [.width, .height]
+            (resolvedSurface as? TopNotchHistorySurfaceView)?
+                .attachPresentationContentView(contentContainer)
+            surface = resolvedSurface
+        } else {
+            surface = makeSurface(wrapping: contentContainer)
+        }
         panel.contentView = surface
 
         content.translatesAutoresizingMaskIntoConstraints = false
@@ -101,14 +119,13 @@ final class PanelMaterialProvider {
     }
 }
 
-enum PanelKind: CaseIterable {
-    case history
+enum PanelKind: CaseIterable, Equatable {
+    case topNotchHistory
     case pasteStack
 }
 
-enum PanelWindowChrome: Equatable {
-    case native
-    case custom(cornerRadius: CGFloat)
+struct PanelWindowChrome: Equatable {
+    let cornerRadius: CGFloat
 }
 
 /// Explicitly preserves each panel's pre-S009 AppKit contract while allowing
@@ -122,20 +139,20 @@ struct PanelWindowConfiguration {
 
     static func make(for kind: PanelKind) -> Self {
         switch kind {
-        case .history:
+        case .topNotchHistory:
             Self(
                 title: "History",
-                contentRect: NSRect(x: 0, y: 0, width: 460, height: 340),
-                styleMask: [.titled, .closable, .utilityWindow, .fullSizeContentView],
-                chrome: .native,
+                contentRect: NSRect(origin: .zero, size: TopNotchHistoryGeometry.defaultPanelSize),
+                styleMask: [.borderless],
+                chrome: PanelWindowChrome(cornerRadius: 20),
                 dismissesOnOutsideClick: true
             )
         case .pasteStack:
             Self(
                 title: "Paste Stack",
-                contentRect: NSRect(x: 0, y: 0, width: 400, height: 360),
+                contentRect: NSRect(origin: .zero, size: TopNotchHistoryGeometry.pasteStackPanelSize),
                 styleMask: [.borderless, .nonactivatingPanel],
-                chrome: .custom(cornerRadius: 18),
+                chrome: PanelWindowChrome(cornerRadius: 0),
                 dismissesOnOutsideClick: false
             )
         }
@@ -151,29 +168,13 @@ struct PanelWindowConfiguration {
         panel.backgroundColor = .clear
         panel.hasShadow = true
 
-        switch chrome {
-        case .native:
-            // `.fullSizeContentView` puts the material behind native titled/closable
-            // chrome; content itself is constrained to `contentLayoutGuide` above.
-            panel.titlebarAppearsTransparent = true
-            // `contentRect` is the feature-owned SwiftUI size. Full-size content
-            // extends the material under native chrome, so compensate for that
-            // chrome before pinning SwiftUI to the unobscured layout rect.
-            let titleBarHeight = panel.contentView!.bounds.height - panel.contentLayoutRect.height
-            panel.setContentSize(NSSize(
-                width: contentRect.width,
-                height: contentRect.height + titleBarHeight
-            ))
-        case .custom:
-            panel.setContentSize(contentRect.size)
-        }
+        panel.setContentSize(contentRect.size)
     }
 
     func applySurfacePresentation(to surface: NSView) {
-        guard case let .custom(cornerRadius) = chrome else { return }
         surface.wantsLayer = true
         surface.layer?.cornerCurve = .continuous
-        surface.layer?.cornerRadius = cornerRadius
+        surface.layer?.cornerRadius = chrome.cornerRadius
         surface.layer?.masksToBounds = true
     }
 }

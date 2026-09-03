@@ -45,33 +45,30 @@ final class PanelMaterialProviderTests: XCTestCase {
         XCTAssertTrue(surface.contentView === content)
     }
 
-    func testInstalledMaterialFillsPanelWhileContentRespectsContentLayoutRect() {
-        let configuration = PanelWindowConfiguration.make(for: .history)
+    func testOpaqueSurfaceUsesSolidBackgroundInsteadOfSystemMaterial() {
         let panel = NSPanel(
-            contentRect: configuration.contentRect,
-            styleMask: configuration.styleMask,
+            contentRect: NSRect(x: 0, y: 0, width: 80, height: 40),
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
-        configuration.applyPresentation(to: panel)
-        let content = NSView()
         let provider = PanelMaterialProvider(
             capabilities: FixedPanelMaterialCapabilities(supportsLiquidGlass: false)
         )
 
-        let surface = provider.install(content: content, in: panel)
-        panel.layoutIfNeeded()
+        let surface = provider.install(
+            content: NSView(),
+            in: panel,
+            opaqueBackground: .black
+        )
 
-        XCTAssertTrue(panel.contentView === surface)
-        XCTAssertEqual(surface.bounds.size, panel.contentView?.bounds.size)
-        XCTAssertEqual(content.frame, panel.contentLayoutRect)
-        XCTAssertEqual(panel.contentLayoutRect.size, configuration.contentRect.size)
-        XCTAssertGreaterThan(surface.bounds.height, content.frame.height)
+        XCTAssertFalse(surface is NSVisualEffectView)
+        XCTAssertEqual(surface.layer?.backgroundColor, NSColor.black.cgColor)
     }
 
     func testWindowConfigurationsPreservePanelContractsAndAddOnlySystemPresentation() {
         let expectedTitles: [PanelKind: String] = [
-            .history: "History",
+            .topNotchHistory: "History",
             .pasteStack: "Paste Stack"
         ]
 
@@ -94,25 +91,22 @@ final class PanelMaterialProviderTests: XCTestCase {
             XCTAssertTrue(panel.hasShadow)
         }
 
-        let historyConfiguration = PanelWindowConfiguration.make(for: .history)
-        XCTAssertEqual(historyConfiguration.chrome, .native)
-        XCTAssertTrue(historyConfiguration.styleMask.contains(.titled))
-        XCTAssertTrue(historyConfiguration.styleMask.contains(.closable))
-        XCTAssertTrue(historyConfiguration.styleMask.contains(.utilityWindow))
-        XCTAssertTrue(historyConfiguration.styleMask.contains(.fullSizeContentView))
-        XCTAssertTrue(historyConfiguration.dismissesOnOutsideClick)
+        let topNotchConfiguration = PanelWindowConfiguration.make(for: .topNotchHistory)
+        XCTAssertEqual(topNotchConfiguration.chrome, PanelWindowChrome(cornerRadius: 20))
+        XCTAssertEqual(topNotchConfiguration.contentRect.size, NSSize(width: 1_080, height: 276))
+        XCTAssertTrue(topNotchConfiguration.dismissesOnOutsideClick)
+        XCTAssertFalse(topNotchConfiguration.styleMask.contains(.titled))
+        XCTAssertFalse(topNotchConfiguration.styleMask.contains(.nonactivatingPanel))
 
         let stackConfiguration = PanelWindowConfiguration.make(for: .pasteStack)
-        XCTAssertEqual(stackConfiguration.chrome, .custom(cornerRadius: 18))
+        XCTAssertEqual(stackConfiguration.chrome, PanelWindowChrome(cornerRadius: 0))
         XCTAssertFalse(stackConfiguration.styleMask.contains(.titled))
         XCTAssertFalse(stackConfiguration.styleMask.contains(.closable))
         XCTAssertFalse(stackConfiguration.styleMask.contains(.utilityWindow))
         XCTAssertFalse(stackConfiguration.styleMask.contains(.fullSizeContentView))
         XCTAssertFalse(stackConfiguration.dismissesOnOutsideClick)
-        XCTAssertFalse(PanelWindowConfiguration.make(for: .history).styleMask.contains(.nonactivatingPanel))
         XCTAssertTrue(stackConfiguration.styleMask.contains(.nonactivatingPanel))
-        XCTAssertEqual(PanelWindowConfiguration.make(for: .history).contentRect.size, NSSize(width: 460, height: 340))
-        XCTAssertEqual(stackConfiguration.contentRect.size, NSSize(width: 400, height: 360))
+        XCTAssertEqual(stackConfiguration.contentRect.size, TopNotchHistoryGeometry.pasteStackPanelSize)
     }
 
     func testPasteStackCustomChromeClipsTheSingleMaterialSurface() {
@@ -133,7 +127,7 @@ final class PanelMaterialProviderTests: XCTestCase {
         panel.layoutIfNeeded()
 
         XCTAssertEqual(panel.contentLayoutRect.size, configuration.contentRect.size)
-        XCTAssertEqual(surface.layer?.cornerRadius, 18)
+        XCTAssertEqual(surface.layer?.cornerRadius, 0)
         XCTAssertEqual(surface.layer?.cornerCurve, .continuous)
         XCTAssertTrue(surface.layer?.masksToBounds == true)
     }

@@ -20,8 +20,8 @@ off-by-default periodic update check.
 ## Privacy
 
 Qipli keeps 30 days of clipboard history on the current Mac, including copied
-text, URLs, filenames, file references, and managed images. It has no account,
-telemetry, cloud sync, or automatic secret filtering. Copied passwords or API
+text, standard RTF/HTML formatting, URLs, filenames, file references, and managed
+images. It has no account, telemetry, cloud sync, or automatic secret filtering. Copied passwords or API
 keys can enter local history. Qipli uses the network only for a manual update
 check or periodic update checks after explicit opt-in; update requests do not
 include clipboard, URLs, filenames, paths, images, History, search, or preview

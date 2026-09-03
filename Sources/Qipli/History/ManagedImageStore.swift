@@ -211,6 +211,7 @@ final class ManagedImageAssetStore: ManagedImageStoring {
     let rootURL: URL
     let policy: HistoryImageStoragePolicy
     private let fileManager: FileManager
+    private let assetDirectory: ManagedAssetDirectory
     private let availableCapacityProvider: (URL) -> Int64?
 
     init(
@@ -226,9 +227,11 @@ final class ManagedImageAssetStore: ManagedImageStoring {
                 ?? values?.volumeAvailableCapacity.map(Int64.init)
         }
     ) throws {
-        self.rootURL = rootURL.standardizedFileURL
+        let assetDirectory = ManagedAssetDirectory(rootURL: rootURL, fileManager: fileManager)
+        self.rootURL = assetDirectory.rootURL
         self.policy = policy
         self.fileManager = fileManager
+        self.assetDirectory = assetDirectory
         self.availableCapacityProvider = availableCapacityProvider
         try ensureManagedDirectory(self.rootURL)
         try ensureManagedDirectory(self.rootURL.appendingPathComponent(".tmp", isDirectory: true))
@@ -283,6 +286,7 @@ final class ManagedImageAssetStore: ManagedImageStoring {
             throw ManagedImageStoreError.storageLimitReached
         }
         if let availableCapacity = availableCapacityProvider(rootURL),
+           availableCapacity > 0,
            availableCapacity < Int64(occurrenceBytes) {
             throw ManagedImageStoreError.insufficientDiskSpace
         }
@@ -418,10 +422,8 @@ final class ManagedImageAssetStore: ManagedImageStoring {
 
     func cleanupTemporaryAssets() throws {
         let temporaryURL = rootURL.appendingPathComponent(".tmp", isDirectory: true)
-        try ensureManagedDirectory(temporaryURL)
-        for url in try fileManager.contentsOfDirectory(at: temporaryURL, includingPropertiesForKeys: nil) {
-            try fileManager.removeItem(at: url)
-        }
+        do { try assetDirectory.removeContents(of: temporaryURL) }
+        catch { throw ManagedImageStoreError.invalidManagedPath }
     }
 
     func makeThumbnail(for manifest: ManagedImageAssetManifest) throws -> Data? {
@@ -444,41 +446,21 @@ final class ManagedImageAssetStore: ManagedImageStoring {
     }
 
     private func managedURL(for relativePath: String) throws -> URL {
-        guard !relativePath.isEmpty,
-              !relativePath.contains(".."),
-              !relativePath.hasPrefix("/"),
-              relativePath.hasPrefix("images/")
-        else { throw ManagedImageStoreError.invalidManagedPath }
-        let url = rootURL.appendingPathComponent(relativePath).standardizedFileURL
-        guard url.path.hasPrefix(rootURL.path + "/") else {
-            throw ManagedImageStoreError.invalidManagedPath
-        }
-        var componentURL = rootURL
-        for component in relativePath.split(separator: "/") {
-            componentURL.appendPathComponent(String(component))
-            if fileManager.fileExists(atPath: componentURL.path),
-               (try? fileManager.destinationOfSymbolicLink(atPath: componentURL.path)) != nil {
-                throw ManagedImageStoreError.invalidManagedPath
-            }
-        }
-        return url
+        do { return try assetDirectory.url(for: relativePath, requiredPrefix: "images/") }
+        catch { throw ManagedImageStoreError.invalidManagedPath }
     }
 
     private func ensureManagedDirectory(_ url: URL) throws {
-        if !fileManager.fileExists(atPath: url.path) {
-            try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-        }
-        guard isDirectory(url), !isSymbolicLink(url) else {
-            throw ManagedImageStoreError.invalidManagedPath
-        }
+        do { try assetDirectory.ensureDirectory(url) }
+        catch { throw ManagedImageStoreError.invalidManagedPath }
     }
 
     private func isDirectory(_ url: URL) -> Bool {
-        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        assetDirectory.isDirectory(url)
     }
 
     private func isSymbolicLink(_ url: URL) -> Bool {
-        (try? fileManager.destinationOfSymbolicLink(atPath: url.path)) != nil
+        assetDirectory.isSymbolicLink(url)
     }
 
     private func currentOriginalBytes() -> Int {
@@ -501,8 +483,4 @@ final class ManagedImageAssetStore: ManagedImageStoring {
             return result + size
         }
     }
-}
-
-private extension SHA256.Digest {
-    var hexString: String { map { String(format: "%02x", $0) }.joined() }
 }

@@ -60,8 +60,15 @@ final class SystemHistoryPasteboardWriter: HistoryPasteboardWriting, TypedHistor
 protocol HistoryPasteTarget: AnyObject {
     var isTerminated: Bool { get }
     var isActive: Bool { get }
+    /// The display containing the captured target window, when the platform can
+    /// resolve it. Presentation falls back to the current display otherwise.
+    var preferredScreen: NSScreen? { get }
     /// Returns whether macOS accepted the activation request. It does not guarantee that a third-party field accepted text.
     func activate() -> Bool
+}
+
+extension HistoryPasteTarget {
+    var preferredScreen: NSScreen? { nil }
 }
 
 protocol FrontmostApplicationCapturing: AnyObject {
@@ -90,6 +97,27 @@ private final class SystemHistoryPasteTarget: HistoryPasteTarget {
     var isTerminated: Bool { application.isTerminated }
     var isActive: Bool { application.isActive }
 
+    var preferredScreen: NSScreen? {
+        let windows = (CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]]) ?? []
+        let processID = application.processIdentifier
+        guard let window = windows.first(where: { info in
+            guard let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
+                  let layer = info[kCGWindowLayer as String] as? Int
+            else { return false }
+            return ownerPID == processID && layer == 0
+        }),
+        let bounds = window[kCGWindowBounds as String] as? NSDictionary,
+        let windowRect = CGRect(dictionaryRepresentation: bounds)
+        else { return nil }
+        return NSScreen.screens.first(where: { screen in
+            guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+                return false
+            }
+            let displayBounds = CGDisplayBounds(CGDirectDisplayID(number.uint32Value))
+            return displayBounds.contains(CGPoint(x: windowRect.midX, y: windowRect.midY))
+        })
+    }
+
     func activate() -> Bool {
         guard !application.isTerminated else { return false }
         NSApp.yieldActivation(to: application)
@@ -100,6 +128,7 @@ private final class SystemHistoryPasteTarget: HistoryPasteTarget {
 enum HistoryPasteFailure: Error, Equatable {
     case accessibilityRequired
     case targetUnavailable
+    case entryUnavailable
     case pasteboardWriteFailed
     case referenceUnavailable
     case commandDispatchFailed
@@ -110,6 +139,8 @@ enum HistoryPasteFailure: Error, Equatable {
             "Accessibility access is required before Qipli can send a paste command."
         case .targetUnavailable:
             "The app you were using is no longer available. Return to it, reopen History, and try again."
+        case .entryUnavailable:
+            "This History item is no longer available. The entry was kept; try another item."
         case .pasteboardWriteFailed:
             "Qipli could not prepare the system clipboard. Try again."
         case .referenceUnavailable:
@@ -118,6 +149,11 @@ enum HistoryPasteFailure: Error, Equatable {
             "Qipli could not send the paste command. The history entry was kept; try again."
         }
     }
+}
+
+enum HistoryPasteMode: Equatable, Sendable {
+    case rich
+    case plainText
 }
 
 /// `NSRunningApplication` updates dynamic activation state on the main run loop.
@@ -231,6 +267,7 @@ final class HistoryPasteExecutor {
     func paste(
         entry: HistoryEntry,
         target: HistoryPasteTarget?,
+        mode: HistoryPasteMode = .rich,
         concealPanel: @escaping () -> Void,
         closePanel: @escaping () -> Void,
         completion: @escaping (Result<Void, HistoryPasteFailure>) -> Void
@@ -249,7 +286,7 @@ final class HistoryPasteExecutor {
         }
 
         // Copy the immutable value before any UI or activation side effect can change the selected row.
-        if entry.isTypedEntry {
+        if mode == .rich, entry.isTypedEntry {
             guard let payloadProvider,
                   let typedWriter = pasteboardWriter as? TypedHistoryPasteboardWriting
             else {

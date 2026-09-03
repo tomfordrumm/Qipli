@@ -1,7 +1,7 @@
 ---
 id: S011
 title: Опциональный first-run onboarding
-status: needs_verification
+status: done
 depends_on:
   - S010
 covers:
@@ -76,14 +76,14 @@ covers:
 
 ## Acceptance criteria
 
-- [ ] На чистом preferences profile onboarding показывается до первого pasteboard read; без чистого профиля обычный запуск не показывает его автоматически.
+- [x] На чистом preferences profile onboarding показывается до первого pasteboard read; без чистого профиля обычный запуск не показывает его автоматически.
 - [x] Welcome/Privacy ясно сообщает локальную 30-дневную историю, отсутствие передачи содержимого и риск чувствительного текста до разрешения и capture.
 - [x] Accessibility запрашивается только после явной кнопки; grant, deny, Skip и возврат из System Settings оставляют flow управляемым и показывают фактическое состояние, включая зелёную галочку после grant.
 - [x] Launch at Login выключен по умолчанию и меняется только явным действием; enabled/requires-approval/error соответствуют S010/system status.
 - [x] Текущие default/custom shortcuts и три основные команды объяснены без обязательного recorder step; ordinary `⌘V` и `Esc` обозначены как неизменяемые Stack actions.
 - [x] Finish, Skip и close атомарно сохраняют completion и запускают обычный monitoring один раз; interruption до completion приводит к повторному onboarding.
 - [x] Повторный запуск из Settings не сбрасывает настройки/completion, не останавливает monitor и не вызывает системные prompts без действия пользователя.
-- [ ] Flow полностью доступен с клавиатуры и VoiceOver, корректен в Light/Dark и не использует реальный clipboard content в UI, tests или logs.
+- [x] Flow полностью доступен с клавиатуры и VoiceOver, корректен в Light/Dark и не использует реальный clipboard content в UI, tests или logs.
 
 ## Verification
 
@@ -93,14 +93,14 @@ covers:
 - [x] Presentation tests фиксируют зелёный success tint только для granted Accessibility и сохраняют accent tint для остальных состояний.
 - [x] AppKit window lifecycle tests для first-run и Settings re-open без duplicate.
 - [x] Полный SwiftPM/Xcode XCTest suite, Debug и universal Release builds.
-- [ ] Manual clean-profile matrix: grant, deny, Skip, close, quit mid-flow, relaunch, custom shortcuts и Show Onboarding Again.
-- [ ] Manual privacy/log inspection подтверждает отсутствие pasteboard read до dismissal и отсутствие clipboard/search/previews в logs.
-- [ ] VoiceOver/keyboard, Light/Dark, Reduce Transparency и Increase Contrast smoke.
+- [x] Manual clean-profile matrix: grant, deny, Skip, close, quit mid-flow, relaunch, custom shortcuts и Show Onboarding Again.
+- [x] Manual privacy/log inspection подтверждает отсутствие pasteboard read до dismissal и отсутствие clipboard/search/previews в logs.
+- [x] VoiceOver/keyboard, Light/Dark, Reduce Transparency и Increase Contrast smoke.
 
 ## Definition of Done
 
-- [ ] Все acceptance criteria выполнены.
-- [ ] Автоматические и ручные проверки пройдены.
+- [x] Все acceptance criteria выполнены.
+- [x] Автоматические и ручные проверки пройдены.
 - [x] Приложение собирается без новой регрессии.
 - [x] `STATE.md` и frontmatter синхронно обновлены.
 - [x] Реализация следует D-019 и D-021; новых значимых решений не потребовалось.
@@ -146,8 +146,8 @@ covers:
 
 ### Отклонения от плана
 
-Ручная clean-profile, VoiceOver и appearance/accessibility матрица не выполнялась автоматически. Поэтому срез имеет статус `needs_verification`, а не `done`.
+2026-08-30 пользователь подтвердил ручную clean-profile, VoiceOver/keyboard и appearance/accessibility матрицу на двух машинах. Срез переведён в `done` по пользовательской ручной приёмке.
 
 ### Оставшиеся проблемы
 
-Product-code blockers не обнаружены. Для завершения S011 нужна пользовательская ручная проверка fresh/completed/interrupted/reopened, реальных Accessibility и Launch at Login states, keyboard/VoiceOver, Light/Dark, Reduce Transparency, Increase Contrast и отсутствия раннего clipboard capture. Signed clean-machine install/upgrade verification остаётся в S008.
+Product-code blockers не обнаружены. Signed clean-machine install/upgrade verification остаётся в S008.
