@@ -11,7 +11,6 @@ final class PanelController {
     private let frontmostApplicationCapture: FrontmostApplicationCapturing
     private let screenProvider: PanelScreenProviding
     private let topNotchScreenProvider: TopNotchScreenProviding
-    private let pasteStackPositionStore: PasteStackPanelPositionStoring
     private let openAccessibilitySettings: () -> Void
     private let activationPresenter: PanelActivationPresenter
     private let materialProvider: PanelMaterialProvider
@@ -23,6 +22,10 @@ final class PanelController {
     private var topNotchState: TopNotchPresentationState = .hidden
     private var topNotchPresentationGeneration = 0
     private var stackPanel: NSPanel?
+    private weak var stackTopNotchSurfaceView: TopNotchHistorySurfaceView?
+    private var stackTopNotchState: TopNotchPresentationState = .hidden
+    private var stackTopNotchPresentationGeneration = 0
+    private var stackTopNotchScreen: NSScreen?
     private var historyPasteTarget: HistoryPasteTarget?
     private var historyPasteTransactionID: UUID?
     private var pendingHistoryPasteEntryID: UUID?
@@ -43,7 +46,6 @@ final class PanelController {
         frontmostApplicationCapture: FrontmostApplicationCapturing = SystemFrontmostApplicationCapture(),
         screenProvider: PanelScreenProviding = SystemPanelScreenProvider(),
         topNotchScreenProvider: TopNotchScreenProviding = SystemTopNotchScreenProvider(),
-        pasteStackPositionStore: PasteStackPanelPositionStoring = PasteStackPanelPositionStore(),
         applicationActivator: QipliApplicationActivating? = nil,
         materialProvider: PanelMaterialProvider? = nil,
         activationScheduler: @escaping (@escaping () -> Void) -> Void = { action in
@@ -58,7 +60,6 @@ final class PanelController {
         self.frontmostApplicationCapture = frontmostApplicationCapture
         self.screenProvider = screenProvider
         self.topNotchScreenProvider = topNotchScreenProvider
-        self.pasteStackPositionStore = pasteStackPositionStore
         self.openAccessibilitySettings = openAccessibilitySettings
         self.materialProvider = materialProvider ?? PanelMaterialProvider()
         let resolvedApplicationActivator = applicationActivator ?? SystemQipliApplicationActivator()
@@ -181,6 +182,7 @@ final class PanelController {
     }
 
     func showPasteStack() {
+        let capturedScreen = frontmostApplicationCapture.capturePriorApplication()?.preferredScreen
         let panel = stackPanel ?? makeStackPanel {
             PasteStackPanelView(
                 sessionController: self.stackSessionController,
@@ -188,19 +190,96 @@ final class PanelController {
             )
         }
         stackPanel = panel
-        present(panel, activatesApplication: false, placeOnCurrentScreen: true)
+        stackTopNotchScreen = resolveStackTopNotchScreen(preferredScreen: capturedScreen)
+        panel.ignoresMouseEvents = false
+        panel.alphaValue = 1
+        stackTopNotchPresentationGeneration += 1
+        let presentationGeneration = stackTopNotchPresentationGeneration
+        let expandedFrame = topNotchFrame(
+            for: panel,
+            target: nil,
+            preferredScreen: stackTopNotchScreen,
+            panelSize: TopNotchHistoryGeometry.pasteStackPanelSize,
+            includesSafeAreaBand: false
+        )
+        let collapsedFrame = topNotchCollapsedFrame(
+            from: expandedFrame,
+            target: nil,
+            preferredScreen: stackTopNotchScreen
+        )
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let shouldAnimate = !panel.isVisible
+
+        if shouldAnimate {
+            stackTopNotchState = .appearing
+            panel.setFrame(expandedFrame, display: false)
+            panel.contentView?.layoutSubtreeIfNeeded()
+            if reduceMotion {
+                stackTopNotchSurfaceView?.restoreExpandedPresentation()
+                panel.alphaValue = 0
+            } else {
+                stackTopNotchSurfaceView?.prepareForReveal(
+                    from: topNotchCompactRect(
+                        collapsedFrame: collapsedFrame,
+                        expandedFrame: expandedFrame
+                    )
+                )
+                panel.alphaValue = 1
+            }
+        } else {
+            stackTopNotchState = .visible
+            panel.setFrame(expandedFrame, display: true)
+            stackTopNotchSurfaceView?.restoreExpandedPresentation()
+        }
+
+        present(
+            panel,
+            activatesApplication: false,
+            preserveFrame: true,
+            afterPresent: { [weak self, weak panel] in
+                guard shouldAnimate,
+                      let self,
+                      self.stackTopNotchPresentationGeneration == presentationGeneration,
+                      self.stackTopNotchState == .appearing,
+                      let panel
+                else { return }
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = reduceMotion ? 0.12 : 0.20
+                    context.timingFunction = CAMediaTimingFunction(
+                        controlPoints: 0.23,
+                        1,
+                        0.32,
+                        1
+                    )
+                    panel.animator().alphaValue = 1
+                    if !reduceMotion {
+                        self.stackTopNotchSurfaceView?.animateReveal(duration: context.duration)
+                        self.stackTopNotchSurfaceView?.animateContentAlpha(to: 1)
+                    }
+                } completionHandler: {
+                    Task { @MainActor [weak self] in
+                        guard let self,
+                              self.stackTopNotchPresentationGeneration == presentationGeneration,
+                              self.stackTopNotchState == .appearing,
+                              panel.isVisible
+                        else { return }
+                        self.stackTopNotchState = .visible
+                    }
+                }
+            }
+        )
     }
 
     func cancelPasteStack() {
         stackSessionController.cancel()
-        stackPanel?.orderOut(nil)
+        dismissPasteStackPanel()
         onPasteStackCancelled?()
     }
 
     /// S006 has already published the all-used state before this deferred
     /// presentation cleanup. Do not reactivate the former target here.
     func finishPasteStackAfterCompletion() {
-        stackPanel?.orderOut(nil)
+        dismissPasteStackPanel()
         onPasteStackCancelled?()
     }
 
@@ -210,6 +289,7 @@ final class PanelController {
         cancelPasteStack()
         historyPanel?.delegate = nil
         topNotchState = .hidden
+        stackTopNotchState = .hidden
         [historyPanel, stackPanel].forEach { $0?.close() }
     }
 
@@ -400,6 +480,13 @@ final class PanelController {
                 backing: .buffered,
                 defer: false
             )
+        } else if kind == .pasteStack {
+            panel = TopNotchPasteStackPanel(
+                contentRect: configuration.contentRect,
+                styleMask: configuration.styleMask,
+                backing: .buffered,
+                defer: false
+            )
         } else {
             panel = NSPanel(
                 contentRect: configuration.contentRect,
@@ -412,18 +499,24 @@ final class PanelController {
         let surface = materialProvider.install(
             content: NSHostingView(rootView: content()),
             in: panel,
-            opaqueBackground: kind == .topNotchHistory ? .black : nil,
-            opaqueSurface: kind == .topNotchHistory ? TopNotchHistorySurfaceView() : nil
+            opaqueBackground: kind == .topNotchHistory || kind == .pasteStack ? .black : nil,
+            opaqueSurface: kind == .topNotchHistory || kind == .pasteStack
+                ? TopNotchHistorySurfaceView()
+                : nil
         )
         configuration.applySurfacePresentation(to: surface)
-        if kind == .topNotchHistory {
+        if kind == .topNotchHistory || kind == .pasteStack {
             // The expanded shelf is the notch overlay, not a window below it:
             // keep it above the menu bar and let the black surface meet the
             // hardware camera area directly.
             panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
             surface.layer?.cornerRadius = 0
             panel.hasShadow = false
-            topNotchSurfaceView = surface as? TopNotchHistorySurfaceView
+            if kind == .topNotchHistory {
+                topNotchSurfaceView = surface as? TopNotchHistorySurfaceView
+            } else {
+                stackTopNotchSurfaceView = surface as? TopNotchHistorySurfaceView
+            }
         }
 
         switch kind {
@@ -527,24 +620,26 @@ final class PanelController {
 
     private func makeStackPanel<Content: View>(@ViewBuilder content: () -> Content) -> NSPanel {
         let configuration = PanelWindowConfiguration.make(for: .pasteStack)
-        let panel = NonActivatingStackPanel(
+        let panel = TopNotchPasteStackPanel(
             contentRect: configuration.contentRect,
             styleMask: configuration.styleMask,
             backing: .buffered,
             defer: false
         )
         configuration.applyPresentation(to: panel)
-        let surface = materialProvider.install(content: NSHostingView(rootView: content()), in: panel)
+        let surface = materialProvider.install(
+            content: NSHostingView(rootView: content()),
+            in: panel,
+            opaqueBackground: .black,
+            opaqueSurface: TopNotchHistorySurfaceView()
+        )
         configuration.applySurfacePresentation(to: surface)
 
-        let panelDelegate = StackPanelDelegate(
-            cancel: { [weak self] in
-                self?.cancelPasteStack()
-            },
-            didMove: { [weak self] origin in
-                self?.pasteStackPositionStore.save(origin: origin)
-            }
-        )
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
+        surface.layer?.cornerRadius = 0
+        panel.hasShadow = false
+        stackTopNotchSurfaceView = surface as? TopNotchHistorySurfaceView
+        let panelDelegate = StackPanelDelegate(cancel: { [weak self] in self?.cancelPasteStack() })
         panel.delegate = panelDelegate
         stackPanelDelegate = panelDelegate
         return panel
@@ -556,20 +651,18 @@ final class PanelController {
         requestHistoryViewportReset: Bool = false,
         requiresStrongUserActivation: Bool = false,
         activatesApplication: Bool = true,
-        placeOnCurrentScreen: Bool = false,
         preserveFrame: Bool = false,
         afterPresent: @escaping () -> Void = {}
     ) {
         if preserveFrame {
             // The caller has already selected a display-specific frame, such as
             // the safe-area anchored Top Notch frame.
-        } else if placeOnCurrentScreen {
-            place(panel)
         } else {
             panel.center()
         }
         guard activatesApplication else {
             panel.orderFrontRegardless()
+            afterPresent()
             return
         }
         // `NSApplication.activate()` is an asynchronous, best-effort request. The
@@ -598,13 +691,55 @@ final class PanelController {
         )
     }
 
-    private func topNotchFrame(for panel: NSPanel, target: HistoryPasteTarget?) -> NSRect {
-        guard let screen = target?.preferredScreen ?? topNotchScreenProvider.currentScreen() else {
+    /// A screen object can outlive the display it represents. Resolve the
+    /// stored target against the current display list before moving an active
+    /// Stack, otherwise a disconnected monitor can leave the panel off-screen.
+    private func resolveStackTopNotchScreen(preferredScreen: NSScreen? = nil) -> NSScreen? {
+        let preferred = preferredScreen ?? stackTopNotchScreen
+        guard let preferred else {
+            let fallback = topNotchScreenProvider.currentScreen()
+            stackTopNotchScreen = fallback
+            return fallback
+        }
+
+        let currentScreens = NSScreen.screens
+        if let preferredDisplayID = TopNotchDisplaySelection.resolvedPreferredDisplayID(
+            preferredDisplayID: displayID(for: preferred),
+            availableDisplayIDs: currentScreens.compactMap(displayID(for:))
+        ),
+           let currentScreen = currentScreens.first(where: { displayID(for: $0) == preferredDisplayID }) {
+            stackTopNotchScreen = currentScreen
+            return currentScreen
+        }
+
+        if currentScreens.contains(where: { $0 === preferred }) {
+            stackTopNotchScreen = preferred
+            return preferred
+        }
+
+        let fallback = topNotchScreenProvider.currentScreen()
+        stackTopNotchScreen = fallback
+        return fallback
+    }
+
+    private func displayID(for screen: NSScreen) -> CGDirectDisplayID? {
+        (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)
+            .map { CGDirectDisplayID($0.uint32Value) }
+    }
+
+    private func topNotchFrame(
+        for panel: NSPanel,
+        target: HistoryPasteTarget?,
+        preferredScreen: NSScreen? = nil,
+        panelSize: NSSize = TopNotchHistoryGeometry.defaultPanelSize,
+        includesSafeAreaBand: Bool = true
+    ) -> NSRect {
+        guard let screen = target?.preferredScreen ?? preferredScreen ?? topNotchScreenProvider.currentScreen() else {
             return TopNotchHistoryGeometry.frame(
                 screenFrame: screenProvider.currentVisibleFrame(),
                 visibleFrame: screenProvider.currentVisibleFrame(),
                 safeAreaInsets: NSEdgeInsets(),
-                panelSize: TopNotchHistoryGeometry.defaultPanelSize
+                panelSize: panelSize
             )
         }
         return TopNotchHistoryGeometry.frame(
@@ -614,22 +749,28 @@ final class PanelController {
             auxiliaryTopLeftArea: screen.auxiliaryTopLeftArea,
             auxiliaryTopRightArea: screen.auxiliaryTopRightArea,
             panelSize: NSSize(
-                width: TopNotchHistoryGeometry.defaultPanelSize.width,
-                height: TopNotchHistoryGeometry.defaultPanelSize.height
-                    + topNotchSafeAreaInset(for: target)
+                width: panelSize.width,
+                height: panelSize.height
+                    + (includesSafeAreaBand
+                        ? topNotchSafeAreaInset(for: target, preferredScreen: preferredScreen)
+                        : 0)
             )
         )
     }
 
-    private func topNotchSafeAreaInset(for target: HistoryPasteTarget?) -> CGFloat {
-        max(0, (target?.preferredScreen ?? topNotchScreenProvider.currentScreen())?.safeAreaInsets.top ?? 0)
+    private func topNotchSafeAreaInset(
+        for target: HistoryPasteTarget?,
+        preferredScreen: NSScreen? = nil
+    ) -> CGFloat {
+        max(0, (target?.preferredScreen ?? preferredScreen ?? topNotchScreenProvider.currentScreen())?.safeAreaInsets.top ?? 0)
     }
 
     private func topNotchCollapsedFrame(
         from expandedFrame: NSRect,
-        target: HistoryPasteTarget?
+        target: HistoryPasteTarget?,
+        preferredScreen: NSScreen? = nil
     ) -> NSRect {
-        guard let screen = target?.preferredScreen ?? topNotchScreenProvider.currentScreen() else {
+        guard let screen = target?.preferredScreen ?? preferredScreen ?? topNotchScreenProvider.currentScreen() else {
             return TopNotchHistoryGeometry.collapsedFrame(from: expandedFrame)
         }
         return TopNotchHistoryGeometry.collapsedFrame(
@@ -653,66 +794,99 @@ final class PanelController {
     }
 
     private func refreshVisibleTopNotchFrame() {
-        guard topNotchState == .visible, let panel = historyPanel, panel.isVisible else { return }
-        topNotchLayoutModel.topContentInset = topNotchSafeAreaInset(for: historyPasteTarget)
-        panel.setFrame(topNotchFrame(for: panel, target: historyPasteTarget), display: true)
-    }
-
-    private func place(_ panel: NSPanel) {
-        let origin = FloatingPanelPlacement.restoredOrigin(
-            savedOrigin: pasteStackPositionStore.savedOrigin,
-            panelSize: panel.frame.size,
-            availableVisibleFrames: screenProvider.availableVisibleFrames(),
-            fallbackVisibleFrame: screenProvider.currentVisibleFrame()
-        )
-        panel.setFrameOrigin(origin)
-        pasteStackPositionStore.save(origin: origin)
-    }
-}
-
-protocol PasteStackPanelPositionStoring: AnyObject {
-    var savedOrigin: NSPoint? { get }
-    func save(origin: NSPoint)
-}
-
-final class PasteStackPanelPositionStore: PasteStackPanelPositionStoring {
-    static let defaultStorageKey = "qipli.pasteStackPanelOrigin"
-
-    private let defaults: UserDefaults
-    private let storageKey: String
-
-    init(
-        defaults: UserDefaults = .standard,
-        storageKey: String = PasteStackPanelPositionStore.defaultStorageKey
-    ) {
-        self.defaults = defaults
-        self.storageKey = storageKey
-    }
-
-    var savedOrigin: NSPoint? {
-        guard
-            let coordinates = defaults.array(forKey: storageKey),
-            coordinates.count == 2,
-            let x = (coordinates[0] as? NSNumber)?.doubleValue,
-            let y = (coordinates[1] as? NSNumber)?.doubleValue,
-            x.isFinite,
-            y.isFinite
-        else {
-            return nil
+        if topNotchState == .visible, let panel = historyPanel, panel.isVisible {
+            topNotchLayoutModel.topContentInset = topNotchSafeAreaInset(for: historyPasteTarget)
+            panel.setFrame(topNotchFrame(for: panel, target: historyPasteTarget), display: true)
         }
-        return NSPoint(x: x, y: y)
+        if stackTopNotchState == .visible, let panel = stackPanel, panel.isVisible {
+            let stackScreen = resolveStackTopNotchScreen()
+            panel.setFrame(
+                topNotchFrame(
+                    for: panel,
+                    target: nil,
+                    preferredScreen: stackScreen,
+                    panelSize: TopNotchHistoryGeometry.pasteStackPanelSize,
+                    includesSafeAreaBand: false
+                ),
+                display: true
+            )
+        }
     }
 
-    func save(origin: NSPoint) {
-        guard origin.x.isFinite, origin.y.isFinite else { return }
-        defaults.set([Double(origin.x), Double(origin.y)], forKey: storageKey)
+    private func dismissPasteStackPanel() {
+        guard stackTopNotchState != .dismissing else { return }
+        stackTopNotchPresentationGeneration += 1
+        let presentationGeneration = stackTopNotchPresentationGeneration
+        stackTopNotchState = TopNotchPresentationStateMachine.transition(
+            stackTopNotchState,
+            event: .dismiss
+        )
+        guard let panel = stackPanel, panel.isVisible else {
+            stackTopNotchSurfaceView?.restoreExpandedPresentation()
+            stackPanel?.orderOut(nil)
+            stackTopNotchState = .hidden
+            return
+        }
+
+        panel.ignoresMouseEvents = true
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let stackScreen = resolveStackTopNotchScreen()
+        let expandedFrame = topNotchFrame(
+            for: panel,
+            target: nil,
+            preferredScreen: stackScreen,
+            panelSize: TopNotchHistoryGeometry.pasteStackPanelSize,
+            includesSafeAreaBand: false
+        )
+        let collapsedFrame = topNotchCollapsedFrame(
+            from: expandedFrame,
+            target: nil,
+            preferredScreen: stackTopNotchScreen
+        )
+        let duration = reduceMotion ? 0.10 : 0.16
+        if !reduceMotion {
+            stackTopNotchSurfaceView?.animateDismiss(
+                to: topNotchCompactRect(
+                    collapsedFrame: collapsedFrame,
+                    expandedFrame: expandedFrame
+                ),
+                duration: duration
+            )
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            context.timingFunction = CAMediaTimingFunction(
+                controlPoints: 0.23,
+                1,
+                0.32,
+                1
+            )
+            if reduceMotion {
+                panel.animator().alphaValue = 0
+            } else {
+                stackTopNotchSurfaceView?.animateContentAlpha(to: 0)
+            }
+        } completionHandler: {
+            Task { @MainActor [weak self, weak panel] in
+                guard let self,
+                      let panel,
+                      self.stackTopNotchPresentationGeneration == presentationGeneration,
+                      self.stackTopNotchState == .dismissing
+                else { return }
+                panel.orderOut(nil)
+                panel.alphaValue = 1
+                panel.ignoresMouseEvents = false
+                self.stackTopNotchSurfaceView?.restoreExpandedPresentation()
+                self.stackTopNotchState = .hidden
+            }
+        }
     }
+
 }
 
 /// Narrow AppKit boundary for deciding which display owns a temporary panel.
 protocol PanelScreenProviding: AnyObject {
     func currentVisibleFrame() -> NSRect
-    func availableVisibleFrames() -> [NSRect]
 }
 
 final class SystemPanelScreenProvider: PanelScreenProviding {
@@ -724,39 +898,6 @@ final class SystemPanelScreenProvider: PanelScreenProviding {
             ?? .zero
     }
 
-    func availableVisibleFrames() -> [NSRect] {
-        NSScreen.screens.map(\.visibleFrame)
-    }
-}
-
-enum FloatingPanelPlacement {
-    static func restoredOrigin(
-        savedOrigin: NSPoint?,
-        panelSize: NSSize,
-        availableVisibleFrames: [NSRect],
-        fallbackVisibleFrame: NSRect
-    ) -> NSPoint {
-        if let savedOrigin {
-            let savedFrame = NSRect(origin: savedOrigin, size: panelSize)
-            if availableVisibleFrames.contains(where: { $0.contains(savedFrame) }) {
-                return savedOrigin
-            }
-        }
-        return origin(panelSize: panelSize, visibleFrame: fallbackVisibleFrame)
-    }
-
-    /// Centers a compact panel on the display under the mouse and clamps its
-    /// origin to that display's visible frame (menu bar and Dock excluded).
-    static func origin(panelSize: NSSize, visibleFrame: NSRect) -> NSPoint {
-        let desired = NSPoint(
-            x: visibleFrame.midX - panelSize.width / 2,
-            y: visibleFrame.midY - panelSize.height / 2
-        )
-        return NSPoint(
-            x: min(max(desired.x, visibleFrame.minX), max(visibleFrame.minX, visibleFrame.maxX - panelSize.width)),
-            y: min(max(desired.y, visibleFrame.minY), max(visibleFrame.minY, visibleFrame.maxY - panelSize.height))
-        )
-    }
 }
 
 enum HistoryPanelKeyAction: Equatable {
@@ -1020,7 +1161,7 @@ private final class HistoryPanelDelegate: NSObject, NSWindowDelegate {
     }
 }
 
-private final class NonActivatingStackPanel: NSPanel {
+private final class TopNotchPasteStackPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
@@ -1033,11 +1174,9 @@ private final class TopNotchHistoryPanel: NSPanel {
 @MainActor
 private final class StackPanelDelegate: NSObject, NSWindowDelegate {
     private let cancel: () -> Void
-    private let didMove: (NSPoint) -> Void
 
-    init(cancel: @escaping () -> Void, didMove: @escaping (NSPoint) -> Void) {
+    init(cancel: @escaping () -> Void) {
         self.cancel = cancel
-        self.didMove = didMove
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -1045,10 +1184,6 @@ private final class StackPanelDelegate: NSObject, NSWindowDelegate {
         return false
     }
 
-    func windowDidMove(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow else { return }
-        didMove(window.frame.origin)
-    }
 }
 
 @MainActor

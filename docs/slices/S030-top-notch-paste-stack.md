@@ -1,7 +1,7 @@
 ---
 id: S030
 title: Paste Stack в Top Notch
-status: ready
+status: needs_verification
 depends_on:
   - S007
   - S012
@@ -91,4 +91,17 @@ covers:
 
 ## Implementation report
 
-Не начато.
+Реализовано в текущем рабочем срезе:
+
+- обычная floating Paste Stack panel заменена на отдельную borderless nonactivating Top Notch panel с теми же safe-area geometry, `mainMenu + 3` level, чёрной поверхностью и `TopNotchHistorySurfaceView` mask contract, что и History;
+- `⌘⇧C` и Start из status menu продолжают использовать существующие `StackCollectionStarter` и tagged Copy paths. Stack panel не активирует Qipli, не становится key и не устанавливает History keyboard/outside-click monitors;
+- Stack UI переведён из вертикального `List` в горизонтальные bounded text cards. Карточки показывают exact position, bounded preview, Next/Processing/Used, Reactivate и deferred UUID-based reorder controls с VoiceOver actions;
+- В Stack убраны нижние progress/direction подписи. Header теперь стоит у верхней границы панели, safe-area учитывается только при её placement и не съедает внутреннюю высоту, а карточки получили меньшую высоту и ограниченный трёхстрочный preview;
+- screen parameter changes пересчитывают Stack frame и safe-area inset, повторно разрешая сохранённый display ID только среди подключённых экранов и используя fallback при отключении монитора. Legacy saved floating origin, drag region и move persistence удалены, поэтому старое положение не участвует в Top Notch placement;
+- Cancel, global Escape и auto-finish используют отдельный generation-guarded reverse mask transition. `orderOut` выполняется после схлопывания; при Reduce Motion остаётся короткий opacity transition. Existing StackSession, input interception, self-write suppression, retry и ordinary `⌘V` contracts не менялись.
+
+Focused SwiftPM UI/geometry/material suite после реализации: `19/19`; расширенный S030-relevant suite (`PanelMaterialProviderTests`, `TopNotchHistoryShelfTests`, `StackSessionControllerTests`) прошёл `63/63`; полный SwiftPM suite прошёл `230/230`. `git diff --check` прошёл.
+
+После review исправлены два края: Stack теперь захватывает `preferredScreen` внешнего frontmost приложения перед показом, а повторный Start перед новой анимацией сбрасывает `ignoresMouseEvents` и отменяет stale transition через generation guard.
+
+До `done` остаётся manual MacBook camera-housing + external notchless display matrix из Verification: nonactivation/focus, source Copy, menu Start, reorder/direction, sequential paste, Reactivate/`⌘⇧Z`, Escape/Cancel, auto-finish, second display, full-screen Space и accessibility appearances.

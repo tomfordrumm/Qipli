@@ -1,6 +1,6 @@
 # Qipli — план поставки и развития продукта
 
-Статус: core MVP подтверждён; signed public release опубликован; typed History и S027 завершены; S030 готов к переносу Paste Stack в Top Notch
+Статус: core MVP подтверждён; signed public release опубликован; typed History и S027 завершены; S030 реализован и ждёт manual verification
 
 Дата: 2026-09-02
 
@@ -87,7 +87,7 @@
 
 После milestone `⌘⇧C` и status menu показывают Paste Stack в той же hardware-safe верхней форме, что History, но Stack сохраняет отдельный nonactivating lifecycle и весь подтверждённый sequence/recovery contract.
 
-30. [`S030 — Paste Stack в Top Notch`](slices/S030-top-notch-paste-stack.md) — `ready`; зависит от завершённых S007/S012/S021/S027 и заменяет отдельное перемещаемое Stack window единым верхним presentation.
+30. [`S030 — Paste Stack в Top Notch`](slices/S030-top-notch-paste-stack.md) — `needs_verification`; implementation и focused automated checks прошли, manual matrix остаётся открытой; зависит от завершённых S007/S012/S021/S027 и заменяет отдельное перемещаемое Stack window единым верхним presentation.
 
 Результат: History и Paste Stack используют одну визуальную Top Notch оболочку. History принимает Search focus и закрывается по своим transient rules; Stack не активирует Qipli, остаётся видимым во время работы во внешнем приложении и схлопывается только после Cancel/Escape/auto-finish.
 
@@ -109,7 +109,7 @@ S016 + S024 -> S027
 S007 + S012 + S021 + S027 -> S030
 ```
 
-Граф ацикличен. Performance hardening S017–S022 завершён. Typed History начинается с bounded schema/query boundary в S023; managed images добавляются в S024; reference-only URL/file/video — в S025; migration/release proof — в S026. S023–S026 завершены. Top Notch S027 реализован и принят по manual geometry/focus/paste/accessibility matrix. Решением D-038 S028/S029 перенесены в backlog, а ближайшим ready slice является S030 — полный Paste Stack в Top Notch без специального active-Stack-to-History flow. S013 завершён после локальных и hosted main/PR/fork CI runs. S014 опубликовал реальный `v1.0.5`, clean-machine proof подтверждён, остаётся immutable rerun. S015 завершён после ручной update/failure/accessibility matrix; production feed указывает на `v1.0.5`. S008 остаётся финальным gate только до operational rerun proof. Изменения pasteboard/input, permission, ServiceManagement, network, dependency, signing, update или performance contracts должны сначала согласовываться в `TECHNICAL.md` и `DECISIONS.md`.
+Граф ацикличен. Performance hardening S017–S022 завершён. Typed History начинается с bounded schema/query boundary в S023; managed images добавляются в S024; reference-only URL/file/video — в S025; migration/release proof — в S026. S023–S026 завершены. Top Notch S027 реализован и принят по manual geometry/focus/paste/accessibility matrix. Решением D-038 S028/S029 перенесены в backlog. S030 реализован и ждёт manual Stack matrix, без специального active-Stack-to-History flow. S013 завершён после локальных и hosted main/PR/fork CI runs. S014 опубликовал реальный `v1.0.5`, clean-machine proof подтверждён, остаётся immutable rerun. S015 завершён после ручной update/failure/accessibility matrix; production feed указывает на `v1.0.5`. S008 остаётся финальным gate только до operational rerun proof. Изменения pasteboard/input, permission, ServiceManagement, network, dependency, signing, update или performance contracts должны сначала согласовываться в `TECHNICAL.md` и `DECISIONS.md`.
 
 ## Покрытие требований
 

@@ -132,7 +132,7 @@ final class PanelMaterialProviderTests: XCTestCase {
         XCTAssertFalse(topNotchConfiguration.styleMask.contains(.nonactivatingPanel))
 
         let stackConfiguration = PanelWindowConfiguration.make(for: .pasteStack)
-        XCTAssertEqual(stackConfiguration.chrome, .custom(cornerRadius: 18))
+        XCTAssertEqual(stackConfiguration.chrome, .custom(cornerRadius: 0))
         XCTAssertFalse(stackConfiguration.styleMask.contains(.titled))
         XCTAssertFalse(stackConfiguration.styleMask.contains(.closable))
         XCTAssertFalse(stackConfiguration.styleMask.contains(.utilityWindow))
@@ -141,7 +141,7 @@ final class PanelMaterialProviderTests: XCTestCase {
         XCTAssertFalse(PanelWindowConfiguration.make(for: .history).styleMask.contains(.nonactivatingPanel))
         XCTAssertTrue(stackConfiguration.styleMask.contains(.nonactivatingPanel))
         XCTAssertEqual(PanelWindowConfiguration.make(for: .history).contentRect.size, NSSize(width: 460, height: 340))
-        XCTAssertEqual(stackConfiguration.contentRect.size, NSSize(width: 400, height: 360))
+        XCTAssertEqual(stackConfiguration.contentRect.size, TopNotchHistoryGeometry.pasteStackPanelSize)
     }
 
     func testPasteStackCustomChromeClipsTheSingleMaterialSurface() {
@@ -162,7 +162,7 @@ final class PanelMaterialProviderTests: XCTestCase {
         panel.layoutIfNeeded()
 
         XCTAssertEqual(panel.contentLayoutRect.size, configuration.contentRect.size)
-        XCTAssertEqual(surface.layer?.cornerRadius, 18)
+        XCTAssertEqual(surface.layer?.cornerRadius, 0)
         XCTAssertEqual(surface.layer?.cornerCurve, .continuous)
         XCTAssertTrue(surface.layer?.masksToBounds == true)
     }

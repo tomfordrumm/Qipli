@@ -15,11 +15,13 @@
 - Milestone M6 — performance hardening — завершён: S017–S022 реализованы, automated и описанные manual gates закрыты.
 - Milestone M7 — bounded typed History — завершён: S023–S026 закрыты, включая manual browser/Finder matrix S025.
 - Milestone M8 — Top Notch History — завершён: S027 закрыт после manual display/focus/paste/accessibility matrix.
-- Milestone M9 — Paste Stack в Top Notch — активен: S030 полностью специфицирован и готов к реализации; S028/S029 перенесены в backlog решением D-038.
+- Milestone M9 — Paste Stack в Top Notch — активен: S030 реализован и ждёт manual verification; S028/S029 перенесены в backlog решением D-038.
+- Код S030 и focused automated checks завершены; реальная display, focus, sequence и accessibility matrix остаётся открытой.
 - S008 остаётся финальным blocked release gate до operational immutable rerun proof и связанной clean-machine/manual release matrix. Локальные Developer ID и notarization credentials подтверждены 2026-08-26.
 - Fail-closed release workflow опубликовал первый Developer ID-signed и notarized GitHub Release `v1.0.0`; публичный ZIP независимо скачан и принят Gatekeeper.
 - Завершённые срезы: [`S001 — Скелет приложения и системное разрешение`](slices/S001-foundation-permissions.md), [`S002 — Захват, хранение и удаление истории`](slices/S002-history-capture-retention.md), [`S003 — Поиск и повторная вставка из истории`](slices/S003-history-search-paste.md), [`S004 — Сбор и визуальная панель Paste Stack`](slices/S004-stack-collection.md), [`S005 — Порядок и направление обхода`](slices/S005-stack-order-direction.md), [`S006 — Последовательная вставка и прогресс`](slices/S006-stack-sequential-paste.md), [`S007 — Повторная активация и отмена`](slices/S007-stack-recovery-cancel.md), [`S009 — Адаптивные стеклянные панели`](slices/S009-adaptive-glass-panels.md), [`S010 — Settings, пользовательские сочетания и запуск при входе`](slices/S010-settings-shortcuts-login.md), [`S011 — Опциональный first-run onboarding`](slices/S011-first-run-onboarding.md), [`S012 — Edge-to-edge Paste Stack`](slices/S012-borderless-paste-stack-panel.md), [`S013 — Версии и безопасный public CI`](slices/S013-versioning-public-ci.md), [`S015 — Безопасные обновления через Sparkle`](slices/S015-sparkle-secure-updates.md), [`S016 — Надёжная навигация и закрытие History`](slices/S016-history-interaction-reliability.md), [`S017–S026 — Performance и typed History`](slices/S017-performance-baselines.md), [`S027 — Top Notch History shelf`](slices/S027-top-notch-history-shelf.md). Открыты S014 release gates и ready S030; S028/S029 находятся в backlog.
 - S013 завершён: local, push-to-main, обычный PR и fork-style PR checks прошли. Для S014 выбраны MIT и сохранение истории; repository public, security settings включены, `main` и Environment `release` защищены, hosted credentials и real tag run подтверждены. Остаётся immutable rerun S014. Manual gates S011/S012/S016 закрыты последующими подтверждениями.
+- Строка со старым перечислением `ready S030` выше историческая; актуальный статус S030 — `needs_verification`, как указано в таблице и журнале переходов.
 
 ## Статусы срезов
 
@@ -54,7 +56,7 @@
 | S027 | Top Notch History shelf | `done` | implementation, focused tests и manual display/focus/paste/accessibility matrix подтверждены |
 | S028 | Полноценная карточная History | `backlog` | BL-004; не входит в активный план |
 | S029 | Favorites navigation | `backlog` | BL-005; presentation/retention требуют нового решения |
-| S030 | Paste Stack в Top Notch | `ready` | S007, S012, S021, S027 |
+| S030 | Paste Stack в Top Notch | `needs_verification` | S007, S012, S021, S027 |
 
 ## Блокеры и recheck points
 
@@ -128,7 +130,7 @@ S026 завершён: HistoryStore `33/33`, полный SwiftPM `222/222`, mig
 
 ## Следующее действие
 
-Реализовать S030 по [`docs/slices/S030-top-notch-paste-stack.md`](slices/S030-top-notch-paste-stack.md), сохранив History activating lifecycle и Stack nonactivating/input contracts раздельными.
+Выполнить manual verification matrix S030 по [`docs/slices/S030-top-notch-paste-stack.md`](slices/S030-top-notch-paste-stack.md), сохранив History activating lifecycle и Stack nonactivating/input contracts раздельными.
 
 ## Журнал переходов
 
@@ -224,3 +226,4 @@ S026 завершён: HistoryStore `33/33`, полный SwiftPM `222/222`, mig
 | 2026-09-02 | Синхронизированы typed History статусы и реализован S027 Top Notch History shelf. | S023/S026 переведены в `done`, S025 сохранён как `needs_verification`, S027 переведён в `needs_verification` до ручной display/focus/paste/accessibility matrix; добавлены geometry/state/card tests и native panel integration. |
 | 2026-09-02 | S025 и S027 переведены в `done`. | Пользователь подтвердил ручную browser/Finder matrix S025 и manual display/appearance/accessibility/focus/paste matrix S027. Automated evidence и Implementation reports синхронизированы; S027 full SwiftPM rerun имеет отдельный environment failure `insufficientDiskSpace`, без кодового failure. |
 | 2026-09-02 | S028/S029 перенесены в backlog; S030 создан и переведён в `ready`. | Пользователь отказался от ближайшего full History/Favorites flow и выбрал единый Top Notch shell для History и Paste Stack. D-038 фиксирует отдельные activating/nonactivating lifecycle contracts и исключает специальный active-Stack-to-History сценарий из текущего scope. |
+| 2026-09-02 | S030 реализован и переведён в `needs_verification`. | Paste Stack получил отдельную nonactivating Top Notch panel, горизонтальные bounded cards, shared safe-area/mask transitions и generation-guarded Cancel/auto-finish. Legacy floating position store удалён; после Terra review Stack получил source-display capture и reset interrupted dismissal. Focused UI suite 19/19, расширенный S030-relevant suite 63/63, полный SwiftPM 230/230. Manual multi-display, focus, sequence и accessibility matrix остаётся открытой. |

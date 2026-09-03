@@ -160,9 +160,9 @@ struct PanelWindowConfiguration {
         case .pasteStack:
             Self(
                 title: "Paste Stack",
-                contentRect: NSRect(x: 0, y: 0, width: 400, height: 360),
+                contentRect: NSRect(origin: .zero, size: TopNotchHistoryGeometry.pasteStackPanelSize),
                 styleMask: [.borderless, .nonactivatingPanel],
-                chrome: .custom(cornerRadius: 18),
+                chrome: .custom(cornerRadius: 0),
                 dismissesOnOutsideClick: false
             )
         }

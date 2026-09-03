@@ -68,10 +68,10 @@ Qipli — нативное menu bar приложение на Swift. Интер�
 System pasteboard ──> PasteboardMonitor ──> HistoryService ──> Core Data
                               │                    │
                               └──> StackSession    └──> HistoryPresentationState
-                                      │                    ├──> Top Notch NSPanel
+                                      │                    ├──> Top Notch History NSPanel
 Keyboard event tap ──> InputCoordinator             └──> Full History NSWindow
                               │
-                              ├──> StackSession ──> Stack NSPanel
+                              ├──> StackSession ──> Top Notch nonactivating Stack NSPanel
                               └──> PasteExecutor ──> prior frontmost app
 
 Local preferences ──> SettingsService ──> Shortcut snapshot ──> InputCoordinator

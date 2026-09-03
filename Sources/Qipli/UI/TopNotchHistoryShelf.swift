@@ -38,6 +38,8 @@ enum TopNotchPresentationStateMachine {
 enum TopNotchHistoryGeometry {
     static let defaultPanelSize = NSSize(width: 1_080, height: 276)
     static let minimumPanelSize = NSSize(width: 560, height: 220)
+    static let pasteStackPanelSize = NSSize(width: 1_080, height: 224)
+    static let pasteStackMinimumPanelSize = NSSize(width: 560, height: 190)
     static let topCornerRadius: CGFloat = 32
     static let bottomCornerRadius: CGFloat = 36
     static let contentHorizontalInset = topCornerRadius + 14
@@ -116,6 +118,18 @@ enum TopNotchHistoryGeometry {
             width: width,
             height: height
         )
+    }
+}
+
+enum TopNotchDisplaySelection {
+    static func resolvedPreferredDisplayID(
+        preferredDisplayID: CGDirectDisplayID?,
+        availableDisplayIDs: [CGDirectDisplayID]
+    ) -> CGDirectDisplayID? {
+        guard let preferredDisplayID,
+              availableDisplayIDs.contains(preferredDisplayID)
+        else { return nil }
+        return preferredDisplayID
     }
 }
 

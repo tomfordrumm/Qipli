@@ -484,23 +484,30 @@ struct PasteStackPanelView: View {
     let close: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 6) {
             header
-            Divider()
             stackContent
-
             if let statusMessage {
-                Divider()
                 Text(statusMessage)
                     .font(.caption)
                     .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
             }
         }
-        .frame(width: 400, height: 360, alignment: .topLeading)
+        .padding(.top, 4)
+        .padding(.horizontal, TopNotchHistoryGeometry.contentHorizontalInset)
+        .padding(.bottom, 8)
+        .frame(
+            minWidth: TopNotchHistoryGeometry.pasteStackMinimumPanelSize.width,
+            idealWidth: TopNotchHistoryGeometry.pasteStackPanelSize.width,
+            maxWidth: .infinity,
+            minHeight: TopNotchHistoryGeometry.pasteStackMinimumPanelSize.height,
+            idealHeight: TopNotchHistoryGeometry.pasteStackPanelSize.height,
+            maxHeight: .infinity,
+            alignment: .topLeading
+        )
+        .environment(\.colorScheme, .dark)
         .accessibilityIdentifier("paste-stack-panel")
     }
 
@@ -512,10 +519,8 @@ struct PasteStackPanelView: View {
             }
             .modifier(PasteStackHeaderButtonChrome())
             .accessibilityLabel("Cancel Paste Stack")
-            .accessibilityHint("Closes the panel and cancels the unfinished stack.")
+            .accessibilityHint("Cancels the unfinished stack.")
             .help("Cancel Paste Stack")
-
-            Spacer(minLength: 0)
 
             Text("Paste Stack")
                 .font(.system(size: 15, weight: .semibold))
@@ -523,15 +528,9 @@ struct PasteStackPanelView: View {
                 .accessibilityAddTraits(.isHeader)
 
             Spacer(minLength: 0)
-
             directionToggle
         }
-        .padding(.horizontal, 14)
-        .frame(height: 52)
-        .background {
-            PasteStackWindowDragRegion()
-                .accessibilityHidden(true)
-        }
+        .frame(height: 30)
     }
 
     @ViewBuilder
@@ -543,22 +542,16 @@ struct PasteStackPanelView: View {
                 description: Text("This stack starts empty and collects new copies only.")
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(24)
         } else {
-            List {
-                ForEach(sessionController.occurrences) { occurrence in
-                    occurrenceRow(occurrence)
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 10) {
+                    ForEach(sessionController.occurrences) { occurrence in
+                        occurrenceCard(occurrence)
+                    }
                 }
-                .onMove { source, destination in
-                    execute(.moveOccurrences(source, to: destination))
-                }
-                .moveDisabled(!canReorder)
+                .padding(.vertical, 2)
             }
-            .listStyle(.plain)
-            .contentMargins(.horizontal, 0, for: .scrollContent)
-            .scrollContentBackground(.hidden)
+            .scrollIndicators(.hidden)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -597,7 +590,7 @@ struct PasteStackPanelView: View {
         .help(configuration.accessibilityHint)
     }
 
-    private func occurrenceRow(_ occurrence: StackOccurrence) -> some View {
+    private func occurrenceCard(_ occurrence: StackOccurrence) -> some View {
         let index = occurrence.position
         let isReactivationPriority = sessionController.reactivationPriorityID == occurrence.id
         let isNext = !sessionController.hasReactivationPriority
@@ -606,74 +599,80 @@ struct PasteStackPanelView: View {
         let isPriorityNext = isNext || isReactivationPriority
         let accessibleMoves = controlState.accessibilityMoveDirections(position: index)
 
-        return HStack(alignment: .top, spacing: 8) {
-            if occurrence.state == .pending && canReorder {
-                Image(systemName: "line.3.horizontal")
-                    .foregroundStyle(.tertiary)
-                    .accessibilityHidden(true)
-            }
-            Text("\(index + 1).")
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .frame(width: 28, alignment: .trailing)
-            Text(StackPreview.text(for: occurrence.text))
-                .lineLimit(3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if occurrence.state == .processing {
-                ProgressView()
-                    .controlSize(.small)
-                    .accessibilityLabel("Preparing paste")
-            } else if isUsed {
-                Label("Used", systemImage: "checkmark.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("Used item")
-            }
-            if isReactivationPriority {
-                Image(systemName: "arrow.counterclockwise.circle.fill")
-                    .foregroundStyle(.orange)
-                    .accessibilityLabel(
-                        occurrence.state == .processing
-                            ? PasteStackPanelAccessibility.reactivatingItemLabel
-                            : PasteStackPanelAccessibility.reactivatedNextItemLabel
-                    )
-            } else if isNext {
-                Image(systemName: "arrow.right.circle.fill")
-                    .foregroundStyle(.tint)
-                    .accessibilityLabel(PasteStackPanelAccessibility.nextItemLabel)
-            }
-            if isUsed {
-                Button {
-                    execute(.reactivate(occurrence.id))
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("\(index + 1)")
+                    .font(.headline.monospacedDigit())
+                if isNext {
+                    Label("Next", systemImage: "arrow.right.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.tint)
+                } else if isReactivationPriority {
+                    Label("Next again", systemImage: "arrow.counterclockwise.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
                 }
-                .buttonStyle(.borderless)
-                .accessibilityLabel(PasteStackPanelAccessibility.reactivateLabel(position: index))
-                .accessibilityHint("Makes this used item the next stack paste. Press Command-V to send it.")
-                .help("Reactivate")
+                Spacer(minLength: 0)
+                if occurrence.state == .processing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Preparing paste")
+                } else if isUsed {
+                    Label("Used", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Text(StackPreview.text(for: occurrence.text))
+                .font(.system(size: 14, weight: .medium))
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            HStack(spacing: 4) {
+                if canReorder {
+                    Button {
+                        execute(.moveOccurrence(occurrence.id, by: -1))
+                    } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .modifier(PasteStackCardButtonChrome())
+                    .disabled(!accessibleMoves.contains(.up))
+                    .accessibilityLabel(PasteStackPanelAccessibility.moveActionLabel(direction: .up))
+
+                    Button {
+                        execute(.moveOccurrence(occurrence.id, by: 1))
+                    } label: {
+                        Image(systemName: "chevron.right")
+                    }
+                    .modifier(PasteStackCardButtonChrome())
+                    .disabled(!accessibleMoves.contains(.down))
+                    .accessibilityLabel(PasteStackPanelAccessibility.moveActionLabel(direction: .down))
+                }
+                Spacer(minLength: 0)
+                if isUsed {
+                    Button {
+                        execute(.reactivate(occurrence.id))
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                    }
+                    .modifier(PasteStackCardButtonChrome())
+                    .accessibilityLabel(PasteStackPanelAccessibility.reactivateLabel(position: index))
+                    .accessibilityHint("Makes this used item the next stack paste.")
+                    .help("Reactivate")
+                }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
+        .padding(10)
+        .frame(width: 208, height: 136, alignment: .topLeading)
         .opacity(isUsed && !isReactivationPriority ? 0.55 : 1)
         .background {
-            if isPriorityNext {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.10))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.accentColor.opacity(0.45))
-                    }
-            }
-        }
-        // Keep native separators full-width, independent of compact status icons.
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .alignmentGuide(.listRowSeparatorLeading) { dimensions in
-            dimensions[.leading]
-        }
-        .alignmentGuide(.listRowSeparatorTrailing) { dimensions in
-            dimensions[.trailing]
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(isPriorityNext ? Color.accentColor.opacity(0.16) : Color.white.opacity(0.08))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(isPriorityNext ? Color.accentColor.opacity(0.60) : Color.white.opacity(0.12))
+                }
         }
         .accessibilityElement(children: .contain)
         .accessibilityActions {
@@ -718,6 +717,18 @@ struct PasteStackPanelView: View {
     }
 }
 
+private struct PasteStackCardButtonChrome: ViewModifier {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func body(content: Content) -> some View {
+        content
+            .buttonStyle(.plain)
+            .foregroundStyle(isEnabled ? Color.primary : Color.secondary.opacity(0.45))
+            .frame(width: 26, height: 26)
+            .background(Color.white.opacity(isEnabled ? 0.08 : 0.03), in: Circle())
+    }
+}
+
 private struct PasteStackHeaderButtonChrome: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
@@ -733,20 +744,6 @@ private struct PasteStackHeaderButtonChrome: ViewModifier {
             }
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
-    }
-}
-
-private struct PasteStackWindowDragRegion: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        WindowDragView()
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
-
-    private final class WindowDragView: NSView {
-        override func mouseDown(with event: NSEvent) {
-            window?.performDrag(with: event)
-        }
     }
 }
 

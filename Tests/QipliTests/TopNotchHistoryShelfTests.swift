@@ -3,6 +3,22 @@ import XCTest
 @testable import Qipli
 
 final class TopNotchHistoryShelfTests: XCTestCase {
+    func testDisconnectedPreferredDisplayIsRejectedBeforePlacement() {
+        XCTAssertNil(
+            TopNotchDisplaySelection.resolvedPreferredDisplayID(
+                preferredDisplayID: CGDirectDisplayID(42),
+                availableDisplayIDs: [CGDirectDisplayID(1), CGDirectDisplayID(2)]
+            )
+        )
+        XCTAssertEqual(
+            TopNotchDisplaySelection.resolvedPreferredDisplayID(
+                preferredDisplayID: CGDirectDisplayID(2),
+                availableDisplayIDs: [CGDirectDisplayID(1), CGDirectDisplayID(2)]
+            ),
+            CGDirectDisplayID(2)
+        )
+    }
+
     func testCameraSafePlacementKeepsStableTopAnchorAndFitsVisibleWidth() {
         let frame = TopNotchHistoryGeometry.frame(
             screenFrame: NSRect(x: 0, y: 0, width: 1_512, height: 982),
