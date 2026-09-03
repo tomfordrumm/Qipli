@@ -41,3 +41,11 @@
 - Решение на сейчас: favorite marker, migration и navigation не входят в активный продуктовый контракт.
 - Следующее действие: сначала подтвердить конкретный сценарий Favorites и решить, влияет ли marker на 30-day retention; затем заново определить presentation независимо от старого S029.
 - Ограничение: не добавлять бессрочное хранение clipboard payload, отдельную копию occurrence или скрытую retention policy без нового accepted decision.
+
+## BL-006 — Отключение дисплея во время reveal Paste Stack
+
+- Связано с: S030, `PanelController.resolveStackTopNotchScreen`.
+- Наблюдение: если внешний дисплей отключить в короткое окно reveal-анимации, Stack может завершить переход на прежнем display до следующего пересчёта.
+- Решение на сейчас: не блокирует принятую S030 manual matrix; стабильный visible Stack уже проверяет display ID и переходит на fallback.
+- Следующее действие: при следующем изменении Top Notch lifecycle обработать screen change в состояниях `appearing` и `dismissing` и добавить deterministic transition test.
+- Ограничение: не менять StackSession или ordinary `⌘V` contracts ради этого edge case.

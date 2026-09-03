@@ -1,7 +1,7 @@
 ---
 id: S030
 title: Paste Stack в Top Notch
-status: needs_verification
+status: done
 depends_on:
   - S007
   - S012
@@ -69,16 +69,16 @@ covers:
 
 ## Acceptance criteria
 
-- [ ] `⌘⇧C` из приложения-источника показывает Paste Stack Top Notch на соответствующем display, не активирует Qipli и отправляет tagged ordinary Copy в ещё активное приложение; menu Start показывает тот же shell без Copy.
-- [ ] Empty, collecting и repeated collect сохраняют одну session; каждое внешнее text-copy создаёт отдельную ordered card, включая duplicates, Unicode и multiline text, без раскрытия полного payload в preview.
-- [ ] Pending cards можно переставлять до traversal lock; direct/reverse control, position и exact Next визуально и через VoiceOver соответствуют StackSession state.
-- [ ] Каждое accepted ordinary `⌘V` резервирует и отправляет ровно один exact occurrence; Processing, Used и следующий item публикуются без пропуска, duplicate или возврата self-write в History/Stack.
-- [ ] Reactivate и exact `⌘⇧Z` сохраняют существующий one-shot priority и traversal resume; retryable permission/write/dispatch/input failure не теряет occurrence и показывает non-payload error.
-- [ ] Click-away, Command-Tab и работа во внешнем приложении не скрывают Stack и не забирают focus. Global Escape и explicit Cancel отменяют session, скрывают shell после reverse transition и сохраняют History occurrences.
-- [ ] После последнего successful dispatch пользователь видит консистентный all-used state, затем shell схлопывается и полностью исчезает; последующий `⌘V` проходит системе.
-- [ ] Standalone movable Paste Stack window не показывается, не существует второй interactive Stack surface, а legacy saved origin не влияет на Top Notch placement.
-- [ ] Camera-housing и notchless placement, second display, full-screen Space, Light/Dark, Reduce Motion/Transparency, Increase Contrast и VoiceOver сохраняют читаемость, screen bounds и nonactivating behavior.
-- [ ] Existing History `⌘⇧V`, Search, arrow/Enter paste, Delete, click-away и captured-target contracts не регрессируют; отдельный active-Stack-to-History flow не является acceptance path.
+- [x] `⌘⇧C` из приложения-источника показывает Paste Stack Top Notch на соответствующем display, не активирует Qipli и отправляет tagged ordinary Copy в ещё активное приложение; menu Start показывает тот же shell без Copy.
+- [x] Empty, collecting и repeated collect сохраняют одну session; каждое внешнее text-copy создаёт отдельную ordered card, включая duplicates, Unicode и multiline text, без раскрытия полного payload в preview.
+- [x] Pending cards можно переставлять до traversal lock; direct/reverse control, position и exact Next визуально и через VoiceOver соответствуют StackSession state.
+- [x] Каждое accepted ordinary `⌘V` резервирует и отправляет ровно один exact occurrence; Processing, Used и следующий item публикуются без пропуска, duplicate или возврата self-write в History/Stack.
+- [x] Reactivate и exact `⌘⇧Z` сохраняют существующий one-shot priority и traversal resume; retryable permission/write/dispatch/input failure не теряет occurrence и показывает non-payload error.
+- [x] Click-away, Command-Tab и работа во внешнем приложении не скрывают Stack и не забирают focus. Global Escape и explicit Cancel отменяют session, скрывают shell после reverse transition и сохраняют History occurrences.
+- [x] После последнего successful dispatch пользователь видит консистентный all-used state, затем shell схлопывается и полностью исчезает; последующий `⌘V` проходит системе.
+- [x] Standalone movable Paste Stack window не показывается, не существует второй interactive Stack surface, а legacy saved origin не влияет на Top Notch placement.
+- [x] Camera-housing и notchless placement, second display, full-screen Space, Light/Dark, Reduce Motion/Transparency, Increase Contrast и VoiceOver сохраняют читаемость, screen bounds и nonactivating behavior.
+- [x] Existing History `⌘⇧V`, Search, arrow/Enter paste, Delete, click-away и captured-target contracts не регрессируют; отдельный active-Stack-to-History flow не является acceptance path.
 
 ## Verification
 
@@ -100,8 +100,10 @@ covers:
 - screen parameter changes пересчитывают Stack frame и safe-area inset, повторно разрешая сохранённый display ID только среди подключённых экранов и используя fallback при отключении монитора. Legacy saved floating origin, drag region и move persistence удалены, поэтому старое положение не участвует в Top Notch placement;
 - Cancel, global Escape и auto-finish используют отдельный generation-guarded reverse mask transition. `orderOut` выполняется после схлопывания; при Reduce Motion остаётся короткий opacity transition. Existing StackSession, input interception, self-write suppression, retry и ordinary `⌘V` contracts не менялись.
 
-Focused SwiftPM UI/geometry/material suite после реализации: `19/19`; расширенный S030-relevant suite (`PanelMaterialProviderTests`, `TopNotchHistoryShelfTests`, `StackSessionControllerTests`) прошёл `63/63`; полный SwiftPM suite прошёл `230/230`. `git diff --check` прошёл.
+Focused SwiftPM UI/geometry/material suite после финальных изменений: `20/20`; полный SwiftPM suite прошёл `231/231`; unsigned Xcode Debug build завершился с exit code `0`; `git diff --check` прошёл.
 
 После review исправлены два края: Stack теперь захватывает `preferredScreen` внешнего frontmost приложения перед показом, а повторный Start перед новой анимацией сбрасывает `ignoresMouseEvents` и отменяет stale transition через generation guard.
 
-До `done` остаётся manual MacBook camera-housing + external notchless display matrix из Verification: nonactivation/focus, source Copy, menu Start, reorder/direction, sequential paste, Reactivate/`⌘⇧Z`, Escape/Cancel, auto-finish, second display, full-screen Space и accessibility appearances.
+Manual MacBook camera-housing + external notchless display matrix подтверждена пользователем: nonactivation/focus, source Copy, menu Start, reorder/direction, sequential paste, Reactivate/`⌘⇧Z`, Escape/Cancel, auto-finish, second display, full-screen Space и accessibility appearances.
+
+Известное принятое ограничение вынесено в BL-006: отключение внешнего дисплея именно во время reveal может оставить panel на прежнем экране до завершения перехода. Это не блокирует принятую пользовательскую матрицу S030.
