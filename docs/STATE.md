@@ -16,7 +16,7 @@
 - Milestone M7 — bounded typed History — завершён: S023–S026 закрыты, включая manual browser/Finder matrix S025.
 - Milestone M8 — Top Notch History — завершён: S027 закрыт после manual display/focus/paste/accessibility matrix.
 - Milestone M9 — Paste Stack в Top Notch — завершён: S030 принят по manual verification; S028/S029 перенесены в backlog решением D-038.
-- Milestone M10 — formatted-text History — активен: S031 реализован и имеет статус `needs_verification`; focused automated checks и manual acceptance подтверждены, clean Xcode/release gates остаются.
+- Milestone M10 — formatted-text History — активен: S031 реализован и имеет статус `needs_verification`; automated checks, clean unsigned Xcode build и manual acceptance подтверждены, signed Release/update gate остаётся.
 - S030 закрыт после подтверждения пользователем display, focus, sequence и accessibility matrix. Известное ограничение отключения дисплея во время reveal сохранено в BL-006.
 - S008 остаётся финальным blocked release gate до operational immutable rerun proof и связанной clean-machine/manual release matrix. Локальные Developer ID и notarization credentials подтверждены 2026-08-26.
 - Fail-closed release workflow опубликовал первый Developer ID-signed и notarized GitHub Release `v1.0.0`; публичный ZIP независимо скачан и принят Gatekeeper.
@@ -41,7 +41,7 @@
 | S011 | Опциональный first-run onboarding | `done` | — |
 | S012 | Edge-to-edge Paste Stack с кастомным header | `done` | — |
 | S013 | Версии и безопасный public CI | `done` | — |
-| S014 | Публичный репозиторий и подписанные GitHub-релизы | `needs_verification` | public `v1.0.5` DMG/ZIP и latest-link подтверждены; остаются immutable rerun и clean-machine macOS 14 launch |
+| S014 | Публичный репозиторий и подписанные GitHub-релизы | `needs_verification` | public `v1.0.6` DMG/ZIP и update smoke подтверждены; остаётся operational immutable rerun proof |
 | S015 | Безопасные обновления через Sparkle | `done` | — |
 | S016 | Надёжная навигация и закрытие History | `done` | — |
 | S017 | Performance baselines и instrumentation | `done` | — |
@@ -92,6 +92,7 @@ S026 завершён: HistoryStore `33/33`, полный SwiftPM `222/222`, mig
 
 ## Последнее проверенное состояние
 
+- 2026-09-03 подготовлен unsigned release candidate `v1.0.7 (8)`: полный SwiftPM suite `224` tests, `5` headless named-pasteboard skips, `0` failures; version/CI/public-readiness/update-privacy/release-contract gates прошли; clean optimized universal Release собран для `arm64` и `x86_64`, built metadata и embedded Sparkle runtime linking проверены. Signed/notarized tag workflow и public update verification ещё не запускались.
 - 2026-09-02 реализован S027: Top Notch History shelf добавляет borderless safe-area panel, bounded horizontal typed cards, lazy thumbnails, Search focus, existing History paste/delete/click-away contracts и Reduce Motion state transitions. Top Notch получает metadata-only descriptors, а exact entry materializes перед click/Enter paste. После пользовательской проверки исправлены направление выбора на `←/→`, подсказки, single-selection highlight, opaque black top surface chrome, mainMenu-level notch overlay, auxiliary-area placement, динамический inset ниже физической челки, компенсация высоты viewport и concave top curl с convex bottom corners по референсу челки; focused S027 tests: 8/8 SwiftPM; полный SwiftPM suite: 233/233; обычный подписанный native Xcode Debug suite: 233/233. До завершения среза остаётся manual display/appearance/accessibility/focus/paste matrix.
 - 2026-09-02 по визуальному отзыву исправлен контур S027: нижние углы теперь продолжаются внутрь от боковых стенок без острых выступов; opening раскрывается из auxiliary-area camera gap, closing выполняет обратное схлопывание и затем `orderOut`, поэтому в hidden state собственной панели Qipli нет. Focused S027 suite: 10/10; SwiftPM и подписанная universal Xcode Debug сборки прошли. Полный SwiftPM rerun заблокирован environment error `insufficientDiskSpace` при 97% заполнении системного диска; пользователь берёт ручную проверку формы и motion.
 - 2026-09-02 второй визуальный проход S027 убрал боковую перераскладку: panel и SwiftUI content сразу получают конечный frame, а из центра раскрывается только shape mask; content проявляется без изменения layout. Expanded width увеличена до 1 080 pt, а 46-pt horizontal safe inset выводит Search, первую карточку и footer из-под вогнутых верхних переходов. Focused geometry/material suite: 19/19; ручную проверку motion и отступов выполняет пользователь.

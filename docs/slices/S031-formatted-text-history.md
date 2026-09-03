@@ -107,6 +107,6 @@ covers:
 Verification:
 
 - focused SwiftPM S031 storage/paste/input checks: `30/30` passed, including mixed routing, per-item fallback and oversized-candidate rejection. The separate named-pasteboard reader contract test is skipped because named pasteboards are unavailable in the headless test environment;
-- full SwiftPM run: `223` current tests executed, `5` named-pasteboard environment skips, `0` failures. Ten tests coupled only to the removed legacy History presentation were deleted with that implementation; the remaining suite includes overtaken-read ordering, rich/image/reference storage, paging, Stack and Top Notch regressions;
-- `git diff --check` passed. Unsigned universal Xcode Debug build succeeded for arm64 and x86_64 with a clean redirected DerivedData directory;
+- full SwiftPM run: `224` current tests executed, `5` named-pasteboard environment skips, `0` failures. Ten tests coupled only to the removed legacy History presentation were deleted with that implementation; the remaining suite includes overtaken-read ordering, semantic Escape handling, rich/image/reference storage, paging, Stack and Top Notch regressions;
+- `git diff --check` passed. Unsigned universal Xcode Debug build and clean optimized `v1.0.7 (8)` Release build succeeded for arm64 and x86_64; built metadata and embedded Sparkle runtime linking passed their release checks;
 - user confirmed completion of the manual S031 macOS checks; signed Release/update verification remains open.
