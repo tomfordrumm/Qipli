@@ -408,6 +408,87 @@ final class HistoryStoreTests: XCTestCase {
         store.close()
     }
 
+    func testRankedSearchPutsDeepTypedURLBeforeNewerTextMatches() throws {
+        let base = Date(timeIntervalSinceReferenceDate: 8_370_000)
+        let clock = MutableClock(now: base)
+        let store = try makeStore()
+        let service = HistoryService(store: store, clock: clock)
+        let url = try XCTUnwrap(service.capture(referenceItems: [
+            HistoryReferenceCaptureItem(
+                order: 0,
+                kind: .url,
+                typeIdentifier: NSPasteboard.PasteboardType.URL.rawValue,
+                urlString: "http://localhost:8080/older",
+                metadata: HistoryReferenceMetadata(
+                    displayName: "localhost",
+                    typeIdentifier: NSPasteboard.PasteboardType.URL.rawValue,
+                    domain: "localhost",
+                    searchText: "http://localhost:8080/older"
+                )
+            )
+        ]))
+
+        for index in 0..<501 {
+            clock.now = base.addingTimeInterval(TimeInterval(index + 1))
+            _ = try service.capture(text: "newer text mentions localhost")
+        }
+
+        let page = try store.searchPage(
+            query: "localhost",
+            since: base.addingTimeInterval(-1),
+            after: nil,
+            limit: 10
+        )
+
+        XCTAssertEqual(page.descriptors.first?.id, url.id)
+        XCTAssertEqual(page.descriptors.first?.searchRank, .exactOrPrefixURL)
+        XCTAssertTrue(page.descriptors.dropFirst().allSatisfy { $0.searchRank == .otherMatch })
+        store.close()
+    }
+
+    func testRankedSearchContinuesAcrossGroupsWithoutDuplicateOrGap() throws {
+        let base = Date(timeIntervalSinceReferenceDate: 8_380_000)
+        let clock = MutableClock(now: base)
+        let store = try makeStore()
+        let service = HistoryService(store: store, clock: clock)
+        let exact = try XCTUnwrap(service.capture(referenceItems: [
+            makeURLReferenceItem(url: "http://localhost/exact", domain: "localhost")
+        ]))
+        clock.now = base.addingTimeInterval(1)
+        let substring = try XCTUnwrap(service.capture(referenceItems: [
+            makeURLReferenceItem(url: "http://example.com/localhost", domain: "example.com")
+        ]))
+        clock.now = base.addingTimeInterval(2)
+        let text = try XCTUnwrap(service.capture(text: "text localhost match"))
+
+        let first = try store.searchPage(
+            query: "localhost",
+            since: base.addingTimeInterval(-1),
+            after: nil,
+            limit: 1
+        )
+        let second = try store.searchPage(
+            query: "localhost",
+            since: base.addingTimeInterval(-1),
+            after: first.nextCursor,
+            limit: 2
+        )
+
+        XCTAssertEqual(first.descriptors.map(\.id), [exact.id])
+        XCTAssertEqual(first.descriptors.map(\.searchRank), [.exactOrPrefixURL])
+        XCTAssertEqual(second.descriptors.map(\.id), [substring.id, text.id])
+        XCTAssertEqual(second.descriptors.map(\.searchRank), [.otherTypedURL, .otherMatch])
+        XCTAssertEqual(Set(first.descriptors.map(\.id)).intersection(second.descriptors.map(\.id)).count, 0)
+        XCTAssertFalse(second.hasMore)
+        XCTAssertNil(try store.searchPage(
+            query: "localhost",
+            since: base.addingTimeInterval(-1),
+            after: second.nextCursor,
+            limit: 2
+        ).nextCursor)
+        store.close()
+    }
+
     func testFileAndVideoReferencesKeepOrderAndPasteOnlyFileURLs() throws {
         let store = try makeStore()
         let service = HistoryService(store: store)
@@ -1117,6 +1198,21 @@ final class HistoryStoreTests: XCTestCase {
         )
     }
 
+    private func makeURLReferenceItem(url: String, domain: String) -> HistoryReferenceCaptureItem {
+        HistoryReferenceCaptureItem(
+            order: 0,
+            kind: .url,
+            typeIdentifier: NSPasteboard.PasteboardType.URL.rawValue,
+            urlString: url,
+            metadata: HistoryReferenceMetadata(
+                displayName: domain,
+                typeIdentifier: NSPasteboard.PasteboardType.URL.rawValue,
+                domain: domain,
+                searchText: url
+            )
+        )
+    }
+
     private func makeImageData(
         width: Int,
         height: Int,
@@ -1306,6 +1402,62 @@ final class HistoryViewModelPagingTests: XCTestCase {
 
         XCTAssertEqual(viewModel.visibleEntries.count, 501)
         XCTAssertTrue(viewModel.visibleEntries.allSatisfy { $0.text.contains("needle") })
+        store.close()
+    }
+
+    func testRankedSearchLoadMoreKeepsCursorRankAfterDeletingVisibleEntry() async throws {
+        let base = Date(timeIntervalSinceReferenceDate: 8_390_000)
+        let clock = MutableClock(now: base)
+        let store = try CoreDataHistoryStore(storeURL: directory.appendingPathComponent("History.sqlite"))
+        let service = HistoryService(store: store, clock: clock)
+        let exact = try XCTUnwrap(service.capture(referenceItems: [
+            HistoryReferenceCaptureItem(
+                order: 0,
+                kind: .url,
+                typeIdentifier: NSPasteboard.PasteboardType.URL.rawValue,
+                urlString: "http://localhost/exact",
+                metadata: HistoryReferenceMetadata(
+                    displayName: "localhost",
+                    typeIdentifier: NSPasteboard.PasteboardType.URL.rawValue,
+                    domain: "localhost",
+                    searchText: "http://localhost/exact"
+                )
+            )
+        ]))
+        var typedURLIDs: [UUID] = []
+        for index in 0..<500 {
+            clock.now = base.addingTimeInterval(TimeInterval(index + 1))
+            let entry = try XCTUnwrap(service.capture(referenceItems: [
+                HistoryReferenceCaptureItem(
+                    order: 0,
+                    kind: .url,
+                    typeIdentifier: NSPasteboard.PasteboardType.URL.rawValue,
+                    urlString: "https://example.com/localhost/\(index)",
+                    metadata: HistoryReferenceMetadata(
+                        displayName: "example.com",
+                        typeIdentifier: NSPasteboard.PasteboardType.URL.rawValue,
+                        domain: "example.com",
+                        searchText: "https://example.com/localhost/\(index)"
+                    )
+                )
+            ]))
+            typedURLIDs.append(entry.id)
+        }
+
+        let viewModel = HistoryViewModel(service: service)
+        await viewModel.reload()
+        viewModel.updateQuery("localhost")
+        await viewModel.waitForPendingSearch()
+        XCTAssertEqual(viewModel.visibleEntries.count, 500)
+        XCTAssertEqual(viewModel.visibleEntries.first?.id, exact.id)
+
+        await viewModel.delete(id: typedURLIDs[250])
+
+        let visibleIDs = viewModel.visibleEntries.map(\.id)
+        XCTAssertEqual(visibleIDs.count, 500)
+        XCTAssertEqual(Set(visibleIDs).count, 500)
+        XCTAssertEqual(visibleIDs.filter { $0 == exact.id }.count, 1)
+        XCTAssertFalse(visibleIDs.contains(typedURLIDs[250]))
         store.close()
     }
 

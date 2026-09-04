@@ -1,8 +1,8 @@
 # Qipli — план поставки и развития продукта
 
-Статус: core MVP подтверждён; signed public release опубликован; typed History, S027 и S030 завершены; formatted-text History S031 реализована, manual acceptance подтверждена и ожидает clean Xcode/release verification; S014 остаётся с отдельными release gates
+Статус: core MVP подтверждён; signed public release опубликован; typed History, S027 и S030 завершены; S031 ожидает release verification; S032 реализован и ожидает verification; S014 остаётся с отдельными release gates
 
-Дата: 2026-09-03
+Дата: 2026-09-04
 
 Источник оперативных статусов: [`STATE.md`](STATE.md)
 
@@ -99,6 +99,14 @@
 
 Результат: форматированный фрагмент можно найти по canonical plain text, вставить с formatting по `Enter`/double-click или без formatting по `⇧Enter`. Oversize rich payload сохраняется plain-only; Paste Stack остаётся text-only. Manual acceptance подтверждена; остаётся clean Xcode/release verification.
 
+## Milestone M11 — Полировка карточек и релевантный поиск History
+
+После milestone Top Notch History показывает карточки без дублирующих type labels, full-bleed image thumbnails и более компактный текст. Выбор мышкой не перезагружает ленту карточек. Удаление требует exact `⇧Backspace`, а search выводит typed URL matches раньше incidental text matches во всём retention window.
+
+32. [`S032 — Полировка карточек и релевантный поиск History`](slices/S032-history-card-polish-ranked-search.md) — `needs_verification`; implementation, focused/full automated checks и unsigned universal Debug/Release builds прошли; остаётся installed-app visual/search/accessibility matrix. Зависит от завершённых S023–S025 и S027, не требует schema migration, нового network owner или изменения paste contracts.
+
+Результат: запрос `localhost` показывает сохранённые URL на первом экране, обычный Backspace безопасно редактирует Search, изображения используют всю площадь карточки с читаемой metadata overlay, а click меняет только selection без reload или viewport jump.
+
 ## Граф зависимостей
 
 ```text
@@ -116,9 +124,10 @@ S014 + S015 + S024 + S025 -> S026
 S016 + S024 -> S027
 S007 + S012 + S021 + S027 -> S030
 S023 + S026 + S027 -> S031
+S023 + S024 + S025 + S027 -> S032
 ```
 
-Граф ацикличен. Performance hardening S017–S022 завершён. Typed History начинается с bounded schema/query boundary в S023; managed images добавляются в S024; reference-only URL/file/video — в S025; migration/release proof — в S026. S023–S026 завершены. Top Notch S027 реализован и принят по manual geometry/focus/paste/accessibility matrix. Решением D-038 S028/S029 перенесены в backlog. S030 реализован и принят по manual Stack matrix, без специального active-Stack-to-History flow. S031 реализован по accepted text-primary RTF/HTML contract, manual acceptance подтверждена, остаётся clean Xcode/release verification; Stack не менялся. Известное ограничение отключения дисплея во время reveal сохранено в BL-006. S013 завершён после локальных и hosted main/PR/fork CI runs. S014 опубликовал реальный `v1.0.5`, clean-machine proof подтверждён, остаётся immutable rerun. S015 завершён после ручной update/failure/accessibility matrix; production feed указывает на `v1.0.5`. S008 остаётся финальным gate только до operational rerun proof. Изменения pasteboard/input, permission, ServiceManagement, network, dependency, signing, update или performance contracts должны сначала согласовываться в `TECHNICAL.md` и `DECISIONS.md`.
+Граф ацикличен. Performance hardening S017–S022 завершён. Typed History начинается с bounded schema/query boundary в S023; managed images добавляются в S024; reference-only URL/file/video — в S025; migration/release proof — в S026. S023–S026 завершены. Top Notch S027 реализован и принят по manual geometry/focus/paste/accessibility matrix. Решением D-038 S028/S029 перенесены в backlog. S030 реализован и принят по manual Stack matrix, без специального active-Stack-to-History flow. S031 реализован по accepted text-primary RTF/HTML contract, manual acceptance подтверждена, остаётся clean Xcode/release verification; Stack не менялся. S032 реализован и меняет только History cards, local delete admission и search ordering поверх существующей typed metadata; automated checks и unsigned universal Debug/Release builds прошли, остаётся installed-app visual/search/accessibility matrix. Известное ограничение отключения дисплея во время reveal сохранено в BL-006. S013 завершён после локальных и hosted main/PR/fork CI runs. S014 опубликовал реальный `v1.0.5`, clean-machine proof подтверждён, остаётся immutable rerun. S015 завершён после ручной update/failure/accessibility matrix; production feed указывает на `v1.0.5`. S008 остаётся финальным gate только до operational rerun proof. Изменения pasteboard/input, permission, ServiceManagement, network, dependency, signing, update или performance contracts должны сначала согласовываться в `TECHNICAL.md` и `DECISIONS.md`.
 
 ## Покрытие требований
 
@@ -158,6 +167,7 @@ S023 + S026 + S027 -> S031
 | FR-033 | S027 |
 | FR-036 | S030 |
 | FR-037–FR-039 | S031 |
+| FR-040–FR-044 | S032 |
 | BR-001–BR-004 | S002, S004 |
 | BR-005 | S005 |
 | BR-006 | S007 |
@@ -177,6 +187,7 @@ S023 + S026 + S027 -> S031
 | BR-027 | S027, S030 |
 | BR-028 | S030 |
 | BR-029–BR-031 | S031 |
+| BR-032–BR-033 | S032 |
 | NFR-001 | S001, S008 |
 | NFR-002–NFR-003 | S002, S008, S015 |
 | NFR-004 | S001, S006, S010, S008, S030 |
@@ -200,6 +211,7 @@ S023 + S026 + S027 -> S031
 | NFR-026 | S027, S030 |
 | NFR-027–NFR-029 | S027, S030 |
 | NFR-030 | S031 |
+| NFR-031–NFR-032 | S032 |
 
 Каждое must-have требование покрыто хотя бы одним активным срезом. Отложенные FR-034/FR-035 и BR-025/BR-026 сохранены как evidence в BL-004/BL-005 и S028/S029, но не входят в coverage текущей поставки. Детальные acceptance criteria и verification находятся только в соответствующих slice-файлах.
 

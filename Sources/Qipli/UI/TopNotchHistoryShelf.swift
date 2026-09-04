@@ -45,8 +45,8 @@ enum TopNotchHistoryGeometry {
     static let contentHorizontalInset = topCornerRadius + 14
     private static let notchlessRevealWidth: CGFloat = 160
 
-    /// Returns a frame whose top edge covers the camera/menu-bar band on a
-    /// notched display and whose content can inset below it independently.
+    /// Returns a frame anchored to the physical top edge of the display. On a
+    /// notched display the content can still inset below the camera band.
     /// The function only consumes geometry values, which keeps placement
     /// deterministic and makes it safe to test without a live display.
     static func frame(
@@ -59,10 +59,7 @@ enum TopNotchHistoryGeometry {
     ) -> NSRect {
         let width = max(1, min(panelSize.width, visibleFrame.width))
         let height = max(1, min(panelSize.height, visibleFrame.height))
-        let hasCameraSafeArea = safeAreaInsets.top > 0
-        let topAnchor = hasCameraSafeArea
-            ? screenFrame.maxY
-            : visibleFrame.maxY
+        let topAnchor = screenFrame.maxY
         let minX = visibleFrame.minX
         let maxX = max(minX, visibleFrame.maxX - width)
         let notchCenter = notchCenterX(
@@ -71,10 +68,7 @@ enum TopNotchHistoryGeometry {
             auxiliaryTopRightArea: auxiliaryTopRightArea
         )
         let x = min(max(notchCenter - width / 2, minX), maxX)
-        let maxY = min(topAnchor, visibleFrame.maxY)
-        let y = hasCameraSafeArea
-            ? max(screenFrame.minY, topAnchor - height)
-            : max(visibleFrame.minY, maxY - height)
+        let y = max(screenFrame.minY, topAnchor - height)
         return NSRect(x: x, y: y, width: width, height: height)
     }
 
@@ -106,8 +100,10 @@ enum TopNotchHistoryGeometry {
             else { return nil }
             return auxiliaryTopRightArea.minX - auxiliaryTopLeftArea.maxX
         }()
-        let revealWidth = cameraGapWidth.map { $0 + topCornerRadius * 2 }
-            ?? notchlessRevealWidth
+        // Keep the closed mask fully behind the physical camera housing. The
+        // expanded shape supplies its own curved shoulders during the morph;
+        // carrying those shoulders into the endpoint leaves visible black ears.
+        let revealWidth = cameraGapWidth ?? notchlessRevealWidth
         let width = max(1, min(expandedFrame.width, revealWidth))
         let height = safeAreaInsets.top > 0
             ? max(1, min(expandedFrame.height, safeAreaInsets.top))
@@ -184,11 +180,15 @@ final class TopNotchHistorySurfaceView: NSView {
     }
 
     func animateReveal(duration: TimeInterval) {
-        animateMask(to: .expanded, duration: duration)
+        // `prepareForReveal` updates the model layer before the panel is ordered
+        // onscreen. Its presentation layer can still contain the previous
+        // expanded path until the next Core Animation commit, so revealing from
+        // that path would collapse into an expanded-to-expanded no-op.
+        animateMask(to: .expanded, duration: duration, startsFromPresentation: false)
     }
 
     func animateDismiss(to compactRect: CGRect, duration: TimeInterval) {
-        animateMask(to: .compact(compactRect), duration: duration)
+        animateMask(to: .compact(compactRect), duration: duration, startsFromPresentation: true)
     }
 
     func restoreExpandedPresentation() {
@@ -202,11 +202,18 @@ final class TopNotchHistorySurfaceView: NSView {
         presentationContentView?.animator().alphaValue = alpha
     }
 
-    private func animateMask(to target: MaskTarget, duration: TimeInterval) {
+    private func animateMask(
+        to target: MaskTarget,
+        duration: TimeInterval,
+        startsFromPresentation: Bool
+    ) {
         layoutSubtreeIfNeeded()
-        let fromPath = shapeMask.presentation()?.path
-            ?? shapeMask.path
-            ?? path(for: maskTarget)
+        let modelPath = shapeMask.path ?? path(for: maskTarget)
+        let fromPath = Self.animationStartPath(
+            modelPath: modelPath,
+            presentationPath: shapeMask.presentation()?.path,
+            startsFromPresentation: startsFromPresentation
+        )
         let toPath = path(for: target)
         maskTarget = target
 
@@ -226,6 +233,14 @@ final class TopNotchHistorySurfaceView: NSView {
             1
         )
         shapeMask.add(animation, forKey: "topNotchMaskTransition")
+    }
+
+    static func animationStartPath(
+        modelPath: CGPath,
+        presentationPath: CGPath?,
+        startsFromPresentation: Bool
+    ) -> CGPath {
+        startsFromPresentation ? (presentationPath ?? modelPath) : modelPath
     }
 
     private func updateMaskForCurrentLayout() {
@@ -303,6 +318,45 @@ final class SystemTopNotchScreenProvider: TopNotchScreenProviding {
     }
 }
 
+struct TopNotchHistoryCollectionApplyPlan: Equatable {
+    let reloadData: Bool
+    let thumbnailEntryIDs: [UUID]
+}
+
+enum TopNotchHistoryCollectionReconciler {
+    /// Per-entry revisions survive SwiftUI coalescing, so each visible card is
+    /// refreshed only when its own thumbnail revision advanced.
+    static func plan(
+        force: Bool,
+        lastRevision: Int,
+        lastIDs: [UUID],
+        snapshotRevision: Int,
+        ids: [UUID],
+        thumbnailUpdateRevisionsByEntryID: [UUID: Int],
+        lastThumbnailUpdateRevisionsByEntryID: [UUID: Int],
+        visibleEntryIDs: Set<UUID>
+    ) -> TopNotchHistoryCollectionApplyPlan {
+        guard !force, lastRevision == snapshotRevision, lastIDs == ids else {
+            return TopNotchHistoryCollectionApplyPlan(reloadData: true, thumbnailEntryIDs: [])
+        }
+        return TopNotchHistoryCollectionApplyPlan(
+            reloadData: false,
+            thumbnailEntryIDs: ids.filter {
+                visibleEntryIDs.contains($0)
+                    && (thumbnailUpdateRevisionsByEntryID[$0] ?? -1)
+                        > (lastThumbnailUpdateRevisionsByEntryID[$0] ?? -1)
+            }
+        )
+    }
+
+    static func selectionNeedsUpdate(
+        current: Set<IndexPath>,
+        target: IndexPath?
+    ) -> Bool {
+        current != (target.map { Set([$0]) } ?? [])
+    }
+}
+
 final class TopNotchHistoryInteractionBridge {
     private weak var collectionView: NSCollectionView?
     private var entryIDs: [UUID] = []
@@ -318,18 +372,23 @@ final class TopNotchHistoryInteractionBridge {
 
     func applySelection(id: UUID?, scroll: Bool = true) {
         guard let collectionView else { return }
-        guard let id, let index = entryIDs.firstIndex(of: id) else {
-            collectionView.deselectAll(nil)
-            return
+        let targetIndexPath: IndexPath? = id.flatMap { entryID in
+            entryIDs.firstIndex(of: entryID).map { IndexPath(item: $0, section: 0) }
         }
-        let indexPath = IndexPath(item: index, section: 0)
-        collectionView.deselectAll(nil)
-        collectionView.selectItems(
-            at: [indexPath],
-            scrollPosition: scroll ? .centeredHorizontally : []
-        )
-        if scroll {
-            collectionView.scrollToItems(at: [indexPath], scrollPosition: .centeredHorizontally)
+        if TopNotchHistoryCollectionReconciler.selectionNeedsUpdate(
+            current: collectionView.selectionIndexPaths,
+            target: targetIndexPath
+        ) {
+            collectionView.deselectAll(nil)
+            if let targetIndexPath {
+                collectionView.selectItems(at: [targetIndexPath], scrollPosition: [])
+            }
+        }
+        if scroll, let targetIndexPath {
+            collectionView.scrollToItems(
+                at: [targetIndexPath],
+                scrollPosition: .centeredHorizontally
+            )
         }
     }
 }
@@ -540,6 +599,7 @@ struct TopNotchHistoryShelfView: View {
                 TopNotchHistoryCollectionView(
                     cards: cards,
                     snapshotRevision: viewModel.visibleSnapshotRevision,
+                    thumbnailUpdateRevisionsByEntryID: viewModel.thumbnailUpdateRevisionsByEntryID,
                     selectedEntryID: viewModel.selectedEntryID,
                     interactionBridge: interactionBridge,
                     thumbnailData: { viewModel.thumbnailDataByEntryID[$0] },
@@ -625,6 +685,7 @@ struct TopNotchHistoryShelfView: View {
 struct TopNotchHistoryCollectionView: NSViewRepresentable {
     let cards: [TopNotchHistoryCardDescriptor]
     let snapshotRevision: Int
+        let thumbnailUpdateRevisionsByEntryID: [UUID: Int]
     let selectedEntryID: UUID?
     let interactionBridge: TopNotchHistoryInteractionBridge
     let thumbnailData: (UUID) -> Data?
@@ -677,6 +738,7 @@ struct TopNotchHistoryCollectionView: NSViewRepresentable {
         private var parent: TopNotchHistoryCollectionView
         private var lastRevision = -1
         private var lastIDs: [UUID] = []
+        private var lastThumbnailUpdateRevisionsByEntryID: [UUID: Int] = [:]
         private var isApplyingSelection = false
 
         init(parent: TopNotchHistoryCollectionView) { self.parent = parent }
@@ -684,10 +746,40 @@ struct TopNotchHistoryCollectionView: NSViewRepresentable {
         func apply(parent: TopNotchHistoryCollectionView, to collectionView: NSCollectionView, force: Bool) {
             self.parent = parent
             let ids = parent.cards.map(\.id)
-            if force || lastRevision != parent.snapshotRevision || lastIDs != ids {
+            let visibleIndexPaths = collectionView.indexPathsForVisibleItems()
+            let visibleEntryIDs: Set<UUID> = Set(visibleIndexPaths.compactMap { indexPath in
+                guard parent.cards.indices.contains(indexPath.item) else { return nil }
+                return parent.cards[indexPath.item].id
+            })
+            let plan = TopNotchHistoryCollectionReconciler.plan(
+                force: force,
+                lastRevision: lastRevision,
+                lastIDs: lastIDs,
+                snapshotRevision: parent.snapshotRevision,
+                ids: ids,
+                thumbnailUpdateRevisionsByEntryID: parent.thumbnailUpdateRevisionsByEntryID,
+                lastThumbnailUpdateRevisionsByEntryID: lastThumbnailUpdateRevisionsByEntryID,
+                visibleEntryIDs: visibleEntryIDs
+            )
+            if plan.reloadData {
                 lastRevision = parent.snapshotRevision
                 lastIDs = ids
                 collectionView.reloadData()
+                lastThumbnailUpdateRevisionsByEntryID = parent.thumbnailUpdateRevisionsByEntryID
+            } else {
+                if plan.thumbnailEntryIDs.isEmpty == false {
+                    for thumbnailEntryID in plan.thumbnailEntryIDs {
+                        let indexPath = IndexPath(
+                            item: ids.firstIndex(of: thumbnailEntryID) ?? NSNotFound,
+                            section: 0
+                        )
+                        if let item = collectionView.item(at: indexPath) as? TopNotchHistoryCollectionItem {
+                            item.updateThumbnail(data: parent.thumbnailData(thumbnailEntryID))
+                        }
+                        lastThumbnailUpdateRevisionsByEntryID[thumbnailEntryID] =
+                            parent.thumbnailUpdateRevisionsByEntryID[thumbnailEntryID]
+                    }
+                }
             }
             isApplyingSelection = true
             parent.interactionBridge.applySnapshot(
@@ -764,6 +856,60 @@ private final class TopNotchHistoryCollectionItem: NSCollectionViewItem {
             requestThumbnail: requestThumbnail,
             doubleClick: doubleClick
         )
+    }
+
+    func updateThumbnail(data: Data?) {
+        cardView.updateThumbnail(data: data)
+    }
+}
+
+enum HistoryDeletePhysicalKey: Equatable {
+    case backspace
+    case forwardDelete
+    case other
+}
+
+struct HistoryDeleteKeyEvent: Equatable {
+    let key: HistoryDeletePhysicalKey
+    let hasOnlyShiftModifier: Bool
+    let isRepeat: Bool
+
+    init(key: HistoryDeletePhysicalKey, hasOnlyShiftModifier: Bool, isRepeat: Bool) {
+        self.key = key
+        self.hasOnlyShiftModifier = hasOnlyShiftModifier
+        self.isRepeat = isRepeat
+    }
+
+    init(event: NSEvent) {
+        let key: HistoryDeletePhysicalKey = switch event.keyCode {
+        case 51: .backspace
+        case 117: .forwardDelete
+        default: .other
+        }
+        self.init(
+            key: key,
+            hasOnlyShiftModifier: event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .shift,
+            isRepeat: event.isARepeat
+        )
+    }
+}
+
+enum HistoryDeleteKeyAdmission {
+    static func selectedEntryID(
+        for event: HistoryDeleteKeyEvent,
+        isEventInHistoryWindow: Bool,
+        isSearchFocused: Bool,
+        query: String,
+        selectedEntryID: UUID?
+    ) -> UUID? {
+        _ = query
+        guard isEventInHistoryWindow,
+              isSearchFocused,
+              event.key == .backspace,
+              event.hasOnlyShiftModifier,
+              !event.isRepeat
+        else { return nil }
+        return selectedEntryID
     }
 }
 
@@ -843,12 +989,13 @@ private struct TopNotchHistoryDeleteKeyMonitor: NSViewRepresentable {
         private func process(_ event: NSEvent) -> NSEvent? {
             guard let hostView,
                   hostView.window === event.window,
-                  isSearchFocused(),
-                  query().isEmpty,
-                  !event.isARepeat,
-                  event.keyCode == 51 || event.keyCode == 117,
-                  event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
-                  let entryID = selectedEntryID()
+                  let entryID = HistoryDeleteKeyAdmission.selectedEntryID(
+                      for: HistoryDeleteKeyEvent(event: event),
+                      isEventInHistoryWindow: hostView.window?.isKeyWindow == true,
+                      isSearchFocused: isSearchFocused(),
+                      query: query(),
+                      selectedEntryID: selectedEntryID()
+                  )
             else { return event }
             onDelete(entryID)
             return nil
@@ -856,11 +1003,84 @@ private struct TopNotchHistoryDeleteKeyMonitor: NSViewRepresentable {
     }
 }
 
+private final class TopNotchAspectFillImageView: NSImageView {
+    override func draw(_ dirtyRect: NSRect) {
+        guard let image, image.size.width > 0, image.size.height > 0 else { return }
+        let scale = max(
+            bounds.width / image.size.width,
+            bounds.height / image.size.height
+        )
+        let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+        let imageRect = NSRect(
+            x: bounds.midX - size.width / 2,
+            y: bounds.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+        image.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: 1)
+    }
+}
+
+final class TopNotchHistoryImageScrimView: NSView {
+    private(set) var gradientLayer = CAGradientLayer()
+
+    override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configureGradient()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureGradient()
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradientLayer.frame = bounds
+        CATransaction.commit()
+    }
+
+    private func configureGradient() {
+        wantsLayer = true
+        gradientLayer.colors = [
+            NSColor.clear.cgColor,
+            NSColor.black.withAlphaComponent(0.44).cgColor,
+            NSColor.black.withAlphaComponent(0.68).cgColor,
+        ]
+        gradientLayer.locations = [0, 0.55, 1]
+        gradientLayer.startPoint = CGPoint(x: 0.5, y: 0)
+        gradientLayer.endPoint = CGPoint(x: 0.5, y: 1)
+        layer?.addSublayer(gradientLayer)
+    }
+}
+
+enum TopNotchHistoryCardTextLayout {
+    static let maximumNumberOfLines = 5
+
+    static func configure(_ label: NSTextField) {
+        label.maximumNumberOfLines = maximumNumberOfLines
+        label.lineBreakMode = .byWordWrapping
+        guard let cell = label.cell as? NSTextFieldCell else { return }
+        cell.wraps = true
+        cell.truncatesLastVisibleLine = true
+    }
+}
+
 private final class TopNotchHistoryCardView: NSView {
     private let iconView = NSImageView()
-    private let kindLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
-    private let thumbnailView = NSImageView()
+    private let thumbnailView = TopNotchAspectFillImageView()
+    private let imageFallbackView = NSImageView()
+    private let imageScrim = TopNotchHistoryImageScrimView()
+    private var regularDetailTopConstraint: NSLayoutConstraint!
+    private var regularDetailBottomConstraint: NSLayoutConstraint!
+    private var imageDetailTopConstraint: NSLayoutConstraint!
+    private var imageDetailBottomConstraint: NSLayoutConstraint!
+    private var isImageCard = false
     private var requestThumbnail: (() -> Void)?
     private var doubleClick: (() -> Void)?
 
@@ -881,16 +1101,37 @@ private final class TopNotchHistoryCardView: NSView {
         requestThumbnail: @escaping () -> Void,
         doubleClick: @escaping () -> Void
     ) {
-        kindLabel.stringValue = card.title
         detailLabel.stringValue = card.detail
         iconView.image = NSImage(systemSymbolName: card.kind.symbolName, accessibilityDescription: card.title)
-        thumbnailView.image = thumbnailData.flatMap(NSImage.init(data:))
-        thumbnailView.isHidden = card.kind != .image || thumbnailView.image == nil
+        isImageCard = card.kind == .image
+        if isImageCard {
+            updateThumbnail(data: thumbnailData)
+        } else {
+            thumbnailView.image = nil
+            thumbnailView.isHidden = true
+            imageFallbackView.isHidden = true
+            imageScrim.isHidden = true
+        }
+        iconView.contentTintColor = card.kind == .image ? .white : .secondaryLabelColor
+        detailLabel.textColor = card.kind == .image ? .white : .labelColor
+        regularDetailTopConstraint.isActive = card.kind != .image
+        regularDetailBottomConstraint.isActive = card.kind != .image
+        imageDetailTopConstraint.isActive = card.kind == .image
+        imageDetailBottomConstraint.isActive = card.kind == .image
         self.requestThumbnail = requestThumbnail
         self.doubleClick = doubleClick
         if card.kind == .image, thumbnailData == nil { requestThumbnail() }
         setAccessibilityLabel(card.accessibilityLabel)
         updateSelection(isSelected)
+    }
+
+    func updateThumbnail(data: Data?) {
+        guard isImageCard else { return }
+        let image = data.flatMap(NSImage.init(data:))
+        thumbnailView.image = image
+        thumbnailView.isHidden = image == nil
+        imageFallbackView.isHidden = image != nil
+        imageScrim.isHidden = false
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -902,46 +1143,68 @@ private final class TopNotchHistoryCardView: NSView {
         wantsLayer = true
         layer?.cornerCurve = .continuous
         layer?.cornerRadius = 14
+        layer?.masksToBounds = true
         layer?.borderWidth = 1
 
         iconView.imageScaling = .scaleProportionallyUpOrDown
         iconView.contentTintColor = .secondaryLabelColor
         thumbnailView.imageScaling = .scaleProportionallyUpOrDown
         thumbnailView.wantsLayer = true
-        thumbnailView.layer?.cornerRadius = 8
+        thumbnailView.layer?.contentsGravity = .resizeAspectFill
         thumbnailView.layer?.masksToBounds = true
+        imageFallbackView.image = NSImage(
+            systemSymbolName: "photo",
+            accessibilityDescription: "Image preview unavailable"
+        )
+        imageFallbackView.imageScaling = .scaleProportionallyUpOrDown
+        imageFallbackView.contentTintColor = .secondaryLabelColor
 
-        kindLabel.font = .systemFont(ofSize: 12, weight: .semibold)
-        kindLabel.textColor = .secondaryLabelColor
-        detailLabel.font = .systemFont(ofSize: 15, weight: .medium)
-        detailLabel.maximumNumberOfLines = 5
-        detailLabel.lineBreakMode = .byTruncatingTail
+        detailLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        TopNotchHistoryCardTextLayout.configure(detailLabel)
 
-        let stack = NSStackView(views: [iconView, kindLabel, thumbnailView, detailLabel])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 8
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
+        for subview in [thumbnailView, imageFallbackView, imageScrim, iconView, detailLabel] {
+            subview.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(subview)
+        }
+        regularDetailTopConstraint = detailLabel.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 8)
+        regularDetailBottomConstraint = detailLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -14)
+        imageDetailTopConstraint = detailLabel.topAnchor.constraint(greaterThanOrEqualTo: iconView.bottomAnchor, constant: 4)
+        imageDetailBottomConstraint = detailLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 14),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -14),
+            thumbnailView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            thumbnailView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            thumbnailView.topAnchor.constraint(equalTo: topAnchor),
+            thumbnailView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            imageFallbackView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            imageFallbackView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            imageFallbackView.topAnchor.constraint(equalTo: topAnchor),
+            imageFallbackView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            imageScrim.leadingAnchor.constraint(equalTo: leadingAnchor),
+            imageScrim.trailingAnchor.constraint(equalTo: trailingAnchor),
+            imageScrim.bottomAnchor.constraint(equalTo: bottomAnchor),
+            imageScrim.heightAnchor.constraint(equalToConstant: 66),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 14),
             iconView.widthAnchor.constraint(equalToConstant: 18),
             iconView.heightAnchor.constraint(equalToConstant: 18),
-            thumbnailView.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            thumbnailView.heightAnchor.constraint(equalToConstant: 62)
+            detailLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            detailLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
         ])
+        regularDetailTopConstraint.isActive = true
+        regularDetailBottomConstraint.isActive = true
         thumbnailView.isHidden = true
+        imageFallbackView.isHidden = true
+        imageScrim.isHidden = true
         setAccessibilityRole(.group)
     }
 
     fileprivate func updateSelection(_ isSelected: Bool) {
+        layer?.borderWidth = isSelected ? 2 : 1
         let baseColor = NSColor(calibratedWhite: 0.08, alpha: 1)
         layer?.backgroundColor = (isSelected ? NSColor.controlAccentColor : baseColor)
             .withAlphaComponent(isSelected ? 0.30 : 1)
             .cgColor
         layer?.borderColor = (isSelected ? NSColor.controlAccentColor : NSColor.separatorColor).cgColor
+        setAccessibilityValue(isSelected ? "Selected" : nil)
     }
 }

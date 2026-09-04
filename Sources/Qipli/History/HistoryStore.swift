@@ -133,10 +133,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
         guard !query.isEmpty else {
             return try fetchPage(since: cutoff, after: cursor, limit: limit)
         }
-        return try pageRequest(cutoff: cutoff, cursor: cursor, limit: limit) {
-            Self.isRenderable($0) &&
-                $0.searchableMetadata.localizedCaseInsensitiveContains(query)
-        }
+        return try rankedSearchPage(query: query, since: cutoff, after: cursor, limit: limit)
     }
 
     func fetchEntry(id: UUID) throws -> HistoryEntry? {
@@ -930,9 +927,74 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
             }
 
             let pageEntries = Array(matchedEntries.prefix(limit))
-            let descriptors = pageEntries.map(Self.descriptor(from:))
+            let descriptors = pageEntries.map { Self.descriptor(from: $0) }
             let nextCursor = descriptors.last.map {
                 HistoryPageCursor(activityAt: $0.activityAt, id: $0.id)
+            }
+            return HistoryPage(
+                descriptors: descriptors,
+                nextCursor: nextCursor,
+                hasMore: matchedEntries.count > limit
+            )
+        }
+    }
+
+    private func rankedSearchPage(
+        query: String,
+        since cutoff: Date,
+        after cursor: HistoryPageCursor?,
+        limit: Int
+    ) throws -> HistoryPage {
+        precondition((1...HistoryService.pageSize).contains(limit))
+        return try contextSync { context in
+            try self.removeExpired(before: cutoff, in: context)
+            var matchedEntries: [(entry: HistoryEntry, rank: HistorySearchRank)] = []
+            let firstRank = cursor?.searchRank ?? HistorySearchRank.allCases[0]
+
+            for rank in HistorySearchRank.allCases where rank.rawValue >= firstRank.rawValue {
+                var scanCursor = cursor?.searchRank == rank ? cursor : nil
+                var exhausted = false
+                while matchedEntries.count <= limit, !exhausted {
+                    let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
+                    request.fetchLimit = limit + 1
+                    request.predicate = Self.cursorPredicate(cutoff: cutoff, cursor: scanCursor)
+                    request.sortDescriptors = [
+                        NSSortDescriptor(key: "capturedAt", ascending: false),
+                        NSSortDescriptor(key: "id", ascending: false),
+                    ]
+                    let objects = try context.fetch(request)
+                    guard !objects.isEmpty else { break }
+
+                    for object in objects {
+                        guard let entry = Self.entry(from: object),
+                              Self.isRenderable(entry),
+                              HistorySearchRank.classify(entry: entry, query: query) == rank
+                        else { continue }
+                        matchedEntries.append((entry, rank))
+                        if matchedEntries.count > limit { break }
+                    }
+
+                    if let last = objects.last,
+                       let lastEntry = Self.entry(from: last) {
+                        scanCursor = HistoryPageCursor(
+                            activityAt: lastEntry.activityAt,
+                            id: lastEntry.id
+                        )
+                    }
+                    exhausted = objects.count <= limit
+                }
+
+                if matchedEntries.count > limit { break }
+            }
+
+            let pageEntries = Array(matchedEntries.prefix(limit))
+            let descriptors = pageEntries.map { Self.descriptor(from: $0.entry, rank: $0.rank) }
+            let nextCursor = descriptors.last.map {
+                HistoryPageCursor(
+                    activityAt: $0.activityAt,
+                    id: $0.id,
+                    searchRank: $0.searchRank
+                )
             }
             return HistoryPage(
                 descriptors: descriptors,
@@ -1114,10 +1176,14 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
         }
     }
 
-    private static func descriptor(from entry: HistoryEntry) -> HistoryOccurrenceDescriptor {
+    private static func descriptor(
+        from entry: HistoryEntry,
+        rank: HistorySearchRank? = nil
+    ) -> HistoryOccurrenceDescriptor {
         return HistoryOccurrenceDescriptor(
             id: entry.id,
             activityAt: entry.activityAt,
+            searchRank: rank,
             textPreview: entry.isTextOnly ? HistoryPreview.text(for: entry.text) : nil,
             representations: entry.representations,
             imageMetadata: entry.imageMetadata,

@@ -215,7 +215,7 @@ S031 не добавляет global event-tap binding. History-owned local key r
 - на macOS 26+ provider использует `NSGlassEffectView` style `regular`; вызов закрыт `#available(macOS 26.0, *)`, поэтому deployment target остаётся macOS 14;
 - на macOS 14–25 provider использует `NSVisualEffectView` с semantic `.popover` material, `.behindWindow` blending и system-managed state; implementation не имитирует Liquid Glass custom blur/shader;
 - Top Notch использует отдельный reusable borderless activating `NSPanel`: shortcut сначала captures non-Qipli target, затем делает panel key и фокусирует Search. Frame привязан к текущему screen и раскрывается вниз; top anchor не двигается во время resize. Placement использует safe-area/auxiliary-area geometry и `visibleFrame`, а на notchless display выбирает top-center fallback ниже menu bar;
-- History `NSCollectionView` остаётся horizontal reusable card boundary. Stack получает bounded horizontal ordered cards без второй long-lived occurrence collection; exact text не копируется в отдельную presentation model и не обходится целиком ради preview;
+- History `NSCollectionView` остаётся horizontal reusable card boundary. Coordinator разделяет snapshot, selection и thumbnail updates: при неизменных IDs/revision mouse selection не вызывает `reloadData()` или storage/search work, уже выбранный ID является no-op, а готовый thumbnail reconfigure-ит только соответствующий visible item. Stack получает bounded horizontal ordered cards без второй long-lived occurrence collection; exact text не копируется в отдельную presentation model и не обходится целиком ради preview;
 - top/right/left/bottom placement моделируется будущим enum, но production S027 реализует только `.top`; остальные values не появляются в Settings и не проходят partial runtime paths;
 - Paste Stack использует отдельную reusable borderless `.nonactivatingPanel` configuration с теми же safe-area frame и mask transitions. Она не вызывает app activation/`makeKey`, не получает History outside-click/resign-key hooks и остаётся раскрытой до Cancel, global Escape или auto-finish. Отдельный movable frame, window drag region и saved-origin restore удаляются из active path;
 - специальный transition между active Stack и History не входит в S030. Реализация не добавляет tab/navigation state или обещание возврата между modes;
@@ -327,6 +327,8 @@ S023 выполняет lightweight migration каждой legacy row в typed o
 - `derivedThumbnail`: не persisted representation и не участвует в pasteback; это удаляемый cache по item/revision.
 
 Page/search API возвращает только `HistoryOccurrenceDescriptor`: occurrence ID, activity, primary kind, bounded title/search presentation, item count и availability summary. Exact text, bookmark data, managed path, image bytes и thumbnail bytes не входят в descriptor.
+
+Unfiltered History продолжает использовать cursor `(activityAt DESC, id DESC)`. Ranked search использует отдельный устойчивый continuation key `(rank ASC, activityAt DESC, id DESC)`. Rank вычисляется из уже сохранённых representations и reference metadata без schema migration: exact или prefix match URL domain/address получает первую группу, остальные typed URL metadata matches вторую, все остальные localized case-insensitive substring matches третью. URL-подобный plain text не переклассифицируется. Repository проходит группы последовательно и возвращает максимум 500 descriptors плюс bounded continuation evidence; перестановка только уже полученной chronological page не выполняет full-retention ranking и не считается реализацией контракта.
 
 Все pasteboard variants входят в History через один `HistoryCapture` boundary. Capture result содержит только committed descriptor и bounded user notice; production UI не кэширует full `HistoryEntry`, а materializes exact payload по UUID непосредственно перед paste. Image и rich stores используют общий managed-directory boundary для root containment, symlink rejection, temp cleanup и digest verification.
 
@@ -450,6 +452,7 @@ QipliUITests/         in-app keyboard and panel flows
 - S027: pure safe-area placement для camera/notchless/multi-display frames, presentation state machine, horizontal card reuse, Search focus, one-dimensional selection, click-away и прежний single paste transaction;
 - S030: shared safe-area shape/motion with separate nonactivating Stack lifecycle, source/target focus preservation, horizontal ordered cards, reorder/direction, Next/Processing/Used/reactivation/error states, reverse finish/cancel и отсутствие legacy floating-window placement;
 - S031: allowlisted `.string`/`.rtf`/`.html` capture, sequential one-read admission, raw-byte restart round-trip, rich capacity/plain-only fallback, exact `Enter`/`⇧Enter` routing, default/plain paste payloads, corrupt asset handling и managed-rich lifecycle;
+- S032: pure search-rank classification, cross-rank cursor pagination без duplicate/gap, deep URL match beyond the first chronological page, exact `⇧Backspace` admission, ordinary Backspace pass-through, selection-only collection reconciliation без full reload и targeted thumbnail update с reusable full-bleed image/text card state reset;
 - build: Debug и Release для deployment target macOS 14.
 
 ### Вручную на чистой системе
@@ -473,6 +476,7 @@ QipliUITests/         in-app keyboard and panel flows
 - S027 MacBook camera-housing plus notchless external-display matrix: current-screen placement, menu-bar clearance, full-screen Space, Search focus, arrows/Enter/Delete/Escape/click-away, Light/Dark, Reduce Motion/Transparency и unchanged ordinary `⌘V`.
 - S030 Top Notch Stack matrix: source Copy, menu-empty Start, reorder/direction, exact sequential paste, Reactivate/`⌘⇧Z`, failure retry, cancel/Escape, auto-finish, camera-housing/notchless/second-display/full-screen placement and nonactivation in at least two external apps.
 - S031 formatted text matrix: TextEdit, browser contenteditable, Notes и один installed office editor как source/target; rich default paste, `⇧Enter` plain paste, IDE/plain target, restart, oversize fallback, corrupt asset retry, active Stack и Delete/Clear All.
+- S032 History polish matrix: `localhost` с более старой typed URL и свежими text matches, empty/non-empty Search delete shortcuts, click и повторный click без reload/viewport jump, native/browser image thumbnails без full-collection reload, horizontal card reuse, Light/Dark, Increase Contrast и VoiceOver type/selection announcement.
 
 ## 10. Сборка и распространение
 
