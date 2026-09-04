@@ -16,8 +16,8 @@
 - Milestone M7 — bounded typed History — завершён: S023–S026 закрыты, включая manual browser/Finder matrix S025.
 - Milestone M8 — Top Notch History — завершён: S027 закрыт после manual display/focus/paste/accessibility matrix.
 - Milestone M9 — Paste Stack в Top Notch — завершён: S030 принят по manual verification; S028/S029 перенесены в backlog решением D-038.
-- Milestone M10 — formatted-text History — активен: S031 реализован и имеет статус `needs_verification`; automated checks, clean unsigned Xcode build и manual acceptance подтверждены, signed Release/update gate остаётся.
-- Milestone M11 — History card/search polish — активен: S032 реализован, не имеет blocker и имеет статус `needs_verification`; automated checks и unsigned universal Debug/Release builds прошли, остаётся installed-app visual/search/accessibility matrix.
+- Milestone M10 — formatted-text History — активен: S031 реализован и имеет статус `needs_verification`; automated checks, manual acceptance и signed public Release подтверждены, остаётся реальный installed Sparkle update smoke.
+- Milestone M11 — History card/search polish — активен: S032 реализован, не имеет blocker и имеет статус `needs_verification`; automated checks, universal builds и signed public `v1.0.8` прошли, остаётся installed-app visual/search/accessibility matrix.
 - S030 закрыт после подтверждения пользователем display, focus, sequence и accessibility matrix. Известное ограничение отключения дисплея во время reveal сохранено в BL-006.
 - S008 остаётся финальным blocked release gate до operational immutable rerun proof и связанной clean-machine/manual release matrix. Локальные Developer ID и notarization credentials подтверждены 2026-08-26.
 - Fail-closed release workflow опубликовал первый Developer ID-signed и notarized GitHub Release `v1.0.0`; публичный ZIP независимо скачан и принят Gatekeeper.
@@ -42,7 +42,7 @@
 | S011 | Опциональный first-run onboarding | `done` | — |
 | S012 | Edge-to-edge Paste Stack с кастомным header | `done` | — |
 | S013 | Версии и безопасный public CI | `done` | — |
-| S014 | Публичный репозиторий и подписанные GitHub-релизы | `needs_verification` | public `v1.0.6` DMG/ZIP и update smoke подтверждены; остаётся operational immutable rerun proof |
+| S014 | Публичный репозиторий и подписанные GitHub-релизы | `needs_verification` | public `v1.0.8` DMG/ZIP, appcast и latest alias подтверждены; остаётся operational immutable rerun proof |
 | S015 | Безопасные обновления через Sparkle | `done` | — |
 | S016 | Надёжная навигация и закрытие History | `done` | — |
 | S017 | Performance baselines и instrumentation | `done` | — |
@@ -96,6 +96,7 @@ S026 завершён: HistoryStore `33/33`, полный SwiftPM `222/222`, mig
 
 ## Последнее проверенное состояние
 
+- 2026-09-04 опубликован и независимо проверен `v1.0.8 (9)` на commit `5f440e84ccb6360be9c33b24f3a811790112df8b`: PR `#22` и protected release run `33879324087` прошли; public ZIP SHA-256 `fd8623669e334e0b117bebad56403dd98cbb556877e73263d6d51939e55940e3`, DMG SHA-256 `0eb6f94392158edd28cdae386c906e2b1ce84a040e4d003cc661eb628f89a4b9`, stable `Qipli.dmg` byte-for-byte совпадает с versioned DMG. Повторное unauthenticated скачивание подтвердило version/build, Developer ID Team `3N2R5K4J63`, stapler, Gatekeeper `source=Notarized Developer ID`, nested Sparkle signatures, `x86_64 arm64` runtime linking и production appcast на immutable `v1.0.8` ZIP. Реальный installed update с предыдущей версии остаётся отдельным gate S031.
 - 2026-09-04 подготовлен unsigned release candidate `v1.0.8 (9)` с S032: полный SwiftPM suite `236` tests, `5` headless named-pasteboard skips, `0` failures; version/CI/public-readiness/update-privacy/release-contract gates прошли; clean optimized universal Release собран для `arm64` и `x86_64`, built metadata и embedded Sparkle runtime linking проверены. Signed/notarized tag workflow и public update verification ещё не запускались.
 - 2026-09-04 S032 и уточнение FR-044/NFR-032 реализованы: card labels удалены при сохранении type icon/accessibility, image cards получили aspect-fill thumbnail/fallback/scrim/reset, delete ограничен exact `⇧Backspace`, search получил full-retention URL-first ranking с stable rank cursor, selection стал no-op при том же native target, а thumbnail completion использует per-entry revisions и targeted visible-item update без full reload. После read-only ревью rank cursor сохраняется после mutation, VoiceOver selection state обновляется вместе с visual state, а card layer клиппит full-bleed image по rounded corners. Полный SwiftPM suite: `236` tests, `0` failures, `5` headless skips; unsigned universal Xcode Debug/Release builds, version contract, runtime linking и `git diff --check` прошли. Остаётся manual installed-app visual/search/accessibility matrix.
 - 2026-09-03 подготовлен unsigned release candidate `v1.0.7 (8)`: полный SwiftPM suite `224` tests, `5` headless named-pasteboard skips, `0` failures; version/CI/public-readiness/update-privacy/release-contract gates прошли; clean optimized universal Release собран для `arm64` и `x86_64`, built metadata и embedded Sparkle runtime linking проверены. Signed/notarized tag workflow и public update verification ещё не запускались.
@@ -141,12 +142,13 @@ S026 завершён: HistoryStore `33/33`, полный SwiftPM `222/222`, mig
 
 ## Следующее действие
 
-Следующее действие: выполнить installed-app visual/search/accessibility matrix S032, включая card reuse, selection-only update, URL-first search и exact `⇧Backspace` в empty/filtered state. Release verification S031 и operational gate S014 остаются отдельными незавершёнными проверками.
+Следующее действие: выполнить installed-app visual/search/accessibility matrix S032, включая card reuse, selection-only update, URL-first search и exact `⇧Backspace` в empty/filtered state, затем проверить реальный Sparkle update `v1.0.7 → v1.0.8` с сохранением History. Operational immutable-rerun gate S014 остаётся отдельной незавершённой проверкой.
 
 ## Журнал переходов
 
 | Дата | Изменение | Основание |
 |---|---|---|
+| 2026-09-04 | Опубликован signed/notarized `v1.0.8 (9)` с S032. | PR `#22`, release run `33879324087`, public ZIP/DMG checksums, identical latest DMG, Developer ID/Gatekeeper/stapler, universal Sparkle linking и production appcast проверены. Реальный installed Sparkle update и manual S032 accessibility matrix остаются открытыми. |
 | 2026-09-04 | S032 дополнен по findings read-only ревью и остаётся в `needs_verification`. | Rank cursor теперь сохраняется после mutation, VoiceOver selection state синхронизируется с visual state, coalesced thumbnail updates применяются только соответствующим видимым cards по per-entry revisions, а full-bleed image клиппится rounded card layer; полный SwiftPM suite `236/236` без failures, unsigned universal Xcode Debug/Release builds и `git diff --check` прошли. Остаётся manual installed-app visual/search/accessibility matrix. |
 | 2026-09-04 | S032 дополнен FR-044 и NFR-032: mouse selection и thumbnail completion не перезагружают всю History collection. | Пользователь наблюдает визуальную перезагрузку всей ленты при клике по любой карточке; inspection подтвердил unconditional selection reapply и full reload при общей thumbnail revision. |
 | 2026-09-04 | Создан S032 и переведён в `ready`; добавлены FR-040–FR-043, BR-032–BR-033, NFR-031 и D-040. | Пользователь подтвердил план полировки карточек, `⇧Backspace` delete и URL-first ranked search и попросил оформить его отдельным slice. |

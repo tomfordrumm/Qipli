@@ -1,6 +1,6 @@
 # Qipli — план поставки и развития продукта
 
-Статус: core MVP подтверждён; signed public release опубликован; typed History, S027 и S030 завершены; S031 ожидает release verification; S032 реализован и ожидает verification; S014 остаётся с отдельными release gates
+Статус: core MVP подтверждён; signed public `v1.0.8` опубликован; typed History, S027 и S030 завершены; S031 ожидает installed update verification; S032 реализован и ожидает manual verification; S014 остаётся с отдельным immutable-rerun gate
 
 Дата: 2026-09-04
 
@@ -95,15 +95,15 @@
 
 После milestone text occurrence сохраняет canonical plain text и bounded source-provided RTF/HTML. Обычная History-вставка сохраняет поддерживаемое target-приложением форматирование, а `⇧Enter` явно вставляет только plain text без изменения default `⌘⇧V` или Paste Stack.
 
-31. [`S031 — Форматированный текст в History`](slices/S031-formatted-text-history.md) — `needs_verification`; implementation, focused tests и manual acceptance подтверждены, остаётся clean Xcode/release verification; зависит от завершённых S023/S026/S027 и расширяет typed storage/paste materialization без нового network owner или rich-text UI renderer.
+31. [`S031 — Форматированный текст в History`](slices/S031-formatted-text-history.md) — `needs_verification`; implementation, automated checks, manual acceptance и signed public `v1.0.8` подтверждены, остаётся реальный installed Sparkle update smoke с сохранением History; зависит от завершённых S023/S026/S027 и расширяет typed storage/paste materialization без нового network owner или rich-text UI renderer.
 
-Результат: форматированный фрагмент можно найти по canonical plain text, вставить с formatting по `Enter`/double-click или без formatting по `⇧Enter`. Oversize rich payload сохраняется plain-only; Paste Stack остаётся text-only. Manual acceptance подтверждена; остаётся clean Xcode/release verification.
+Результат: форматированный фрагмент можно найти по canonical plain text, вставить с formatting по `Enter`/double-click или без formatting по `⇧Enter`. Oversize rich payload сохраняется plain-only; Paste Stack остаётся text-only. Manual acceptance и signed public Release подтверждены; остаётся installed update smoke.
 
 ## Milestone M11 — Полировка карточек и релевантный поиск History
 
 После milestone Top Notch History показывает карточки без дублирующих type labels, full-bleed image thumbnails и более компактный текст. Выбор мышкой не перезагружает ленту карточек. Удаление требует exact `⇧Backspace`, а search выводит typed URL matches раньше incidental text matches во всём retention window.
 
-32. [`S032 — Полировка карточек и релевантный поиск History`](slices/S032-history-card-polish-ranked-search.md) — `needs_verification`; implementation, focused/full automated checks и unsigned universal Debug/Release builds прошли; остаётся installed-app visual/search/accessibility matrix. Зависит от завершённых S023–S025 и S027, не требует schema migration, нового network owner или изменения paste contracts.
+32. [`S032 — Полировка карточек и релевантный поиск History`](slices/S032-history-card-polish-ranked-search.md) — `needs_verification`; implementation, focused/full automated checks, universal builds и signed public `v1.0.8` прошли; остаётся installed-app visual/search/accessibility matrix. Зависит от завершённых S023–S025 и S027, не требует schema migration, нового network owner или изменения paste contracts.
 
 Результат: запрос `localhost` показывает сохранённые URL на первом экране, обычный Backspace безопасно редактирует Search, изображения используют всю площадь карточки с читаемой metadata overlay, а click меняет только selection без reload или viewport jump.
 
