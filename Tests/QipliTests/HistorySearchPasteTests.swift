@@ -51,6 +51,53 @@ final class HistoryViewModelSearchTests: XCTestCase {
         XCTAssertEqual(viewModel.selectedEntryID, first.id)
     }
 
+    func testSelectingAlreadySelectedEntryIsNoOp() async {
+        let entry = makeEntry("same selection", offset: 1)
+        let viewModel = HistoryViewModel(
+            service: HistoryService(store: InMemoryHistoryStore(entries: [entry]))
+        )
+        await viewModel.reload(selectFirstResult: true)
+        var publicationCount = 0
+        let observation = viewModel.$selectedEntryID
+            .dropFirst()
+            .sink { _ in publicationCount += 1 }
+
+        viewModel.select(id: entry.id)
+
+        XCTAssertEqual(viewModel.selectedEntryID, entry.id)
+        XCTAssertEqual(publicationCount, 0)
+        withExtendedLifetime(observation) {}
+    }
+
+    func testUpdatingQueryWithSameValueKeepsSnapshotAndSelection() async {
+        let first = makeEntry("first", offset: 2)
+        let second = makeEntry("second", offset: 1)
+        let viewModel = HistoryViewModel(
+            service: HistoryService(store: InMemoryHistoryStore(entries: [first, second]))
+        )
+        await viewModel.reload(selectFirstResult: true)
+        viewModel.select(id: second.id)
+        let revisionBeforeUpdate = viewModel.visibleSnapshotRevision
+        var statePublicationCount = 0
+        var selectionPublicationCount = 0
+        let stateObservation = viewModel.$state
+            .dropFirst()
+            .sink { _ in statePublicationCount += 1 }
+        let selectionObservation = viewModel.$selectedEntryID
+            .dropFirst()
+            .sink { _ in selectionPublicationCount += 1 }
+
+        viewModel.updateQuery("")
+        await viewModel.waitForPendingSearch()
+
+        XCTAssertEqual(viewModel.visibleSnapshotRevision, revisionBeforeUpdate)
+        XCTAssertEqual(viewModel.visibleEntries.map(\.id), [first.id, second.id])
+        XCTAssertEqual(viewModel.selectedEntryID, second.id)
+        XCTAssertEqual(statePublicationCount, 0)
+        XCTAssertEqual(selectionPublicationCount, 0)
+        withExtendedLifetime((stateObservation, selectionObservation)) {}
+    }
+
     func testDeletingSelectedFilteredEntrySelectsNearestVisibleEntry() async {
         let first = makeEntry("needle one", offset: 3)
         let second = makeEntry("needle two", offset: 2)

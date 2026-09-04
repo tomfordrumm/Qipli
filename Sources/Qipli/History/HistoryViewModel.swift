@@ -47,12 +47,14 @@ final class HistoryViewModel: ObservableObject {
     @Published private(set) var isSearchInProgress = false
     @Published private(set) var isLoadingMore = false
     @Published private(set) var thumbnailDataByEntryID: [UUID: Data] = [:]
+    @Published private(set) var thumbnailUpdateRevisionsByEntryID: [UUID: Int] = [:]
     @Published private(set) var captureNotice: String?
     private(set) var visibleSnapshotRevision = 0
     private let thumbnailCacheBytes = HistoryImageStoragePolicy.production.thumbnailCacheBytes
     private var thumbnailCacheByteCount = 0
     private var thumbnailTasks: [UUID: Task<Void, Never>] = [:]
     private var thumbnailGeneration = 0
+    private var thumbnailUpdateRevision = 0
 
     private let service: SerializedHistoryService
     private let usesPaging: Bool
@@ -180,6 +182,7 @@ final class HistoryViewModel: ObservableObject {
     }
 
     func updateQuery(_ query: String) {
+        guard self.query != query else { return }
         self.query = query
         pasteFailure = nil
         if usesPaging {
@@ -270,6 +273,7 @@ final class HistoryViewModel: ObservableObject {
 
     func select(id: UUID) {
         guard visibleDescriptors.contains(where: { $0.id == id }) else { return }
+        guard selectedEntryID != id else { return }
         selectedEntryID = id
         pasteFailure = nil
     }
@@ -320,6 +324,7 @@ final class HistoryViewModel: ObservableObject {
             let updated = HistoryOccurrenceDescriptor(
                 id: previous.id,
                 activityAt: activityAt,
+                searchRank: previous.searchRank,
                 textPreview: previous.textPreview,
                 representations: previous.representations,
                 imageMetadata: previous.imageMetadata,
@@ -343,8 +348,13 @@ final class HistoryViewModel: ObservableObject {
                 )
             }
             if usesPaging, hasMorePages {
+                let previousSearchRank = pageCursor?.searchRank
                 pageCursor = loadedDescriptors.last.map {
-                    HistoryPageCursor(activityAt: $0.activityAt, id: $0.id)
+                    HistoryPageCursor(
+                        activityAt: $0.activityAt,
+                        id: $0.id,
+                        searchRank: $0.searchRank ?? previousSearchRank
+                    )
                 }
             }
             hasUnpublishedSnapshotChanges = true
@@ -473,7 +483,10 @@ final class HistoryViewModel: ObservableObject {
                         self.thumbnailCacheByteCount -= removed.count
                     }
                 }
-                self.visibleSnapshotRevision &+= 1
+                self.thumbnailUpdateRevision &+= 1
+                var revisions = self.thumbnailUpdateRevisionsByEntryID
+                revisions[entryID] = self.thumbnailUpdateRevision
+                self.thumbnailUpdateRevisionsByEntryID = revisions
             } catch {
                 // Keep the row available with its image placeholder.
             }
@@ -493,8 +506,13 @@ final class HistoryViewModel: ObservableObject {
             legacyEntriesByID[id] = nil
             if usesPaging {
                 if hasMorePages {
+                    let previousSearchRank = pageCursor?.searchRank
                     pageCursor = loadedDescriptors.last.map {
-                        HistoryPageCursor(activityAt: $0.activityAt, id: $0.id)
+                        HistoryPageCursor(
+                            activityAt: $0.activityAt,
+                            id: $0.id,
+                            searchRank: $0.searchRank ?? previousSearchRank
+                        )
                     }
                 }
                 publish(descriptors: loadedDescriptors, selectFirstResult: false)
@@ -690,8 +708,13 @@ final class HistoryViewModel: ObservableObject {
         for id in expiredIDs { legacyEntriesByID[id] = nil }
         for id in expiredIDs { removeThumbnail(for: id) }
         if usesPaging, loadedDescriptors.count != previousCount, hasMorePages {
+            let previousSearchRank = pageCursor?.searchRank
             pageCursor = loadedDescriptors.last.map {
-                HistoryPageCursor(activityAt: $0.activityAt, id: $0.id)
+                HistoryPageCursor(
+                    activityAt: $0.activityAt,
+                    id: $0.id,
+                    searchRank: $0.searchRank ?? previousSearchRank
+                )
             }
         }
         return loadedDescriptors.count != previousCount
@@ -699,6 +722,7 @@ final class HistoryViewModel: ObservableObject {
 
     private func removeThumbnail(for entryID: UUID) {
         thumbnailTasks.removeValue(forKey: entryID)?.cancel()
+        thumbnailUpdateRevisionsByEntryID[entryID] = nil
         if let data = thumbnailDataByEntryID.removeValue(forKey: entryID) {
             thumbnailCacheByteCount -= data.count
         }
@@ -725,6 +749,7 @@ final class HistoryViewModel: ObservableObject {
         HistoryOccurrenceDescriptor(
             id: entry.id,
             activityAt: entry.activityAt,
+            searchRank: nil,
             textPreview: entry.isTextOnly ? HistoryPreview.text(for: entry.text) : nil,
             representations: entry.representations,
             imageMetadata: entry.imageMetadata,

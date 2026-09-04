@@ -197,7 +197,40 @@ final class HistoryService {
     private func fallbackPage(after cursor: HistoryPageCursor?, query: String?) throws -> HistoryPage {
         var entries = try entries()
         if let query, !query.isEmpty {
-            entries = HistorySearchMatcher.matches(in: entries, query: query)
+            let ranked = entries.compactMap { entry in
+                HistorySearchRank.classify(entry: entry, query: query).map { (entry, $0) }
+            }.sorted { lhs, rhs in
+                if lhs.1 != rhs.1 { return lhs.1.rawValue < rhs.1.rawValue }
+                if lhs.0.activityAt != rhs.0.activityAt { return lhs.0.activityAt > rhs.0.activityAt }
+                return lhs.0.id.uuidString > rhs.0.id.uuidString
+            }
+            let afterCursor = ranked.filter { pair in
+                guard let cursor else { return true }
+                guard pair.1 == cursor.searchRank else {
+                    return pair.1.rawValue > (cursor.searchRank?.rawValue ?? -1)
+                }
+                return pair.0.activityAt < cursor.activityAt
+                    || (pair.0.activityAt == cursor.activityAt && pair.0.id.uuidString < cursor.id.uuidString)
+            }
+            let pageEntries = Array(afterCursor.prefix(Self.pageSize))
+            let descriptors = pageEntries.map { entry, rank in
+                HistoryOccurrenceDescriptor(
+                    id: entry.id,
+                    activityAt: entry.activityAt,
+                    searchRank: rank,
+                    textPreview: entry.isTextOnly ? HistoryPreview.text(for: entry.text) : nil,
+                    representations: entry.representations,
+                    imageMetadata: entry.imageMetadata,
+                    referenceMetadata: entry.referenceMetadata
+                )
+            }
+            return HistoryPage(
+                descriptors: descriptors,
+                nextCursor: pageEntries.last.map {
+                    HistoryPageCursor(activityAt: $0.0.activityAt, id: $0.0.id, searchRank: $0.1)
+                },
+                hasMore: afterCursor.count > Self.pageSize
+            )
         }
         if let cursor {
             entries = entries.filter {

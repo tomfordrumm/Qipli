@@ -288,6 +288,7 @@ struct HistoryOccurrence: Identifiable, Equatable, Sendable {
 struct HistoryOccurrenceDescriptor: Identifiable, Equatable, Sendable {
     let id: UUID
     let activityAt: Date
+    let searchRank: HistorySearchRank?
     let textPreview: String?
     let representations: [HistoryRepresentationDescriptor]
     let imageMetadata: [HistoryImageMetadata]
@@ -296,6 +297,7 @@ struct HistoryOccurrenceDescriptor: Identifiable, Equatable, Sendable {
     init(
         id: UUID,
         activityAt: Date,
+        searchRank: HistorySearchRank? = nil,
         textPreview: String?,
         representations: [HistoryRepresentationDescriptor],
         imageMetadata: [HistoryImageMetadata] = [],
@@ -303,6 +305,7 @@ struct HistoryOccurrenceDescriptor: Identifiable, Equatable, Sendable {
     ) {
         self.id = id
         self.activityAt = activityAt
+        self.searchRank = searchRank
         self.textPreview = textPreview
         self.representations = representations
         self.imageMetadata = imageMetadata
@@ -314,9 +317,47 @@ struct HistoryOccurrenceDescriptor: Identifiable, Equatable, Sendable {
     }
 }
 
+enum HistorySearchRank: Int, CaseIterable, Equatable, Sendable {
+    case exactOrPrefixURL = 0
+    case otherTypedURL = 1
+    case otherMatch = 2
+
+    static func classify(entry: HistoryEntry, query: String) -> Self? {
+        guard !query.isEmpty,
+              entry.searchableMetadata.localizedCaseInsensitiveContains(query)
+        else { return nil }
+
+        let isTypedURL = entry.representations.contains { $0.kind == .url }
+        guard isTypedURL else { return .otherMatch }
+
+        let urlValues = entry.referenceMetadata
+            .filter { $0.typeIdentifier == "public.url" }
+            .flatMap { metadata in
+            [metadata.domain, metadata.searchText]
+                .compactMap { $0 }
+        }
+        if urlValues.contains(where: { isExactOrPrefix($0, query: query) }) {
+            return .exactOrPrefixURL
+        }
+        return .otherTypedURL
+    }
+
+    private static func isExactOrPrefix(_ value: String, query: String) -> Bool {
+        value.localizedCaseInsensitiveCompare(query) == .orderedSame
+            || value.range(of: query, options: [.caseInsensitive, .anchored]) != nil
+    }
+}
+
 struct HistoryPageCursor: Equatable, Sendable {
     let activityAt: Date
     let id: UUID
+    let searchRank: HistorySearchRank?
+
+    init(activityAt: Date, id: UUID, searchRank: HistorySearchRank? = nil) {
+        self.activityAt = activityAt
+        self.id = id
+        self.searchRank = searchRank
+    }
 }
 
 struct HistoryPage: Equatable, Sendable {

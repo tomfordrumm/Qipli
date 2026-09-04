@@ -1,8 +1,8 @@
 # Qipli — продуктовый контракт
 
-Статус: согласованный core MVP, публичная поставка, typed History, единая Top Notch оболочка и спланированная formatted-text History
+Статус: согласованный core MVP, публичная поставка, typed History, единая Top Notch оболочка, formatted-text History и спланированная полировка карточек и поиска
 
-Дата актуализации: 2026-09-03
+Дата актуализации: 2026-09-04
 
 Источник исходного замысла: [`../PROJECT_BRIEF.md`](../PROJECT_BRIEF.md)
 
@@ -89,6 +89,18 @@ Qipli — бесплатное open-source приложение для macOS. Т
 - RTFD, WebArchive, private/dynamic types, arbitrary MIME passthrough, external-resource fetching и rich Paste Stack не входят в поставку.
 
 Поставка считается полезной, когда форматированный фрагмент из TextEdit или браузера можно найти по обычному тексту, вставить с сохранением поддерживаемых target-приложением стилей по `Enter` и вставить без стилей по `⇧Enter`, не меняя текущий History shortcut или Paste Stack.
+
+### Следующая UI-поставка — полировка карточек и релевантный поиск
+
+- видимые подписи `Text`, `URL`, `Image`, `File` и `Video` удаляются из карточек; тип остаётся различим по иконке и полностью сообщается VoiceOver;
+- основной текст карточки использует системный шрифт 13 pt вместо текущего 15 pt;
+- локальный thumbnail image-карточки заполняет всю карточку с aspect-fill crop, а bounded metadata или состояние показывается поверх нижней затемнённой подложки;
+- обычный `Backspace` принадлежит Search и не удаляет occurrence; exact `⇧Backspace` удаляет выбранную карточку, в том числе при непустом запросе;
+- поиск сохраняет текущий набор localized case-insensitive substring matches, но ставит реальные typed URL matches выше incidental text matches, а внутри одной группы сохраняет activity order;
+- ранжирование применяется ко всему 30-day retention window и остаётся совместимым с bounded paging, stale-query cancellation и payload-free UI descriptors;
+- клик по карточке меняет только selection: список и viewport не перезагружаются, поиск/storage повторно не запускаются, а готовность одного thumbnail не пересоздаёт остальные карточки.
+
+Поставка считается полезной, когда пользователь видит более спокойные и стабильные при выборе карточки, изображения используют всю доступную площадь, случайный Backspace не удаляет History, а запрос вроде `localhost` выводит сохранённые URL на первый экран даже при наличии более свежих текстовых совпадений.
 
 ### Позже
 
@@ -220,6 +232,11 @@ Qipli — бесплатное open-source приложение для macOS. Т
 | FR-037 | Text occurrence сохраняет exact canonical plain string и, когда source предоставляет их в том же pasteboard item, bounded raw `public.rtf`/`public.html` representations без преобразования markup или загрузки external resources. | Пользователь 2026-09-03 |
 | FR-038 | Для rich text `Enter` и double-click выполняют formatted History paste с plain fallback, а exact `⇧Enter` выполняет plain-only paste. Default `⌘⇧V` продолжает только открывать History. | Пользователь 2026-09-03 |
 | FR-039 | Если rich representation превышает safety limit или не может быть durably сохранена, Qipli сохраняет допустимую occurrence как plain-only, не удаляет существующую History и показывает bounded non-payload notice. | Пользователь 2026-09-03 |
+| FR-040 | History-карточки не показывают отдельную текстовую подпись типа. Иконка остаётся видимой, основной текст использует системный шрифт 13 pt, а VoiceOver продолжает сообщать тип, содержимое или состояние и selection. | Пользователь 2026-09-04 |
+| FR-041 | Image-карточка использует локальный thumbnail как full-bleed aspect-fill background; bounded metadata или состояние отображается на читаемой затемнённой подложке, а отсутствие thumbnail получает честный локальный fallback. | Пользователь 2026-09-04 |
+| FR-042 | В focused History Search обычный `Backspace` не удаляет occurrence. Exact `⇧Backspace` удаляет выбранную occurrence и при пустом, и при непустом запросе через существующий durable delete path. | Пользователь 2026-09-04 |
+| FR-043 | History search сохраняет текущий localized case-insensitive substring match set, но ранжирует typed URL domain/address matches выше остальных совпадений во всём retention window. | Пользователь 2026-09-04 |
+| FR-044 | Клик по History card меняет только выбранную occurrence. При неизменных card IDs и snapshot revision коллекция не выполняет полный reload, не запускает повторный search/storage read и сохраняет viewport; повторный клик по уже выбранной карточке является no-op. | Пользователь 2026-09-04 |
 
 ## 5. Бизнес-правила
 
@@ -256,6 +273,8 @@ Qipli — бесплатное open-source приложение для macOS. Т
 | BR-029 | Canonical plain string остаётся единственным text value для validation, search, preview и Paste Stack. Rich representations принадлежат тому же ordered pasteboard item, materialize-ятся только для selected History paste и не создают отдельную occurrence или карточку. |
 | BR-030 | Первая formatted-text поставка allowlist-ит только стандартные `public.rtf` и `public.html` вместе с `public.utf8-plain-text`. RTFD, WebArchive, private/dynamic types и произвольные source-specific representations не читаются и не восстанавливаются. |
 | BR-031 | Rich capacity policy использует production defaults 16 MiB на representation, 32 MiB на occurrence и 512 MiB на все durable rich assets. Overflow деградирует capture до plain-only с non-payload notice; missing/corrupt уже сохранённый rich asset останавливает default paste, но explicit `⇧Enter` остаётся доступным. Auto-eviction не выполняется. |
+| BR-032 | Search order состоит из устойчивых групп: exact или prefix match URL domain/address, затем остальные typed URL metadata matches, затем все остальные matches. Внутри группы порядок остаётся `activityAt DESC, id DESC`. URL-подобный plain text не меняет свой тип и относится к обычным text matches. |
+| BR-033 | Удаление с клавиатуры допускается только для exact `⇧Backspace`, focused History Search, существующего selected UUID и non-repeat key-down без `Command`, `Control` или `Option`. При отсутствии выбранной occurrence событие не создаёт delete operation. |
 
 ## 6. Нефункциональные требования
 
@@ -276,7 +295,7 @@ Qipli — бесплатное open-source приложение для macOS. Т
 | NFR-013 | CI использует минимальные GitHub token permissions, фиксированные версии или commit SHA сторонних Actions, ephemeral Keychain для release job и гарантированное удаление временного signing material. |
 | NFR-014 | Каждый update ZIP проходит Developer ID validation, Apple notarization, Sparkle EdDSA verification и HTTPS delivery; приватные Apple и Sparkle keys не входят в repository, artifacts, appcast или logs. |
 | NFR-015 | Update check не содержит clipboard text, history entries, search query, previews или локальные identifiers Qipli; фоновые проверки выполняются только после явного opt-in и могут быть отключены. |
-| NFR-016 | Чтение, запись, retention и удаление History не выполняют persistent-store I/O на main actor; операции остаются последовательными, а UI получает immutable value snapshots в порядке `capturedAt DESC, id DESC`. |
+| NFR-016 | Чтение, запись, retention и удаление History не выполняют persistent-store I/O на main actor; операции остаются последовательными, а unfiltered UI получает immutable value snapshots в порядке `capturedAt DESC, id DESC`. Ranked search использует отдельный порядок BR-032. |
 | NFR-017 | Повторный показ History использует уже загруженный актуальный snapshot и не запускает безусловный полный fetch; внешнее копирование непосредственно перед shortcut всё равно должно появиться первым до показа панели. |
 | NFR-018 | Поиск по History не блокирует ввод: вычисление выполняется вне main actor, отменённый или устаревший результат не заменяет новый, а совпадение сохраняет семантику локализованного регистронезависимого substring search. |
 | NFR-019 | History и Paste Stack строят ограниченный display preview, не обходя весь большой текст ради длины; storage, search и paste всегда используют точное полное значение без усечения. |
@@ -291,6 +310,8 @@ Qipli — бесплатное open-source приложение для macOS. Т
 | NFR-028 | History и Stack карточные поверхности остаются reusable или lazy и bounded: History UI получает descriptors и запрашивает thumbnails только для видимых карточек, Stack не создаёт второй long-lived occurrence array и не материализует full text ради preview. |
 | NFR-029 | Paste Stack Top Notch не активирует Qipli, не забирает keyboard focus у внешнего source/target app и не получает History-only click-away/resign-key dismissal hooks. |
 | NFR-030 | Rich payload bytes не входят в bounded page/search/UI snapshots, логи, signposts, crash metadata или telemetry. Capture/storage/materialization выполняются вне main actor с allowlist, sequential one-read admission, atomic ownership и тем же 30-day/Delete/Clear All lifecycle, что остальные Qipli-managed assets. AppKit может materialize один полный allowlisted `Data` до проверки его размера; Qipli не делает дополнительных полных копий и не выдаёт persistence cap за streaming read limit. |
+| NFR-031 | Ranked search выполняется вне main actor, возвращает не более 500 descriptors на page и продолжает по устойчивому `(rank, activityAt, id)` cursor без duplicate, gap или полного payload snapshot. Переиспользование image/text card views не сохраняет thumbnail или overlay от предыдущей occurrence. |
+| NFR-032 | History collection применяет updates дифференцированно: selection-only update меняет только прежний и новый highlight без `reloadData()`, а готовность thumbnail обновляет только соответствующую видимую карточку. Полный reload допустим только при фактическом изменении snapshot identity/order. |
 
 ## 7. Состояния и ошибки интерфейса
 
@@ -300,8 +321,9 @@ Qipli — бесплатное open-source приложение для macOS. Т
 - пустая история;
 - результаты и текущий keyboard selection;
 - Top Notch раскрыт сверху текущего экрана, содержит focused Search и горизонтальные карточки; экран без camera housing получает top-center fallback без перекрытия menu bar;
-- удаление конкретной occurrence доступно на карточке и с клавиатуры; при непустом Search Delete остаётся обычным text editing и ничего не удаляет из history;
-- карточки имеют type-aware preview, доступное имя и различимый keyboard selection, не полагающийся только на цвет;
+- удаление конкретной occurrence доступно на карточке и по exact `⇧Backspace`; обычный `Backspace` всегда остаётся text editing и не удаляет History;
+- карточки не дублируют тип текстовой подписью: иконка остаётся видимой, VoiceOver сообщает тип, а keyboard selection различим не только цветом;
+- image-карточка использует full-bleed local thumbnail и затемнённую подложку под metadata/state; до готовности thumbnail показывается честный локальный fallback;
 - нет совпадений;
 - ошибка чтения/удаления;
 - Accessibility-разрешение отсутствует: просмотр и удаление доступны, вставка недоступна с объяснением;
@@ -387,6 +409,7 @@ Qipli — бесплатное open-source приложение для macOS. Т
 - Inline image переживает restart и повторно вставляется из History; URL/file/video occurrence находится по metadata и либо вставляется, либо показывает точную причину unavailable source.
 - Delete, expiry и Clear All удаляют Qipli-owned media bytes и thumbnails, но не меняют referenced source files.
 - Форматированный text fragment переживает restart, вставляется с supported formatting по `Enter`/double-click и как plain-only по `⇧Enter`; oversized rich representation не мешает сохранению canonical text.
+- Поиск `localhost` и аналогичный metadata query выводит typed URL matches раньше более свежих incidental text matches, не теряя остальные результаты и не меняя их содержимое.
 
 Числовые продуктовые KPI пока не заданы и не должны выдумываться при реализации.
 
@@ -395,7 +418,7 @@ Qipli — бесплатное open-source приложение для macOS. Т
 ### Видимые предположения
 
 - Qipli оформляется как menu bar utility без постоянного окна и без обязательной иконки в Dock.
-- История показывает новые записи первыми; поиск — регистронезависимое вхождение подстроки с системными правилами локали.
+- История без запроса показывает новые записи первыми. Поиск сохраняет регистронезависимое вхождение подстроки с системными правилами локали, но использует URL-first relevance groups из BR-032.
 - Одинаковые копирования сохраняются как отдельные события и в общей истории, а не только в Paste Stack.
 - Управление порядком и направлением блокируется после первого обработанного `⌘V`; восстановление выполняется через повторную активацию.
 - Core MVP не зависит от запуска при входе, настраиваемых hotkeys или onboarding; они входят в первый публичный релиз как ранний post-MVP setup layer.

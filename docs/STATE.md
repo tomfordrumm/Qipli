@@ -1,6 +1,6 @@
 # Qipli — текущее состояние проекта
 
-Последняя актуализация: 2026-09-03
+Последняя актуализация: 2026-09-04
 
 Источник истины для статусов: этот файл
 
@@ -17,6 +17,7 @@
 - Milestone M8 — Top Notch History — завершён: S027 закрыт после manual display/focus/paste/accessibility matrix.
 - Milestone M9 — Paste Stack в Top Notch — завершён: S030 принят по manual verification; S028/S029 перенесены в backlog решением D-038.
 - Milestone M10 — formatted-text History — активен: S031 реализован и имеет статус `needs_verification`; automated checks, clean unsigned Xcode build и manual acceptance подтверждены, signed Release/update gate остаётся.
+- Milestone M11 — History card/search polish — активен: S032 реализован, не имеет blocker и имеет статус `needs_verification`; automated checks и unsigned universal Debug/Release builds прошли, остаётся installed-app visual/search/accessibility matrix.
 - S030 закрыт после подтверждения пользователем display, focus, sequence и accessibility matrix. Известное ограничение отключения дисплея во время reveal сохранено в BL-006.
 - S008 остаётся финальным blocked release gate до operational immutable rerun proof и связанной clean-machine/manual release matrix. Локальные Developer ID и notarization credentials подтверждены 2026-08-26.
 - Fail-closed release workflow опубликовал первый Developer ID-signed и notarized GitHub Release `v1.0.0`; публичный ZIP независимо скачан и принят Gatekeeper.
@@ -59,6 +60,7 @@
 | S029 | Favorites navigation | `backlog` | BL-005; presentation/retention требуют нового решения |
 | S030 | Paste Stack в Top Notch | `done` | S007, S012, S021, S027 |
 | S031 | Форматированный текст в History | `needs_verification` | S023, S026, S027 |
+| S032 | Полировка карточек и релевантный поиск History | `needs_verification` | S023, S024, S025, S027; implementation и automated gates пройдены, остаётся manual visual/search/accessibility matrix |
 
 ## Блокеры и recheck points
 
@@ -67,6 +69,8 @@ Product-code blockers для S011, S012 и S016 отсутствуют. Осно
 S030 не имеет product или dependency blocker: все prerequisites завершены, а manual acceptance подтверждён. Ограничение BL-006 не блокирует принятый пользовательский путь. Отдельное full History window, Favorites и active-Stack-to-History handoff не являются prerequisite и остаются вне текущей acceptance matrix.
 
 S031 не имеет dependency blocker: S023/S026/S027 завершены. Реализованы default rich paste по `Enter`/double-click, plain-only paste по exact `⇧Enter`, allowlist `public.rtf`/`public.html`, text-only Paste Stack и plain-only fallback при rich overflow; full SwiftPM suite, clean unsigned universal Xcode Debug build и manual acceptance подтверждены. До `done` остаётся signed Release/update verification. Production defaults 16 MiB на rich representation, 32 MiB на occurrence и 512 MiB total являются техническим safety assumption D-039; probe при необходимости обновляет решение до изменения production capture. AppKit не предоставляет pre-read length/stream для `data(forType:)`, поэтому ceiling ограничивает admission/persistence, а не исходную materialization одного blob.
+
+S032 не имеет product, dependency или platform blocker. Срез использует существующие typed metadata, local thumbnails, History delete path и AppKit card reuse. Schema migration, сеть и новые зависимости не требуются. Ranked pagination, card reuse, exact `⇧Backspace` admission и targeted thumbnail update реализованы и покрыты focused/full automated checks. Остаётся manual verification, что mouse selection не даёт flash/reload/viewport jump, а карточки и VoiceOver корректны в Light/Dark и Increase Contrast.
 
 S017–S022 не имеют внешнего blocker и закрыты. Их performance contracts сохраняют exact full clipboard text, duplicate occurrences, History-first persistence, self-write suppression, ordinary `Command-V` вне active Stack и fresh capture перед History show.
 
@@ -92,6 +96,7 @@ S026 завершён: HistoryStore `33/33`, полный SwiftPM `222/222`, mig
 
 ## Последнее проверенное состояние
 
+- 2026-09-04 S032 и уточнение FR-044/NFR-032 реализованы: card labels удалены при сохранении type icon/accessibility, image cards получили aspect-fill thumbnail/fallback/scrim/reset, delete ограничен exact `⇧Backspace`, search получил full-retention URL-first ranking с stable rank cursor, selection стал no-op при том же native target, а thumbnail completion использует per-entry revisions и targeted visible-item update без full reload. После read-only ревью rank cursor сохраняется после mutation, VoiceOver selection state обновляется вместе с visual state, а card layer клиппит full-bleed image по rounded corners. Полный SwiftPM suite: `236` tests, `0` failures, `5` headless skips; unsigned universal Xcode Debug/Release builds, version contract, runtime linking и `git diff --check` прошли. Остаётся manual installed-app visual/search/accessibility matrix.
 - 2026-09-03 подготовлен unsigned release candidate `v1.0.7 (8)`: полный SwiftPM suite `224` tests, `5` headless named-pasteboard skips, `0` failures; version/CI/public-readiness/update-privacy/release-contract gates прошли; clean optimized universal Release собран для `arm64` и `x86_64`, built metadata и embedded Sparkle runtime linking проверены. Signed/notarized tag workflow и public update verification ещё не запускались.
 - 2026-09-02 реализован S027: Top Notch History shelf добавляет borderless safe-area panel, bounded horizontal typed cards, lazy thumbnails, Search focus, existing History paste/delete/click-away contracts и Reduce Motion state transitions. Top Notch получает metadata-only descriptors, а exact entry materializes перед click/Enter paste. После пользовательской проверки исправлены направление выбора на `←/→`, подсказки, single-selection highlight, opaque black top surface chrome, mainMenu-level notch overlay, auxiliary-area placement, динамический inset ниже физической челки, компенсация высоты viewport и concave top curl с convex bottom corners по референсу челки; focused S027 tests: 8/8 SwiftPM; полный SwiftPM suite: 233/233; обычный подписанный native Xcode Debug suite: 233/233. До завершения среза остаётся manual display/appearance/accessibility/focus/paste matrix.
 - 2026-09-02 по визуальному отзыву исправлен контур S027: нижние углы теперь продолжаются внутрь от боковых стенок без острых выступов; opening раскрывается из auxiliary-area camera gap, closing выполняет обратное схлопывание и затем `orderOut`, поэтому в hidden state собственной панели Qipli нет. Focused S027 suite: 10/10; SwiftPM и подписанная universal Xcode Debug сборки прошли. Полный SwiftPM rerun заблокирован environment error `insufficientDiskSpace` при 97% заполнении системного диска; пользователь берёт ручную проверку формы и motion.
@@ -135,12 +140,15 @@ S026 завершён: HistoryStore `33/33`, полный SwiftPM `222/222`, mig
 
 ## Следующее действие
 
-Следующее действие: пройти manual TextEdit/browser/Notes/office representation-and-size probe и source/target paste matrix S031; затем повторить clean Xcode/release verification. S014 сохраняет отдельный operational release gate; S030 закрыт, BL-006 остаётся отложенным edge case.
+Следующее действие: выполнить installed-app visual/search/accessibility matrix S032, включая card reuse, selection-only update, URL-first search и exact `⇧Backspace` в empty/filtered state. Release verification S031 и operational gate S014 остаются отдельными незавершёнными проверками.
 
 ## Журнал переходов
 
 | Дата | Изменение | Основание |
 |---|---|---|
+| 2026-09-04 | S032 дополнен по findings read-only ревью и остаётся в `needs_verification`. | Rank cursor теперь сохраняется после mutation, VoiceOver selection state синхронизируется с visual state, coalesced thumbnail updates применяются только соответствующим видимым cards по per-entry revisions, а full-bleed image клиппится rounded card layer; полный SwiftPM suite `236/236` без failures, unsigned universal Xcode Debug/Release builds и `git diff --check` прошли. Остаётся manual installed-app visual/search/accessibility matrix. |
+| 2026-09-04 | S032 дополнен FR-044 и NFR-032: mouse selection и thumbnail completion не перезагружают всю History collection. | Пользователь наблюдает визуальную перезагрузку всей ленты при клике по любой карточке; inspection подтвердил unconditional selection reapply и full reload при общей thumbnail revision. |
+| 2026-09-04 | Создан S032 и переведён в `ready`; добавлены FR-040–FR-043, BR-032–BR-033, NFR-031 и D-040. | Пользователь подтвердил план полировки карточек, `⇧Backspace` delete и URL-first ranked search и попросил оформить его отдельным slice. |
 | 2026-09-02 | S026 переведён в `done`. | Migration fault-injection, signed/notarized `v1.0.6 (7)` и scoped security diff scan с `0` reportable findings завершены; пользователь подтвердил update/typed History smoke на втором Mac. |
 | 2026-08-06 | Создан план; S001 переведён в `ready`, остальные срезы — `planned`. | Easy PRD по подтверждённому брифу и ответам пользователя |
 | 2026-08-07 | Реализован S001 и переведён в `needs_verification`. | Swift Package Debug/Release builds и статическая проверка успешны; Xcode/XCTest и ручная macOS verification недоступны на машине только с Command Line Tools. |
