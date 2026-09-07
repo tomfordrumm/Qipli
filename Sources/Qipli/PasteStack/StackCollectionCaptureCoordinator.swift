@@ -8,8 +8,17 @@ final class StackCollectionCaptureCoordinator {
     private let historyViewModel: HistoryViewModel
     private let stackSessionController: StackSessionController
     private var pendingCapture: Task<Void, Never>?
+    private let maxPendingBytes: Int
+    private let maxPendingCount: Int
+    private(set) var pendingByteCount = 0
+    private(set) var pendingCount = 0
+    private var latestRejection: (message: String, changeCount: Int, context: StackCaptureContext?)?
 
-    init(historyViewModel: HistoryViewModel, stackSessionController: StackSessionController) {
+    init(historyViewModel: HistoryViewModel, stackSessionController: StackSessionController,
+         maxPendingBytes: Int = 64 * 1024 * 1024, maxPendingCount: Int = 64) {
+        precondition(maxPendingBytes > 0 && maxPendingCount > 0)
+        self.maxPendingBytes = maxPendingBytes
+        self.maxPendingCount = maxPendingCount
         self.historyViewModel = historyViewModel
         self.stackSessionController = stackSessionController
     }
@@ -19,15 +28,52 @@ final class StackCollectionCaptureCoordinator {
         observedChangeCount: Int,
         stackCaptureContext: StackCaptureContext?
     ) {
+        let bytes = capture.payloadByteCount
+        guard bytes <= maxPendingBytes else {
+            reject(message: "This copy is too large to save.",
+                   observedChangeCount: observedChangeCount, stackCaptureContext: stackCaptureContext)
+            return
+        }
+        guard pendingCount < maxPendingCount, bytes <= maxPendingBytes - pendingByteCount else {
+            reject(message: "Qipli is busy. This copy was not saved; try copying it again.",
+                   observedChangeCount: observedChangeCount, stackCaptureContext: stackCaptureContext)
+            return
+        }
+        pendingCount += 1
+        pendingByteCount += bytes
         let previousCapture = pendingCapture
         pendingCapture = Task { @MainActor [weak self] in
             await previousCapture?.value
-            await self?.record(
+            guard let self else { return }
+            defer {
+                self.pendingCount -= 1
+                self.pendingByteCount -= bytes
+            }
+            await self.record(
                 capture,
                 observedChangeCount: observedChangeCount,
                 stackCaptureContext: stackCaptureContext
             )
+            if let rejection = self.latestRejection, rejection.changeCount > observedChangeCount {
+                self.publishRejection(rejection)
+            } else {
+                self.latestRejection = nil
+            }
+
         }
+    }
+
+    func reject(message: String, observedChangeCount: Int, stackCaptureContext: StackCaptureContext?) {
+        let rejection = (message: message, changeCount: observedChangeCount, context: stackCaptureContext)
+        latestRejection = rejection
+        publishRejection(rejection)
+    }
+
+    private func publishRejection(_ rejection: (message: String, changeCount: Int, context: StackCaptureContext?)) {
+        historyViewModel.recordCaptureRejection(rejection.message)
+        stackSessionController.recordNonTextCaptureFailure(
+            message: rejection.message, observedChangeCount: rejection.changeCount, for: rejection.context
+        )
     }
 
     func enqueueExternalText(
@@ -36,48 +82,6 @@ final class StackCollectionCaptureCoordinator {
         stackCaptureContext: StackCaptureContext?
     ) {
         enqueue(.text(text), observedChangeCount: observedChangeCount, stackCaptureContext: stackCaptureContext)
-    }
-
-    func enqueueExternalRichText(
-        _ items: [HistoryRichTextCaptureItem],
-        canonicalText: String,
-        observedChangeCount: Int,
-        stackCaptureContext: StackCaptureContext?
-    ) {
-        enqueue(
-            .richText(text: canonicalText, items: items),
-            observedChangeCount: observedChangeCount,
-            stackCaptureContext: stackCaptureContext
-        )
-    }
-
-    func enqueueExternalImage(
-        _ items: [ManagedImageCaptureItem],
-        observedChangeCount: Int,
-        stackCaptureContext: StackCaptureContext?
-    ) {
-        enqueue(.images(items), observedChangeCount: observedChangeCount, stackCaptureContext: stackCaptureContext)
-    }
-
-    func enqueueExternalReference(
-        _ items: [HistoryReferenceCaptureItem],
-        observedChangeCount: Int,
-        stackCaptureContext: StackCaptureContext?
-    ) {
-        enqueue(.references(items), observedChangeCount: observedChangeCount, stackCaptureContext: stackCaptureContext)
-    }
-
-    func enqueueExternalMixed(
-        imageItems: [ManagedImageCaptureItem],
-        referenceItems: [HistoryReferenceCaptureItem],
-        observedChangeCount: Int,
-        stackCaptureContext: StackCaptureContext?
-    ) {
-        enqueue(
-            .mixed(images: imageItems, references: referenceItems),
-            observedChangeCount: observedChangeCount,
-            stackCaptureContext: stackCaptureContext
-        )
     }
 
     func drainPendingCaptures() async {

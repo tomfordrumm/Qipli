@@ -63,3 +63,73 @@ struct ManagedAssetDirectory {
 extension SHA256.Digest {
     var hexString: String { map { String(format: "%02x", $0) }.joined() }
 }
+
+/// One writer owns each asset tree. Reconcile once, then account successful
+/// commits/deletions. Unknown cleanup or failed writes invalidate the total.
+final class ManagedAssetByteCounter {
+    private let directory: ManagedAssetDirectory
+    private var cachedBytes: Int?
+    private(set) var reconciliationCount = 0
+
+    init(rootURL: URL, fileManager: FileManager) {
+        directory = ManagedAssetDirectory(rootURL: rootURL, fileManager: fileManager)
+    }
+
+    func bytes() throws -> Int {
+        if let cachedBytes { return cachedBytes }
+        reconciliationCount += 1
+        guard directory.fileManager.fileExists(atPath: directory.rootURL.path) else {
+            cachedBytes = 0
+            return 0
+        }
+        try directory.ensureDirectory(directory.rootURL)
+        var scanError: Swift.Error?
+        guard let enumerator = directory.fileManager.enumerator(
+            at: directory.rootURL,
+            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles],
+            errorHandler: { _, error in scanError = error; return false }
+        ) else { throw ManagedAssetDirectory.Error.invalidPath }
+        var total = 0
+        for case let url as URL in enumerator {
+            let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey])
+            if values.isSymbolicLink == true {
+                enumerator.skipDescendants()
+                continue
+            }
+            if values.isDirectory == true {
+                if enumerator.level != 1 || UUID(uuidString: url.lastPathComponent) == nil {
+                    enumerator.skipDescendants()
+                }
+                continue
+            }
+            guard values.isRegularFile == true, url.pathExtension == "asset",
+                  enumerator.level == 2,
+                  UUID(uuidString: url.deletingLastPathComponent().lastPathComponent) != nil else { continue }
+            guard let size = values.fileSize else { throw ManagedAssetDirectory.Error.invalidPath }
+            total += size
+        }
+        if let scanError { throw scanError }
+        cachedBytes = total
+        return total
+    }
+
+    func didCommit(bytes: Int) {
+        if let cachedBytes { self.cachedBytes = cachedBytes + bytes }
+    }
+
+    func removeFile(at url: URL) throws {
+        guard directory.fileManager.fileExists(atPath: url.path) else { return }
+        do {
+            let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+            try directory.fileManager.removeItem(at: url)
+            if let cachedBytes, let size { self.cachedBytes = max(0, cachedBytes - size) }
+            else { invalidate() }
+        } catch {
+            invalidate()
+            throw error
+        }
+    }
+
+    func invalidate() { cachedBytes = nil }
+}

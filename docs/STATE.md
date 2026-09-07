@@ -1,6 +1,6 @@
 # Qipli — текущее состояние проекта
 
-Последняя актуализация: 2026-09-04
+Последняя актуализация: 2026-09-07
 
 Источник истины для статусов: этот файл
 
@@ -24,6 +24,23 @@
 - Завершённые срезы: S001–S007, S009–S013, S015–S016, S017–S027 и S030. S014 сохраняет отдельные release gates; S028/S029 находятся в backlog.
 - S013 завершён: local, push-to-main, обычный PR и fork-style PR checks прошли. Для S014 выбраны MIT и сохранение истории; repository public, security settings включены, `main` и Environment `release` защищены, hosted credentials и real tag run подтверждены. Остаётся immutable rerun S014. Manual gates S011/S012/S016 закрыты последующими подтверждениями.
 - Старое перечисление `ready S030` выше историческое; актуальный статус S030 — `done`, как указано в таблице и журнале переходов.
+
+## Исправления performance review 2026-09-07
+
+Статус: реализация, automated checks и smoke test завершены; пользователь подтвердил smoke test 2026-09-07. D-041 фиксирует schema/cache/admission изменения. Реализованы single-pass cancellable ranked search, indexed keyset range, persisted display projection с bounded migration, incremental image/rich quotas, early image-size rejection, bounded ordered capture admission, 16 MiB thumbnail LRU/memory pressure и удаление production compatibility paths/test-only probes.
+
+Optimized synthetic benchmark использовал один и тот же production SQLite API, 10 000 text rows примерно по 220 ASCII bytes, page size 500 и median трёх последовательных запросов. До → после: first page 6.5 → 4.8 ms; отсутствующий query 506.6 → 44.4 ms; первая страница общих text matches 332.1 → 39.9 ms. На 1 800 rows отсутствующий query 44.2 → 7.7 ms. Это storage timings, без debounce/UI; они не являются RSS/idle-CPU measurement или публичным SLA. CI проверяет traversal count/cancellation, а не фиксированный timing threshold.
+
+Отдельный process smoke создал SQLite предыдущим кодом HEAD, затем открыл новым: 5 occurrences text/rich/image/URL/file сохранили IDs, exact text, deep search и paste payloads; Clear All сохранил referenced source. Full SwiftPM: 243 tests, 5 headless named-pasteboard skips, 0 failures. Native Xcode suite: 243 tests, 0 skips, 0 failures, включая реальные named-pasteboard tests. После финальных уточнений admission/accounting focused rerun 3/3 прошёл. Финальная unsigned universal Release сборка, Debug/Release version contract, встроенный Sparkle runtime linking для arm64/x86_64, update-privacy/CI/release-contract checks и `git diff --check` прошли. На момент завершения automated checks installed-app smoke и signed update оставались отдельными gates; затем пользователь подтвердил smoke test, как записано ниже. Signed update остаётся release gate.
+
+Подтверждение пользователя закрывает smoke gate для этих исправлений: сохранение существующей History после migration, search, text/image/rich-text paste и Paste Stack. Оно не заменяет отдельную полную visual/accessibility matrix S032 или проверку опубликованного signed update.
+
+## Подготовка v1.0.9
+
+- Ветка: `release/1.0.9`; версия `1.0.9`, build `10`.
+- Release notes подготовлены в `docs/release-notes-template.md`, который использует существующий publish script.
+- Следующее действие: push ветки и pull request в защищённый `main`, unsigned CI и merge. Только после merge создать `v1.0.9` на соответствующем commit в `main` и запустить protected release workflow.
+- Публикация DMG/ZIP, appcast и real Sparkle update пока не выполнены; последняя подтверждённая публичная версия — `v1.0.8`.
 
 ## Статусы срезов
 
@@ -142,7 +159,7 @@ S026 завершён: HistoryStore `33/33`, полный SwiftPM `222/222`, mig
 
 ## Следующее действие
 
-Следующее действие: выполнить installed-app visual/search/accessibility matrix S032, включая card reuse, selection-only update, URL-first search и exact `⇧Backspace` в empty/filtered state, затем проверить реальный Sparkle update `v1.0.7 → v1.0.8` с сохранением History. Operational immutable-rerun gate S014 остаётся отдельной незавершённой проверкой.
+Следующее действие: проверить исправления D-041 на новом локальном build: открыть History, найти текст за границей preview, проверить rich/plain/image paste и последовательный Stack; затем выполнить installed-app visual/search/accessibility matrix S032, включая card reuse, selection-only update, URL-first search и exact `⇧Backspace` в empty/filtered state, затем проверить реальный Sparkle update `v1.0.7 → v1.0.8` с сохранением History. Operational immutable-rerun gate S014 остаётся отдельной незавершённой проверкой.
 
 ## Журнал переходов
 

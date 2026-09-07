@@ -26,6 +26,37 @@ final class PasteboardMonitorTests: XCTestCase {
         XCTAssertEqual(inventory.representationCounts.values.reduce(0, +), 5)
     }
 
+    func testImageCaptureStopsReadingFurtherRepresentationsAfterSizeRejection() throws {
+        let item = NSPasteboardItem()
+        item.setData(Data([1]), forType: .png)
+        item.setData(Data([1]), forType: .tiff)
+        let policy = HistoryImageStoragePolicy(maxImageItemBytes: 4, maxOccurrenceBytes: 8,
+            maxTotalOriginalBytes: 16, thumbnailCacheBytes: 8, thumbnailLongEdge: 4)
+        var reads = 0
+        let result = SystemPasteboardReader.imageCapture(from: [item], policy: policy) { _, _ in
+            reads += 1
+            return Data(repeating: 1, count: 5)
+        }
+        XCTAssertEqual(reads, 1)
+        XCTAssertThrowsError(try result.get()) { XCTAssertEqual($0 as? ManagedImageStoreError, .imageItemTooLarge) }
+        let rejected = PasteboardTypedChange(changeCount: 9, captureFailure: .imageItemTooLarge)
+        XCTAssertNil(ApplicationShellPasteboardRouting.capture(from: rejected))
+    }
+
+    func testImageCaptureAppliesCumulativeOccurrenceLimitAcrossItems() {
+        let item = NSPasteboardItem()
+        item.setData(Data([1]), forType: .png)
+        let policy = HistoryImageStoragePolicy(maxImageItemBytes: 4, maxOccurrenceBytes: 6,
+            maxTotalOriginalBytes: 12, thumbnailCacheBytes: 8, thumbnailLongEdge: 4)
+        var reads = 0
+        let result = SystemPasteboardReader.imageCapture(from: [item, item, item], policy: policy) { _, _ in
+            reads += 1
+            return Data(repeating: 1, count: 4)
+        }
+        XCTAssertEqual(reads, 2)
+        XCTAssertThrowsError(try result.get()) { XCTAssertEqual($0 as? ManagedImageStoreError, .occurrenceTooLarge) }
+    }
+
     func testInitializationDoesNotReadPasteboardBeforeStartupGateOpens() {
         let pasteboard = FakePasteboard(changeCount: 1)
 
@@ -585,5 +616,31 @@ private final class FakePasteboardPollCancellation: PasteboardPollCancellation {
     func cancel() {
         cancelAction?()
         cancelAction = nil
+    }
+}
+
+struct PasteboardRepresentationInventory: Equatable, Sendable {
+    let itemCount: Int
+    let representationCounts: [String: Int]
+}
+
+/// A payload-free probe for deciding the future typed allowlist. It reads only
+/// item/type shape; it never asks NSPasteboard for a value or emits one.
+enum PasteboardPlatformProbe {
+    static func inventory(for pasteboard: NSPasteboard) -> PasteboardRepresentationInventory {
+        inventory(for: pasteboard.pasteboardItems ?? [])
+    }
+
+    static func inventory(for items: [NSPasteboardItem]) -> PasteboardRepresentationInventory {
+        var counts: [String: Int] = [:]
+        for item in items {
+            for type in item.types {
+                counts[type.rawValue, default: 0] += 1
+            }
+        }
+        return PasteboardRepresentationInventory(
+            itemCount: items.count,
+            representationCounts: counts
+        )
     }
 }

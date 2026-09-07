@@ -425,6 +425,7 @@ Qipli — бесплатное open-source приложение для macOS. Т
 - Первый публичный релиз включает Sparkle, один stable update channel, ручную проверку и выключенные по умолчанию фоновые проверки. Beta channels, delta updates и phased rollout остаются на потом.
 - Typed History поставляется раньше media Paste Stack. До отдельного решения Stack принимает только text occurrence.
 - URLs не получают remote title/favicon/preview; видимое имя строится только из содержимого pasteboard и локального URL parsing.
+- По D-041 pending capture ограничен 64 MiB payload и 64 occurrences. Слишком большая новая occurrence или переполненная очередь отклоняется с видимым notice; сохранённая History и уже принятые queued captures не вытесняются. Это admission limit, не обещание общего RSS ceiling; один clipboard blob может materialize-иться AppKit до проверки.
 
 Если проверка прототипа покажет, что любое из этих предположений мешает основному пути, решение нужно записать в [`DECISIONS.md`](DECISIONS.md) и обновить связанные критерии до реализации следующего среза.
 
@@ -432,6 +433,6 @@ Qipli — бесплатное open-source приложение для macOS. Т
 
 - Нужно ли позднее показывать метаданные приложения-источника? MVP их не сохраняет.
 - Нужна ли отдельная команда, одновременно очищающая историю Qipli и текущий системный буфер?
-- Production defaults для managed images приняты в D-035: 32 MiB на image item, 64 MiB на occurrence, 1 GiB на durable originals, 128 MiB на thumbnail cache и 512 px на длинную сторону thumbnail. Позднее общий quota может стать пользовательской настройкой без изменения fail-closed/no-auto-eviction поведения.
+- Production defaults для managed images приняты в D-035: 32 MiB на image item, 64 MiB на occurrence, 1 GiB на durable originals, 16 MiB на encoded-thumbnail LRU cache по D-041 и 512 px на длинную сторону thumbnail. Позднее общий quota может стать пользовательской настройкой без изменения fail-closed/no-auto-eviction поведения.
 - Production defaults для rich text приняты в D-039: 16 MiB на RTF/HTML representation, 32 MiB на occurrence и 512 MiB total durable storage. Controlled source/target probe может изменить числа до production code, но не plain-only fallback или no-auto-eviction contract.
 - Отдельное full History window и Favorites находятся в BL-004/BL-005. Их presentation и retention semantics не определены и не блокируют S030.

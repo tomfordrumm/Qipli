@@ -30,3 +30,11 @@ values.
 Source code and license: https://github.com/tomfordrumm/Qipli
 
 ## Changes
+
+- Faster History search, especially in larger collections.
+- Lighter History browsing: cards load compact display data while full clipboard content remains available for search and paste.
+- Lower repeated disk work when managing stored images and formatted text.
+- Bounded capture queues and a thumbnail cache that releases images under memory pressure.
+- Removed unused compatibility code and moved test helpers out of the app.
+
+Existing History is migrated automatically, preserving clipboard content and formatting.

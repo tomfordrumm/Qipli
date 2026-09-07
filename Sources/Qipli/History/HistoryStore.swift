@@ -1,7 +1,7 @@
 import CoreData
 import Foundation
 
-protocol HistoryStoring: AnyObject {
+protocol HistoryStoring: AnyObject, HistoryPagingStoring {
     func fetchCurrent(since cutoff: Date) throws -> [HistoryEntry]
     func create(text: String, activityAt: Date) throws -> HistoryEntry
     func markUsed(id: UUID, activityAt: Date) throws
@@ -63,6 +63,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
     }
 
     private static let entityName = "HistoryEntry"
+    private let onSearchBatch: ((Int) -> Void)?
     private let storeURL: URL
     private let imageStore: ManagedImageStoring
     private let richTextStore: HistoryRichTextAssetStoring
@@ -92,8 +93,10 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
     init(
         storeURL: URL,
         imageStore: ManagedImageStoring? = nil,
-        richTextStore: HistoryRichTextAssetStoring? = nil
+        richTextStore: HistoryRichTextAssetStoring? = nil,
+        onSearchBatch: ((Int) -> Void)? = nil
     ) throws {
+        self.onSearchBatch = onSearchBatch
         self.storeURL = storeURL
         self.imageStore = try imageStore ?? ManagedImageAssetStore(
             rootURL: storeURL.deletingLastPathComponent().appendingPathComponent("ManagedImages", isDirectory: true)
@@ -119,9 +122,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
     }
 
     func fetchPage(since cutoff: Date, after cursor: HistoryPageCursor?, limit: Int) throws -> HistoryPage {
-        try pageRequest(cutoff: cutoff, cursor: cursor, limit: limit) {
-            Self.isRenderable($0)
-        }
+        try pageRequest(cutoff: cutoff, cursor: cursor, limit: limit)
     }
 
     func searchPage(
@@ -297,6 +298,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
             object.setValue(manifest.representations.first?.typeIdentifier, forKey: "itemTypeIdentifier")
             object.setValue(encodedManifest, forKey: "managedImageManifest")
             do {
+                try Self.updateDisplayMetadata(for: object)
                 try context.save()
             } catch {
                 throw ManagedImageStoreError.writeFailed
@@ -353,6 +355,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
             object.setValue(items.first?.typeIdentifier, forKey: "itemTypeIdentifier")
             object.setValue(encodedManifest, forKey: "referenceManifest")
             do {
+                try Self.updateDisplayMetadata(for: object)
                 try context.save()
             } catch {
                 throw HistoryStoreError.unavailable
@@ -425,6 +428,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
             object.setValue(imageManifest.representations.first?.typeIdentifier, forKey: "itemTypeIdentifier")
             object.setValue(imageString, forKey: "managedImageManifest")
             object.setValue(referenceString, forKey: "referenceManifest")
+            try Self.updateDisplayMetadata(for: object)
             try context.save()
             return Self.entry(from: object) ?? HistoryEntry(
                 id: imageManifest.occurrenceID,
@@ -667,6 +671,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
             object.setValue(HistoryRepresentationKind.text.rawValue, forKey: "itemKind")
             object.setValue(0, forKey: "itemOrder")
             object.setValue("public.utf8-plain-text", forKey: "itemTypeIdentifier")
+            try Self.updateDisplayMetadata(for: object)
             try context.save()
             return HistoryEntry(id: id, text: text, activityAt: activityAt)
         }
@@ -692,6 +697,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
             object.setValue("public.utf8-plain-text", forKey: "itemTypeIdentifier")
             object.setValue(encodedManifest, forKey: "richTextManifest")
             do {
+                try Self.updateDisplayMetadata(for: object)
                 try context.save()
             } catch {
                 context.rollback()
@@ -809,6 +815,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
         context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
         context.undoManager = nil
         try backfillManagedImageNames()
+        try backfillDisplayMetadata()
         try cleanupPendingImageDeletions()
         try cleanupOrphanImageAssets()
         try cleanupOrphanRichTextAssets()
@@ -818,7 +825,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
         try contextSync { context in
             let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
             request.predicate = NSPredicate(
-                format: "managedImageManifest != nil AND managedImageDeletionPending != YES"
+                format: "managedImageManifest != nil AND displayMetadata == nil AND managedImageDeletionPending != YES"
             )
             for object in try context.fetch(request) {
                 guard let manifest = Self.manifest(from: object),
@@ -853,7 +860,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
     private func removeExpired(before cutoff: Date, in context: NSManagedObjectContext) throws {
         try cleanupPendingImageDeletions(in: context)
         let manifestRequest = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
-        manifestRequest.predicate = NSPredicate(format: "capturedAt <= %@", cutoff as NSDate)
+        manifestRequest.predicate = NSPredicate(format: "capturedAt <= %@ AND (managedImageManifest != nil OR richTextManifest != nil)", cutoff as NSDate)
         let expiredObjects = try context.fetch(manifestRequest)
         for object in expiredObjects where Self.manifest(from: object) != nil || Self.richTextManifest(from: object) != nil {
             object.setValue(true, forKey: "managedImageDeletionPending")
@@ -891,116 +898,133 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
         }
     }
 
-    private func pageRequest(
-        cutoff: Date,
-        cursor: HistoryPageCursor?,
-        limit: Int,
-        accepts: (HistoryEntry) -> Bool
-    ) throws -> HistoryPage {
+    private static let displayProperties = ["id", "capturedAt", "displayMetadata"]
+
+    private static func displayRequest(cutoff: Date, cursor: HistoryPageCursor?, limit: Int) -> NSFetchRequest<NSDictionary> {
+        let request = NSFetchRequest<NSDictionary>(entityName: entityName)
+        request.resultType = .dictionaryResultType
+        request.propertiesToFetch = displayProperties
+        request.fetchLimit = limit
+        request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            cursorPredicate(cutoff: cutoff, cursor: cursor),
+            NSPredicate(format: "isRenderable == YES AND (managedImageDeletionPending == nil OR managedImageDeletionPending == NO)")
+        ])
+        request.sortDescriptors = [NSSortDescriptor(key: "capturedAt", ascending: false), NSSortDescriptor(key: "id", ascending: false)]
+        return request
+    }
+
+    private static func displayDescriptor(from row: NSDictionary, rank: HistorySearchRank? = nil) throws -> HistoryOccurrenceDescriptor {
+        guard let id = row["id"] as? UUID, let activityAt = row["capturedAt"] as? Date,
+              let data = row["displayMetadata"] as? Data else { throw HistoryStoreError.unavailable }
+        return try JSONDecoder().decode(HistoryDisplayMetadata.self, from: data)
+            .descriptor(id: id, activityAt: activityAt, rank: rank)
+    }
+
+    private func pageRequest(cutoff: Date, cursor: HistoryPageCursor?, limit: Int) throws -> HistoryPage {
         precondition((1...HistoryService.pageSize).contains(limit))
         return try contextSync { context in
             try self.removeExpired(before: cutoff, in: context)
-            var scanCursor = cursor
-            var matchedEntries: [HistoryEntry] = []
-            var exhausted = false
-
-            while matchedEntries.count <= limit, !exhausted {
-                let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
-                request.fetchLimit = limit + 1
-                request.predicate = Self.cursorPredicate(cutoff: cutoff, cursor: scanCursor)
-                request.sortDescriptors = [
-                    NSSortDescriptor(key: "capturedAt", ascending: false),
-                    NSSortDescriptor(key: "id", ascending: false),
-                ]
-                let objects = try context.fetch(request)
-                guard !objects.isEmpty else { break }
-                for object in objects {
-                    if let entry = Self.entry(from: object), accepts(entry) {
-                        matchedEntries.append(entry)
-                        if matchedEntries.count > limit { break }
-                    }
-                }
-                if let last = objects.last, let lastEntry = Self.entry(from: last) {
-                    scanCursor = HistoryPageCursor(activityAt: lastEntry.activityAt, id: lastEntry.id)
-                }
-                exhausted = objects.count <= limit
-            }
-
-            let pageEntries = Array(matchedEntries.prefix(limit))
-            let descriptors = pageEntries.map { Self.descriptor(from: $0) }
-            let nextCursor = descriptors.last.map {
-                HistoryPageCursor(activityAt: $0.activityAt, id: $0.id)
-            }
-            return HistoryPage(
-                descriptors: descriptors,
-                nextCursor: nextCursor,
-                hasMore: matchedEntries.count > limit
-            )
+            let rows = try context.fetch(Self.displayRequest(cutoff: cutoff, cursor: cursor, limit: limit + 1))
+            let descriptors = try rows.prefix(limit).map { try Self.displayDescriptor(from: $0) }
+            return Self.page(descriptors: descriptors, hasMore: rows.count > limit)
         }
     }
 
-    private func rankedSearchPage(
-        query: String,
-        since cutoff: Date,
-        after cursor: HistoryPageCursor?,
-        limit: Int
-    ) throws -> HistoryPage {
+    private func rankedSearchPage(query: String, since cutoff: Date, after cursor: HistoryPageCursor?, limit: Int) throws -> HistoryPage {
         precondition((1...HistoryService.pageSize).contains(limit))
-        return try contextSync { context in
-            try self.removeExpired(before: cutoff, in: context)
-            var matchedEntries: [(entry: HistoryEntry, rank: HistorySearchRank)] = []
-            let firstRank = cursor?.searchRank ?? HistorySearchRank.allCases[0]
-
-            for rank in HistorySearchRank.allCases where rank.rawValue >= firstRank.rawValue {
-                var scanCursor = cursor?.searchRank == rank ? cursor : nil
-                var exhausted = false
-                while matchedEntries.count <= limit, !exhausted {
-                    let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
-                    request.fetchLimit = limit + 1
-                    request.predicate = Self.cursorPredicate(cutoff: cutoff, cursor: scanCursor)
-                    request.sortDescriptors = [
-                        NSSortDescriptor(key: "capturedAt", ascending: false),
-                        NSSortDescriptor(key: "id", ascending: false),
-                    ]
-                    let objects = try context.fetch(request)
-                    guard !objects.isEmpty else { break }
-
-                    for object in objects {
-                        guard let entry = Self.entry(from: object),
-                              Self.isRenderable(entry),
-                              HistorySearchRank.classify(entry: entry, query: query) == rank
-                        else { continue }
-                        matchedEntries.append((entry, rank))
-                        if matchedEntries.count > limit { break }
-                    }
-
-                    if let last = objects.last,
-                       let lastEntry = Self.entry(from: last) {
-                        scanCursor = HistoryPageCursor(
-                            activityAt: lastEntry.activityAt,
-                            id: lastEntry.id
-                        )
-                    }
-                    exhausted = objects.count <= limit
+        // Keep the task handle within its lifetime even while Core Data executes
+        // on its private queue. Cancelling the caller stops obsolete scan work.
+        return try withUnsafeCurrentTask { task in
+            try contextSync { context in
+                func checkCancellation() throws {
+                    if task?.isCancelled == true { throw CancellationError() }
                 }
-
-                if matchedEntries.count > limit { break }
+                try checkCancellation()
+                try self.removeExpired(before: cutoff, in: context)
+                let firstRank = cursor?.searchRank ?? .exactOrPrefixURL
+                var buckets = Array(repeating: [(id: UUID, date: Date, rank: HistorySearchRank)](), count: HistorySearchRank.allCases.count)
+                var scanCursor = firstRank == .otherMatch ? cursor : nil
+                let batchSize = 256
+                while true {
+                    try checkCancellation()
+                    let request = Self.displayRequest(cutoff: cutoff, cursor: scanCursor, limit: batchSize)
+                    request.propertiesToFetch = ["id", "capturedAt", "text", "searchMetadata", "searchURLValues"]
+                    let rows = try context.fetch(request)
+                    self.onSearchBatch?(rows.count)
+                    for row in rows {
+                        try checkCancellation()
+                        let searchText = row["searchMetadata"] as? String ?? row["text"] as? String ?? ""
+                        let urlValues = try (row["searchURLValues"] as? Data).map {
+                            try JSONDecoder().decode([String].self, from: $0)
+                        }
+                        guard let rank = HistorySearchRank.classify(searchableText: searchText, urlValues: urlValues, query: query),
+                              rank.rawValue >= firstRank.rawValue,
+                              buckets[rank.rawValue].count <= limit else { continue }
+                        if let cursor, cursor.searchRank == rank,
+                           let date = row["capturedAt"] as? Date, let id = row["id"] as? UUID,
+                           date > cursor.activityAt || (date == cursor.activityAt && id.uuidString >= cursor.id.uuidString) {
+                            continue
+                        }
+                        guard let id = row["id"] as? UUID, let date = row["capturedAt"] as? Date else { throw HistoryStoreError.unavailable }
+                        buckets[rank.rawValue].append((id, date, rank))
+                    }
+                    if rows.count < batchSize || buckets[firstRank.rawValue].count > limit { break }
+                    guard let last = rows.last, let date = last["capturedAt"] as? Date,
+                          let id = last["id"] as? UUID else { throw HistoryStoreError.unavailable }
+                    scanCursor = HistoryPageCursor(activityAt: date, id: id)
+                }
+                try checkCancellation()
+                let matches = buckets.flatMap { $0 }
+                let selected = matches.prefix(limit)
+                guard !selected.isEmpty else { return Self.page(descriptors: [], hasMore: false) }
+                let request = Self.displayRequest(cutoff: cutoff, cursor: nil, limit: limit)
+                request.predicate = NSPredicate(format: "id IN %@", selected.map(\.id))
+                let rows = try context.fetch(request)
+                let rowsByID = Dictionary(uniqueKeysWithValues: rows.compactMap { row in
+                    (row["id"] as? UUID).map { ($0, row) }
+                })
+                let descriptors = try selected.map { match in
+                    try checkCancellation()
+                    guard let row = rowsByID[match.id] else { throw HistoryStoreError.unavailable }
+                    return try Self.displayDescriptor(from: row, rank: match.rank)
+                }
+                return Self.page(descriptors: descriptors, hasMore: matches.count > limit)
             }
+        }
+    }
 
-            let pageEntries = Array(matchedEntries.prefix(limit))
-            let descriptors = pageEntries.map { Self.descriptor(from: $0.entry, rank: $0.rank) }
-            let nextCursor = descriptors.last.map {
-                HistoryPageCursor(
-                    activityAt: $0.activityAt,
-                    id: $0.id,
-                    searchRank: $0.searchRank
-                )
+    private static func page(descriptors: [HistoryOccurrenceDescriptor], hasMore: Bool) -> HistoryPage {
+        HistoryPage(
+            descriptors: descriptors,
+            nextCursor: descriptors.last.map { HistoryPageCursor(activityAt: $0.activityAt, id: $0.id, searchRank: $0.searchRank) },
+            hasMore: hasMore
+        )
+    }
+
+    private static func updateDisplayMetadata(for object: NSManagedObject) throws {
+        guard let entry = entry(from: object) else { throw HistoryStoreError.unavailable }
+        object.setValue(try JSONEncoder().encode(HistoryDisplayMetadata(entry: entry)), forKey: "displayMetadata")
+        object.setValue(isRenderable(entry), forKey: "isRenderable")
+        // Text is already stored exactly once. Only typed entries need a derived search field.
+        object.setValue(entry.isTextOnly ? nil : entry.searchableMetadata, forKey: "searchMetadata")
+        let urls: [String]? = entry.representations.contains { $0.kind == .url }
+            ? entry.referenceMetadata.filter { $0.typeIdentifier == "public.url" }.flatMap { [$0.domain, $0.searchText].compactMap { $0 } }
+            : nil
+        object.setValue(try urls.map { try JSONEncoder().encode($0) }, forKey: "searchURLValues")
+    }
+
+    private func backfillDisplayMetadata() throws {
+        try contextSync { context in
+            let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
+            request.predicate = NSPredicate(format: "displayMetadata == nil AND (managedImageDeletionPending == nil OR managedImageDeletionPending == NO)")
+            request.fetchLimit = 64
+            while true {
+                let objects = try context.fetch(request)
+                guard !objects.isEmpty else { break }
+                for object in objects { try Self.updateDisplayMetadata(for: object) }
+                try context.save()
+                for object in objects { context.refresh(object, mergeChanges: false) }
             }
-            return HistoryPage(
-                descriptors: descriptors,
-                nextCursor: nextCursor,
-                hasMore: matchedEntries.count > limit
-            )
         }
     }
 
@@ -1008,7 +1032,8 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
         let retention = NSPredicate(format: "capturedAt > %@", cutoff as NSDate)
         guard let cursor else { return retention }
         let afterCursor = NSPredicate(
-            format: "capturedAt < %@ OR (capturedAt == %@ AND id < %@)",
+            format: "capturedAt <= %@ AND (capturedAt < %@ OR (capturedAt == %@ AND id < %@))",
+            cursor.activityAt as NSDate,
             cursor.activityAt as NSDate,
             cursor.activityAt as NSDate,
             cursor.id as CVarArg
@@ -1176,21 +1201,6 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
         }
     }
 
-    private static func descriptor(
-        from entry: HistoryEntry,
-        rank: HistorySearchRank? = nil
-    ) -> HistoryOccurrenceDescriptor {
-        return HistoryOccurrenceDescriptor(
-            id: entry.id,
-            activityAt: entry.activityAt,
-            searchRank: rank,
-            textPreview: entry.isTextOnly ? HistoryPreview.text(for: entry.text) : nil,
-            representations: entry.representations,
-            imageMetadata: entry.imageMetadata,
-            referenceMetadata: entry.referenceMetadata
-        )
-    }
-
     private static func isRenderable(_ entry: HistoryEntry) -> Bool {
         entry.isTypedEntry || HistoryTextPolicy.shouldCapture(entry.text)
     }
@@ -1313,7 +1323,10 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
             request.predicate = NSPredicate(format: "id == %@", manifest.occurrenceID as CVarArg)
             guard let object = try context.fetch(request).first else { return }
             object.setValue(encoded, forKey: "referenceManifest")
-            if context.hasChanges { try context.save() }
+            if context.hasChanges {
+                try Self.updateDisplayMetadata(for: object)
+                try context.save()
+            }
         }
     }
 
@@ -1325,7 +1338,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
         // Fetch indexes are not part of Core Data's compatibility hash by default.
         // Bump the entity hash so existing stores perform a lightweight migration
         // and receive the S018 index layout instead of keeping their legacy index.
-        entry.versionHashModifier = "performance-indexes-v1-managed-image-delete-v1-reference-v1-rich-text-v1"
+        entry.versionHashModifier = "performance-indexes-v1-managed-image-delete-v1-reference-v1-rich-text-v1-display-v1"
 
         let id = NSAttributeDescription()
         id.name = "id"
@@ -1377,7 +1390,24 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
         richTextManifest.attributeType = .stringAttributeType
         richTextManifest.isOptional = true
 
-        entry.properties = [id, text, capturedAt, itemKind, itemOrder, itemTypeIdentifier, managedImageManifest, managedImageDeletionPending, referenceManifest, richTextManifest]
+        let displayMetadata = NSAttributeDescription()
+        displayMetadata.name = "displayMetadata"
+        displayMetadata.attributeType = .binaryDataAttributeType
+        displayMetadata.isOptional = true
+        let isRenderable = NSAttributeDescription()
+        isRenderable.name = "isRenderable"
+        isRenderable.attributeType = .booleanAttributeType
+        isRenderable.isOptional = true
+        let searchMetadata = NSAttributeDescription()
+        searchMetadata.name = "searchMetadata"
+        searchMetadata.attributeType = .stringAttributeType
+        searchMetadata.isOptional = true
+        let searchURLValues = NSAttributeDescription()
+        searchURLValues.name = "searchURLValues"
+        searchURLValues.attributeType = .binaryDataAttributeType
+        searchURLValues.isOptional = true
+
+        entry.properties = [id, text, capturedAt, itemKind, itemOrder, itemTypeIdentifier, managedImageManifest, managedImageDeletionPending, referenceManifest, richTextManifest, displayMetadata, isRenderable, searchMetadata, searchURLValues]
         let idIndex = NSFetchIndexDescription(
             name: "idIndex",
             elements: [NSFetchIndexElementDescription(property: id, collationType: .binary)]
@@ -1425,10 +1455,7 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
     }
 
     func fetchPage(since cutoff: Date, after cursor: HistoryPageCursor?, limit: Int) throws -> HistoryPage {
-        guard let pagedStore = try store() as? HistoryPagingStoring else {
-            return try fallbackPage(since: cutoff, after: cursor, limit: limit, query: nil)
-        }
-        return try pagedStore.fetchPage(since: cutoff, after: cursor, limit: limit)
+        try store().fetchPage(since: cutoff, after: cursor, limit: limit)
     }
 
     func searchPage(
@@ -1437,22 +1464,15 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
         after cursor: HistoryPageCursor?,
         limit: Int
     ) throws -> HistoryPage {
-        guard let pagedStore = try store() as? HistoryPagingStoring else {
-            return try fallbackPage(since: cutoff, after: cursor, limit: limit, query: query)
-        }
-        return try pagedStore.searchPage(query: query, since: cutoff, after: cursor, limit: limit)
+        try store().searchPage(query: query, since: cutoff, after: cursor, limit: limit)
     }
 
     func fetchEntry(id: UUID) throws -> HistoryEntry? {
-        guard let pagedStore = try store() as? HistoryPagingStoring else {
-            return try store().fetchCurrent(since: .distantPast).first { $0.id == id }
-        }
-        return try pagedStore.fetchEntry(id: id)
+        try store().fetchEntry(id: id)
     }
 
     func fetchOccurrence(id: UUID) throws -> HistoryOccurrence? {
-        guard let pagedStore = try store() as? HistoryPagingStoring else { return nil }
-        return try pagedStore.fetchOccurrence(id: id)
+        try store().fetchOccurrence(id: id)
     }
 
     func createImage(items: [ManagedImageCaptureItem], activityAt: Date) throws -> HistoryEntry {
@@ -1492,45 +1512,6 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
 
     func thumbnailData(id: UUID) throws -> Data? {
         try typedStore().thumbnailData(id: id)
-    }
-
-    private func fallbackPage(
-        since cutoff: Date,
-        after cursor: HistoryPageCursor?,
-        limit: Int,
-        query: String?
-    ) throws -> HistoryPage {
-        var entries = try store().fetchCurrent(since: cutoff)
-        if let query, !query.isEmpty {
-            entries = HistorySearchMatcher.matches(in: entries, query: query)
-        }
-        if let cursor {
-            entries = entries.filter {
-                $0.activityAt < cursor.activityAt ||
-                    ($0.activityAt == cursor.activityAt && $0.id.uuidString < cursor.id.uuidString)
-            }
-        }
-        let hasMore = entries.count > limit
-        let pageEntries = Array(entries.prefix(limit))
-        let descriptors = pageEntries.map {
-            HistoryOccurrenceDescriptor(
-                id: $0.id,
-                activityAt: $0.activityAt,
-                textPreview: HistoryPreview.text(for: $0.text),
-                representations: [
-                    HistoryRepresentationDescriptor(
-                        kind: .text,
-                        typeIdentifier: "public.utf8-plain-text"
-                    )
-                ]
-            )
-        }
-        let nextCursor = pageEntries.last.map { HistoryPageCursor(activityAt: $0.activityAt, id: $0.id) }
-        return HistoryPage(
-            descriptors: descriptors,
-            nextCursor: nextCursor,
-            hasMore: hasMore
-        )
     }
 
     private func store() throws -> HistoryStoring {

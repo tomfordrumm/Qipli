@@ -124,7 +124,8 @@ final class HistoryViewModelSearchTests: XCTestCase {
         await viewModel.reload(selectFirstResult: true)
         await viewModel.markUsedAfterSuccessfulPaste(id: entry.id)
 
-        XCTAssertEqual(viewModel.selectedEntry, entry)
+        let selected = await viewModel.entryForPaste(id: entry.id)
+        XCTAssertEqual(try? selected.get(), entry)
         XCTAssertNil(viewModel.pasteFailure)
         XCTAssertEqual(store.entries, [entry])
     }
@@ -231,7 +232,7 @@ final class HistoryViewModelSearchTests: XCTestCase {
     }
 
     func testExternalCaptureUpdatesVisibleHistoryWithoutRefetchingStorage() async {
-        let existing = makeEntry("existing", offset: 1)
+        let existing = makeEntry("existing", offset: -1)
         let store = InMemoryHistoryStore(entries: [existing])
         let viewModel = HistoryViewModel(service: HistoryService(store: store))
         await viewModel.reload(selectFirstResult: true)
@@ -298,47 +299,39 @@ final class HistoryViewModelSearchTests: XCTestCase {
     func testStaleSearchCompletionCannotReplaceLatestQueryResults() async {
         let alpha = makeEntry("alpha result", offset: 2)
         let beta = makeEntry("beta result", offset: 1)
-        let searcher = StaleCompletionHistorySearcher()
-        let viewModel = HistoryViewModel(
-            service: HistoryService(store: InMemoryHistoryStore(entries: [alpha, beta])),
-            searcher: searcher,
-            searchDebounceNanoseconds: 0
-        )
+        let store = InMemoryHistoryStore(entries: [alpha, beta])
+        let viewModel = HistoryViewModel(service: HistoryService(store: store), searchDebounceNanoseconds: 0)
         await viewModel.reload()
-
+        let started = expectation(description: "old query entered storage")
+        let release = DispatchSemaphore(value: 0)
+        store.onFetch = {
+            started.fulfill()
+            release.wait()
+        }
         viewModel.updateQuery("alpha")
-        await searcher.waitUntilSlowSearchStarts()
+        await fulfillment(of: [started], timeout: 2)
         viewModel.updateQuery("beta")
+        store.onFetch = nil
+        release.signal()
         await viewModel.waitForPendingSearch()
-
         XCTAssertEqual(viewModel.visibleEntries, [beta])
         XCTAssertEqual(viewModel.selectedEntryID, beta.id)
-        await searcher.releaseSlowSearch()
-        await searcher.waitUntilSlowSearchFinishes()
-        await Task.yield()
-        XCTAssertEqual(viewModel.visibleEntries, [beta])
         XCTAssertEqual(viewModel.query, "beta")
     }
 
-    func testSearchRunsOffMainActorAndEmptyQueryRestoresSnapshotImmediately() async {
+    func testSearchRunsOffMainActorAndEmptyQueryRestoresUnfilteredPage() async {
         let first = makeEntry("alpha", offset: 2)
         let second = makeEntry("beta", offset: 1)
-        let searcher = RecordingHistorySearcher()
-        let viewModel = HistoryViewModel(
-            service: HistoryService(store: InMemoryHistoryStore(entries: [first, second])),
-            searcher: searcher,
-            searchDebounceNanoseconds: 0
-        )
+        let store = InMemoryHistoryStore(entries: [first, second])
+        let viewModel = HistoryViewModel(service: HistoryService(store: store), searchDebounceNanoseconds: 0)
         await viewModel.reload()
-
         viewModel.updateQuery("missing")
         await viewModel.waitForPendingSearch()
         XCTAssertTrue(viewModel.visibleEntries.isEmpty)
         XCTAssertNil(viewModel.selectedEntryID)
-        let searchRanOnMainThread = await searcher.lastRunWasOnMainThread()
-        XCTAssertFalse(searchRanOnMainThread)
-
+        XCTAssertTrue(store.operationWasOnMainThread.allSatisfy { !$0 })
         viewModel.updateQuery("")
+        await viewModel.waitForPendingSearch()
         XCTAssertEqual(viewModel.visibleEntries, [first, second])
         XCTAssertEqual(viewModel.selectedEntryID, first.id)
         XCTAssertFalse(viewModel.isSearchInProgress)
@@ -373,7 +366,9 @@ final class HistoryViewModelSearchTests: XCTestCase {
         XCTAssertFalse(HistoryPreview.text(for: fullText).contains(marker))
         viewModel.updateQuery(marker)
         await viewModel.waitForPendingSearch()
-        XCTAssertEqual(viewModel.selectedEntry?.text, fullText)
+        let selected = await viewModel.entryForPaste(id: entry.id)
+        let selectedEntry = try? selected.get()
+        XCTAssertEqual(selectedEntry?.text, fullText)
 
         let trace = Trace()
         let writer = FakeHistoryPasteboardWriter(changeCount: 42, trace: trace)
@@ -385,7 +380,7 @@ final class HistoryViewModelSearchTests: XCTestCase {
         )
         var result: Result<Void, HistoryPasteFailure>?
         executor.paste(
-            entry: viewModel.selectedEntry!,
+            entry: selectedEntry!,
             target: FakeHistoryPasteTarget(trace: trace),
             concealPanel: {},
             closePanel: {},
@@ -398,57 +393,6 @@ final class HistoryViewModelSearchTests: XCTestCase {
 
     private func makeEntry(_ text: String, offset: TimeInterval) -> HistoryEntry {
         HistoryEntry(id: UUID(), text: text, activityAt: Date.now.addingTimeInterval(offset))
-    }
-}
-
-private actor RecordingHistorySearcher: HistorySearching {
-    private var ranOnMainThread = false
-
-    func matches(in entries: [HistoryEntry], query: String) -> [HistoryEntry] {
-        ranOnMainThread = Thread.isMainThread
-        return entries.filter { $0.text.localizedCaseInsensitiveContains(query) }
-    }
-
-    func lastRunWasOnMainThread() -> Bool {
-        ranOnMainThread
-    }
-}
-
-private actor StaleCompletionHistorySearcher: HistorySearching {
-    private var slowSearchStarted = false
-    private var slowSearchFinished = false
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
-    private var finishWaiters: [CheckedContinuation<Void, Never>] = []
-    private var slowSearchContinuation: CheckedContinuation<Void, Never>?
-
-    func matches(in entries: [HistoryEntry], query: String) async -> [HistoryEntry] {
-        if query == "alpha" {
-            slowSearchStarted = true
-            startWaiters.forEach { $0.resume() }
-            startWaiters = []
-            await withCheckedContinuation { continuation in
-                slowSearchContinuation = continuation
-            }
-            slowSearchFinished = true
-            finishWaiters.forEach { $0.resume() }
-            finishWaiters = []
-        }
-        return entries.filter { $0.text.localizedCaseInsensitiveContains(query) }
-    }
-
-    func waitUntilSlowSearchStarts() async {
-        guard !slowSearchStarted else { return }
-        await withCheckedContinuation { startWaiters.append($0) }
-    }
-
-    func releaseSlowSearch() {
-        slowSearchContinuation?.resume()
-        slowSearchContinuation = nil
-    }
-
-    func waitUntilSlowSearchFinishes() async {
-        guard !slowSearchFinished else { return }
-        await withCheckedContinuation { finishWaiters.append($0) }
     }
 }
 

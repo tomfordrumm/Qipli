@@ -2,11 +2,6 @@ import AppKit
 import Foundation
 import UniformTypeIdentifiers
 
-struct PasteboardRepresentationInventory: Equatable, Sendable {
-    let itemCount: Int
-    let representationCounts: [String: Int]
-}
-
 struct PasteboardTypedChange: Equatable, Sendable {
     let changeCount: Int
     let canonicalText: String?
@@ -14,6 +9,7 @@ struct PasteboardTypedChange: Equatable, Sendable {
     let referenceItems: [HistoryReferenceCaptureItem]
     let richTextItems: [HistoryRichTextCaptureItem]
     let richTextCaptureRejected: Bool
+    let captureFailure: ManagedImageStoreError?
 
     init(
         changeCount: Int,
@@ -21,7 +17,8 @@ struct PasteboardTypedChange: Equatable, Sendable {
         imageItems: [ManagedImageCaptureItem] = [],
         referenceItems: [HistoryReferenceCaptureItem] = [],
         richTextItems: [HistoryRichTextCaptureItem] = [],
-        richTextCaptureRejected: Bool = false
+        richTextCaptureRejected: Bool = false,
+        captureFailure: ManagedImageStoreError? = nil
     ) {
         self.changeCount = changeCount
         self.canonicalText = canonicalText
@@ -29,27 +26,7 @@ struct PasteboardTypedChange: Equatable, Sendable {
         self.referenceItems = referenceItems
         self.richTextItems = richTextItems
         self.richTextCaptureRejected = richTextCaptureRejected
-    }
-}
-
-/// A payload-free probe for deciding the future typed allowlist. It reads only
-/// item/type shape; it never asks NSPasteboard for a value or emits one.
-enum PasteboardPlatformProbe {
-    static func inventory(for pasteboard: NSPasteboard) -> PasteboardRepresentationInventory {
-        inventory(for: pasteboard.pasteboardItems ?? [])
-    }
-
-    static func inventory(for items: [NSPasteboardItem]) -> PasteboardRepresentationInventory {
-        var counts: [String: Int] = [:]
-        for item in items {
-            for type in item.types {
-                counts[type.rawValue, default: 0] += 1
-            }
-        }
-        return PasteboardRepresentationInventory(
-            itemCount: items.count,
-            representationCounts: counts
-        )
+        self.captureFailure = captureFailure
     }
 }
 
@@ -80,33 +57,19 @@ final class SystemPasteboardReader: TypedPasteboardReading, @unchecked Sendable 
         pasteboard.string(forType: .string)
     }
 
-    /// Used by the controlled typed-capture probe. Normal polling still falls
-    /// back to text only when no supported typed representation is present.
-    func representationInventory() -> PasteboardRepresentationInventory {
-        PasteboardPlatformProbe.inventory(for: pasteboard)
-    }
-
     func typedChange(changeCount: Int) -> PasteboardTypedChange? {
         guard let items = pasteboard.pasteboardItems else { return nil }
-        let richCapture = Self.richTextCapture(from: items)
-        var imageItems: [ManagedImageCaptureItem] = []
-        var referenceItems: [HistoryReferenceCaptureItem] = []
-        for (index, item) in items.enumerated() {
-            let representations = item.types.compactMap { type -> ManagedImageCaptureRepresentation? in
-                let typeIdentifier = type.rawValue
-                guard HistoryImageTypePolicy.isSupported(typeIdentifier),
-                      let data = item.data(forType: type),
-                      !data.isEmpty
-                else { return nil }
-                return ManagedImageCaptureRepresentation(typeIdentifier: typeIdentifier, data: data)
-            }
-            if !representations.isEmpty {
-                imageItems.append(ManagedImageCaptureItem(order: index, representations: representations))
-            }
-            if let reference = referenceItem(for: item, order: index) {
-                referenceItems.append(reference)
-            }
+        let imageItems: [ManagedImageCaptureItem]
+        switch Self.imageCapture(from: items) {
+        case let .success(images): imageItems = images
+        case let .failure(error): return PasteboardTypedChange(changeCount: changeCount, captureFailure: error)
         }
+        let referenceItems = items.enumerated().compactMap { referenceItem(for: $0.element, order: $0.offset) }
+        // Media takes precedence in routing, so its unused rich representations
+        // need not be requested from a potentially expensive pasteboard provider.
+        let richCapture = imageItems.isEmpty && referenceItems.isEmpty
+            ? Self.richTextCapture(from: items)
+            : RichTextCaptureResult(canonicalText: nil, items: [], rejected: false)
         guard !imageItems.isEmpty || !referenceItems.isEmpty || !richCapture.items.isEmpty || richCapture.rejected else { return nil }
         return PasteboardTypedChange(
             changeCount: changeCount,
@@ -116,6 +79,31 @@ final class SystemPasteboardReader: TypedPasteboardReading, @unchecked Sendable 
             richTextItems: richCapture.items,
             richTextCaptureRejected: richCapture.rejected
         )
+    }
+
+    static func imageCapture(
+        from items: [NSPasteboardItem],
+        policy: HistoryImageStoragePolicy = .production,
+        readData: (NSPasteboardItem, NSPasteboard.PasteboardType) -> Data? = { $0.data(forType: $1) }
+    ) -> Result<[ManagedImageCaptureItem], ManagedImageStoreError> {
+        var captured: [ManagedImageCaptureItem] = []
+        var occurrenceBytes = 0
+        for (index, item) in items.enumerated() {
+            var itemBytes = 0
+            var representations: [ManagedImageCaptureRepresentation] = []
+            for type in item.types where HistoryImageTypePolicy.isSupported(type.rawValue) {
+                guard let data = readData(item, type), !data.isEmpty else { continue }
+                // AppKit can materialize one blob before its size is known.
+                // Stop here so rejected copies never accumulate further blobs.
+                guard data.count <= policy.maxImageItemBytes - itemBytes else { return .failure(.imageItemTooLarge) }
+                guard data.count <= policy.maxOccurrenceBytes - occurrenceBytes else { return .failure(.occurrenceTooLarge) }
+                itemBytes += data.count
+                occurrenceBytes += data.count
+                representations.append(ManagedImageCaptureRepresentation(typeIdentifier: type.rawValue, data: data))
+            }
+            if !representations.isEmpty { captured.append(ManagedImageCaptureItem(order: index, representations: representations)) }
+        }
+        return .success(captured)
     }
 
     struct RichTextCaptureResult: Equatable, Sendable {

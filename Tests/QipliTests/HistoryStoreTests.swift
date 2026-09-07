@@ -16,6 +16,71 @@ final class HistoryStoreTests: XCTestCase {
         try FileManager.default.removeItem(at: directory)
     }
 
+    @MainActor
+    func testMemoryPressureReleasesThumbnailCacheAndAllowsItToRefill() async throws {
+        let store = try makeStore()
+        defer { store.close() }
+        let entry = try store.createImage(items: [ManagedImageCaptureItem(order: 0, representations: [
+            ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: try makePNGData())
+        ])], activityAt: Date())
+        let viewModel = HistoryViewModel(service: HistoryService(store: store))
+        await viewModel.reload()
+        for _ in 0..<2 {
+            let loaded = expectation(description: "thumbnail loaded")
+            let observation = viewModel.$thumbnailUpdateRevisionsByEntryID.dropFirst().sink { revisions in
+                if revisions[entry.id] != nil { loaded.fulfill() }
+            }
+            viewModel.requestThumbnail(forEntryID: entry.id)
+            await fulfillment(of: [loaded], timeout: 2)
+            observation.cancel()
+            XCTAssertNotNil(viewModel.thumbnailData(for: entry.id))
+            viewModel.releaseThumbnailCache()
+            XCTAssertNil(viewModel.thumbnailData(for: entry.id))
+        }
+    }
+
+    func testAssetByteAccountingReconcilesOnceAndHandlesRepeatedDeletion() throws {
+        let assetRoot = directory.appendingPathComponent("images", isDirectory: true)
+        let occurrence = assetRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: occurrence, withIntermediateDirectories: true)
+        let first = occurrence.appendingPathComponent("first.asset")
+        let second = occurrence.appendingPathComponent("second.asset")
+        try Data(repeating: 1, count: 7).write(to: first)
+        let counter = ManagedAssetByteCounter(rootURL: assetRoot, fileManager: .default)
+        XCTAssertEqual(try counter.bytes(), 7)
+        try Data(repeating: 2, count: 5).write(to: second)
+        counter.didCommit(bytes: 5)
+        for _ in 0..<10 { XCTAssertEqual(try counter.bytes(), 12) }
+        XCTAssertEqual(counter.reconciliationCount, 1)
+        try counter.removeFile(at: first)
+        try counter.removeFile(at: first)
+        XCTAssertEqual(try counter.bytes(), 5)
+        XCTAssertEqual(counter.reconciliationCount, 1)
+        counter.invalidate()
+        XCTAssertEqual(try counter.bytes(), 5)
+        XCTAssertEqual(counter.reconciliationCount, 2)
+        let restarted = ManagedAssetByteCounter(rootURL: assetRoot, fileManager: .default)
+        XCTAssertEqual(try restarted.bytes(), 5)
+    }
+
+    func testRichQuotaAccountingAllowsCapacityAfterDeleteAndRejectsAfterRestart() throws {
+        let policy = HistoryRichTextStoragePolicy(maxRepresentationBytes: 8, maxOccurrenceBytes: 8, maxTotalBytes: 8)
+        let root = directory.appendingPathComponent("RichText")
+        let assets = try HistoryRichTextAssetStore(rootURL: root, policy: policy)
+        let items = [HistoryRichTextCaptureItem(order: 0, representations: [
+            HistoryRichTextCaptureRepresentation(typeIdentifier: "public.rtf", data: Data(repeating: 1, count: 5))
+        ])]
+        let first = try assets.commit(occurrenceID: UUID(), items: items, capturedAt: Date())
+        XCTAssertThrowsError(try assets.commit(occurrenceID: UUID(), items: items, capturedAt: Date()))
+        try assets.remove(manifest: first)
+        try assets.remove(manifest: first)
+        let second = try assets.commit(occurrenceID: UUID(), items: items, capturedAt: Date())
+        let restarted = try HistoryRichTextAssetStore(rootURL: root, policy: policy)
+        XCTAssertThrowsError(try restarted.commit(occurrenceID: UUID(), items: items, capturedAt: Date()))
+        try restarted.remove(manifest: second)
+        XCTAssertNoThrow(try restarted.commit(occurrenceID: UUID(), items: items, capturedAt: Date()))
+    }
+
     func testCreateListAndRestartPreserveExactTextAndDuplicateOccurrences() throws {
         let clock = MutableClock(now: Date(timeIntervalSinceReferenceDate: 8_000_000))
         let store = try makeStore()

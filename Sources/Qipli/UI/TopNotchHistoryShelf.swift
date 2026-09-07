@@ -602,7 +602,7 @@ struct TopNotchHistoryShelfView: View {
                     thumbnailUpdateRevisionsByEntryID: viewModel.thumbnailUpdateRevisionsByEntryID,
                     selectedEntryID: viewModel.selectedEntryID,
                     interactionBridge: interactionBridge,
-                    thumbnailData: { viewModel.thumbnailDataByEntryID[$0] },
+                    thumbnailData: viewModel.thumbnailData(for:),
                     requestThumbnail: viewModel.requestThumbnail(forEntryID:),
                     selectEntry: viewModel.select,
                     pasteEntry: { id in
@@ -1062,6 +1062,8 @@ enum TopNotchHistoryCardTextLayout {
     static let maximumNumberOfLines = 5
 
     static func configure(_ label: NSTextField) {
+        label.isEditable = false
+        label.isSelectable = false
         label.maximumNumberOfLines = maximumNumberOfLines
         label.lineBreakMode = .byWordWrapping
         guard let cell = label.cell as? NSTextFieldCell else { return }
