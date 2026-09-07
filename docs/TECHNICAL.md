@@ -134,13 +134,13 @@ Sparkle updater ──> public HTTPS appcast ──> EdDSA-verified ZIP ──> 
 ### HistoryService
 
 - является единственной точкой записи, поиска, удаления и retention cleanup;
-- выполняет persistent-store work через последовательную background execution boundary; main actor получает только immutable `HistoryEntry` snapshots;
+- выполняет persistent-store work через последовательную background execution boundary; main actor получает display descriptors, а exact `HistoryEntry` только после capture или для выбранной вставки;
 - до S023 хранит актуальный text snapshot; после S023 выдаёт bounded `HistoryOccurrenceDescriptor` pages и не держит полный retention window в UI memory;
 - initial page и каждая следующая page содержат не более 500 occurrences; keyset cursor использует строгий `(activityAt, id)` order вместо растущего `OFFSET`;
 - empty query получает ordered page, а непустой query выполняется persistent-store boundary по всему retention window и возвращает тот же bounded descriptor contract;
 - не отдаёт записи, чья последняя активность старше или равна 30 дням, даже если фоновая очистка ещё не завершилась;
 - поддерживает отдельные одинаковые события;
-- выполняет batch retention cleanup при запуске, перед выдачей результатов и периодически при длительной работе без материализации удаляемых managed objects;
+- выполняет batch retention cleanup при запуске, перед выдачей результатов и периодически при длительной работе; plain-text rows не материализуются для удаления, owned media/rich manifests обрабатываются отдельно до batch delete;
 - использует persistent index для exact UUID lookup; индекс сортировки добавляется только если S018 докажет измеримый выигрыш без неприемлемой цены записи;
 - при «Очистить всё» уничтожает/пересоздаёт persistent store либо эквивалентно удаляет основную БД и sidecar-файлы после закрытия соединений.
 
@@ -163,6 +163,17 @@ Sparkle updater ──> public HTTPS appcast ──> EdDSA-verified ZIP ──> 
 - Проверки разделяют storage/query, search/filter, preview construction, Stack traversal/render preparation и pasteboard scheduler. Каждая последующая оптимизация обязана иметь focused regression test на изменяемую границу.
 - Локальная Debug/test instrumentation может измерять длительность и счётчики операций, но не включает clipboard text, search query, preview, UUID или другие пользовательские payload в сообщения, signpost metadata и имена файлов.
 - Абсолютные timing thresholds применяются только к стабильным алгоритмическим seams или явно калибруемым benchmark runs. Обычный CI прежде всего проверяет сложность, отсутствие main-thread persistent I/O, cancellation/stale-result contracts и число обходов, чтобы не стать flaky из-за shared runner load.
+
+### Исправления performance review (D-041, 2026-09-07)
+
+- `HistoryStoring` обязательно предоставляет paging; production больше не содержит non-paging fallback/filter и full-entry UI dictionary. In-memory paging adapters и performance probes принадлежат test target.
+- Lightweight schema migration добавляет optional `displayMetadata`, `isRenderable`, `searchMetadata` и `searchURLValues`. Backfill идёт batches по 64 rows; ready rows не перерабатываются при следующем запуске. Projections обновляются в той же транзакции, что occurrence или reference availability. Canonical text не дублируется в `searchMetadata`: для text search используется прежний `text`.
+- Unfiltered page читает dictionary projection `id/capturedAt/displayMetadata`, без full text, bookmarks и paste manifests. Capture публикует тот же bounded display contract. Exact text и все исходные representations остаются доступны выбранной вставке.
+- Ranked search читает batches по 256 search candidates без display/paste manifests, проверяет cancellation до fetch и между candidates, накапливает bounded rank buckets и материализует максимум 500 display projections. Явный upper date bound в keyset predicate позволяет SQLite использовать range scan compound index. Localized substring, Unicode matching, URL rank и cursor semantics не меняются.
+- Image/rich quota accounting после первого disk reconciliation инкрементально учитывает успешные writes/deletes; rollback, bulk cleanup и corrupt-owned cleanup инвалидируют cache. Missing file не вычитается дважды. Directory enumeration учитывает только распознанные opaque occurrence directories и regular `.asset` files, не следует symlinks и не зависит от `/var` vs `/private/var` aliases.
+- Image adapter проверяет per-item/per-occurrence bytes после каждого materialized blob и прекращает чтение остальных representations при overflow. Media precedence исключает чтение неиспользуемого RTF/HTML. Ограничение AppKit на pre-read size остаётся: один candidate может выделить память до проверки.
+- Ordered capture queue допускает не более 64 occurrences и 64 MiB суммарных payload bytes, включая текущую запись. Большая новая occurrence или переполненная очередь отклоняется с notice, без удаления предыдущих captures/History. Notice сохраняется после завершения более ранних queued captures; Stack получает failure только для исходной session. UI search не задерживает добавление уже persisted text в Stack.
+- Thumbnail cache ограничен 16 MiB encoded data и удаляет least-recently-used values. Native collection items отдельно владеют видимыми decoded images. Warning/critical memory pressure отменяет pending thumbnail tasks и освобождает encoded cache; повторный запрос восстанавливает данные.
 
 ### StackSession
 
@@ -328,7 +339,7 @@ S023 выполняет lightweight migration каждой legacy row в typed o
 
 Page/search API возвращает только `HistoryOccurrenceDescriptor`: occurrence ID, activity, primary kind, bounded title/search presentation, item count и availability summary. Exact text, bookmark data, managed path, image bytes и thumbnail bytes не входят в descriptor.
 
-Unfiltered History продолжает использовать cursor `(activityAt DESC, id DESC)`. Ranked search использует отдельный устойчивый continuation key `(rank ASC, activityAt DESC, id DESC)`. Rank вычисляется из уже сохранённых representations и reference metadata без schema migration: exact или prefix match URL domain/address получает первую группу, остальные typed URL metadata matches вторую, все остальные localized case-insensitive substring matches третью. URL-подобный plain text не переклассифицируется. Repository проходит группы последовательно и возвращает максимум 500 descriptors плюс bounded continuation evidence; перестановка только уже полученной chronological page не выполняет full-retention ranking и не считается реализацией контракта.
+Unfiltered History продолжает использовать cursor `(activityAt DESC, id DESC)`. Ranked search использует отдельный устойчивый continuation key `(rank ASC, activityAt DESC, id DESC)`. Rank вычисляется из сохранённых search fields: exact или prefix match URL domain/address получает первую группу, остальные typed URL metadata matches вторую, все остальные localized case-insensitive substring matches третью. URL-подобный plain text не переклассифицируется. Repository одним chronological scan классифицирует каждую candidate не более одного раза, хранит не более `limit + 1` UUID/date/rank на группу и загружает display projections только для итоговой страницы; перестановка только уже полученной chronological page не выполняет full-retention ranking и не считается реализацией контракта.
 
 Все pasteboard variants входят в History через один `HistoryCapture` boundary. Capture result содержит только committed descriptor и bounded user notice; production UI не кэширует full `HistoryEntry`, а materializes exact payload по UUID непосредственно перед paste. Image и rich stores используют общий managed-directory boundary для root containment, symlink rejection, temp cleanup и digest verification.
 
@@ -517,7 +528,7 @@ CI использует тот же verifier, но создаёт временн
 - Измерение 2026-08-29 подтвердило, что текущий локальный 30-дневный объём помещается в Core Data, но main-thread synchronous pipeline и линейный search плохо масштабируются; S017–S020 сохраняют Core Data и устраняют подтверждённые bottlenecks без новой persistence dependency.
 - S023 заменяет полный cached retention snapshot bounded descriptors и database-backed paging/search до добавления media. `fetchBatchSize` без `fetchLimit` не считается paging, потому что descriptor mapping не должен обходить весь result set.
 - AppKit документирует multi-item/typed pasteboard contract, UTType и URL bookmarks, но representation mix зависит от source app. S023–S025 обязаны сначала записать payload-free inventories типов/счётчиков на synthetic или controlled clipboard и проверить Finder, browser и native image app до фиксации allowlist.
-- Production managed-image policy принята в D-035: 32 MiB на image item, 64 MiB на occurrence, 1 GiB на durable original bytes, 128 MiB на пересоздаваемый thumbnail cache и 512 px на длинную сторону thumbnail. Значения являются defaults без UI; overflow отклоняет новую occurrence целиком и не запускает auto-eviction старой истории.
+- Production managed-image policy принята в D-035: 32 MiB на image item, 64 MiB на occurrence, 1 GiB на durable original bytes, 16 MiB на пересоздаваемый encoded-thumbnail LRU cache по D-041 и 512 px на длинную сторону thumbnail. Значения являются defaults без UI; overflow отклоняет новую occurrence целиком и не запускает auto-eviction старой истории.
 - S031 использует отдельные rich-text defaults 16 MiB на RTF/HTML representation, 32 MiB на occurrence и 512 MiB total durable storage. До production code controlled TextEdit/browser probe проверяет advertised types, raw sizes, sequential materialization и peak behavior; если эти ceilings дают неприемлемую latency/memory или отсекают обычные formatted copies, D-039 и slice обновляются до продолжения. Persistence limits не считаются pre-read memory limits: AppKit может вернуть один полный `Data` до size check.
 - Одного Accessibility-разрешения достаточно для выбранного event tap/paste flow на macOS 14+; S001 обязан проверить это на чистом профиле и не скрывать дополнительное системное требование, если оно появится.
 - Локальный Developer ID/notary pipeline подтверждён. Для S014 отдельно нужно подтвердить exportable Developer ID private key и App Store Connect API key в protected GitHub Environment; локальный Data Protection Keychain profile сам по себе не переносится на hosted runner.

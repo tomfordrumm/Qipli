@@ -78,3 +78,7 @@ covers:
 - native History table, keyboard bridge, fresh-show reset и exact paste transaction сохранены, а payload-free pasteboard probe проверяет только aggregate type/count shapes.
 
 Проверено текущими SwiftPM и Xcode Debug suites, включая migration, paging/search parity, stale generation, mutation и payload-free probe tests. Slice переведён в `done`; remaining installed-app observations относятся к следующему typed-media/release workflow, а не к незавершённому S023 implementation.
+
+### Уточнение D-041 (2026-09-07)
+
+Performance review исправляет repository boundary: optional persisted display/search projections заполняются bounded migration и позволяют page fetch без full payload materialization. Production и test stores теперь используют один обязательный paging contract; детали и новые regression gates описаны в `docs/TECHNICAL.md`, решение — D-041. Исходная acceptance S023 сохраняется, новая migration проверяется отдельно от signed release.

@@ -74,7 +74,7 @@ Top Notch History показывает более спокойные карто�
 - Match semantics не меняются: entry остаётся результатом только когда existing searchable metadata содержит query по системным localized case-insensitive substring rules.
 - Ranked order имеет три устойчивые группы: exact/prefix URL domain или address match; остальные typed URL metadata matches; остальные matches. Внутри группы используется `activityAt DESC, id DESC`.
 - Unfiltered History продолжает использовать `(activityAt, id)` cursor. Search continuation использует `(rank, activityAt, id)`, принадлежит текущей query generation и сбрасывается после смены query или order-affecting mutation.
-- Каждая page содержит не более 500 descriptors. Repository может последовательно сканировать fixed rank groups вне main actor, но UI не получает full-retention snapshot, exact media payload, bookmarks или thumbnail bytes в search descriptors.
+- Каждая page содержит не более 500 descriptors. Repository одним cancellable chronological scan заполняет bounded rank buckets вне main actor по D-041, но UI не получает full-retention snapshot, exact media payload, bookmarks или thumbnail bytes в search descriptors.
 - Search query, URL, card text, filenames, metadata и thumbnail content не попадают в logs, signposts, fixtures с пользовательскими данными или network requests.
 
 ## Acceptance criteria
@@ -115,3 +115,7 @@ Top Notch cards больше не показывают отдельные type l
 После read-only ревью исправлены четыре дефекта: rank сохраняется в cursor после promotion, удаления и pruning; selection accessibility value обновляется вместе с native selection; coalesced thumbnail callback сохраняет per-entry revisions и обновляет только изменившиеся видимые cards; корневой card layer клиппит full-bleed image по continuous rounded corners. Добавлен regression test ranked load-more после удаления occurrence.
 
 Автоматическая проверка: focused S032 suite `61 tests, 0 failures`; полный SwiftPM suite `236 tests, 0 failures` (headless named-pasteboard skips); unsigned Xcode Debug и Release universal builds (`arm64+x86_64`) прошли; Release version contract и embedded Sparkle runtime linking прошли; `git diff --check` прошёл. Signed/notarized public `v1.0.8 (9)` с S032 прошёл protected workflow и независимую artifact/appcast verification. Остаётся manual installed-app matrix: visual card reuse, mouse selection/no reload, empty/filtered Backspace, URL-first search, thumbnail appearance, Light/Dark, Increase Contrast и VoiceOver.
+
+### Уточнение D-041 (2026-09-07)
+
+Три отдельных full-retention scans заменены одним; cancellation останавливает repository work между batches/candidates. Search хранит bounded UUID/date/rank buckets и читает display metadata только для выбранных matches. Rank, localized match set и cross-rank cursor сохраняются. Production benchmark и новые verification results записаны в `docs/STATE.md`.

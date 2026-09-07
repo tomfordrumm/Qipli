@@ -110,3 +110,7 @@ Verification:
 - full SwiftPM run: `224` current tests executed, `5` named-pasteboard environment skips, `0` failures. Ten tests coupled only to the removed legacy History presentation were deleted with that implementation; the remaining suite includes overtaken-read ordering, semantic Escape handling, rich/image/reference storage, paging, Stack and Top Notch regressions;
 - `git diff --check` passed. Unsigned universal Xcode Debug build and clean optimized `v1.0.7 (8)` Release build succeeded for arm64 and x86_64; built metadata and embedded Sparkle runtime linking passed their release checks;
 - user confirmed completion of the manual S031 macOS checks. Signed/notarized public `v1.0.8 (9)` and its production appcast passed hosted and independent artifact verification; a real installed `v1.0.7 → v1.0.8` Sparkle update with History preservation remains open.
+
+### Уточнение D-041 (2026-09-07)
+
+Rich quota использует incremental asset accounting с reconciliation после failure/cleanup/restart. Unfiltered History читает persisted display projection и не декодирует rich manifest/canonical text ради карточки. Exact rich/plain paste и plain fallback при rich persistence overflow сохранены; отдельный bounded capture queue admission может отклонить новую occurrence с notice при перегрузке.

@@ -195,6 +195,7 @@ struct PasteStackPanelView: View {
         }
         .padding(10)
         .frame(width: 208, height: 136, alignment: .topLeading)
+        .textSelection(.disabled)
         .opacity(isUsed && !isReactivationPriority ? 0.55 : 1)
         .background {
             RoundedRectangle(cornerRadius: 14, style: .continuous)

@@ -5,6 +5,38 @@ import XCTest
 
 @MainActor
 final class StackSessionControllerTests: XCTestCase {
+    @MainActor
+    func testCaptureQueueBoundsPendingBytesAndCountWithoutReorderingAcceptedCopies() async {
+        for (byteLimit, countLimit) in [(6, 64), (100, 2)] {
+            let history = HistoryViewModel(service: HistoryService(store: StackTestHistoryStore()))
+            let stack = StackSessionController()
+            XCTAssertTrue(stack.startIfNeeded(captureAfterChangeCount: 0))
+            let coordinator = StackCollectionCaptureCoordinator(historyViewModel: history, stackSessionController: stack,
+                maxPendingBytes: byteLimit, maxPendingCount: countLimit)
+            let context = stack.captureContext
+            coordinator.enqueue(.text("one"), observedChangeCount: 1, stackCaptureContext: context)
+            coordinator.enqueue(.text("two"), observedChangeCount: 2, stackCaptureContext: context)
+            coordinator.enqueue(.text("three"), observedChangeCount: 3, stackCaptureContext: context)
+            XCTAssertEqual(coordinator.pendingByteCount, 6)
+            XCTAssertEqual(coordinator.pendingCount, 2)
+            XCTAssertNotNil(history.captureNotice)
+            await coordinator.drainPendingCaptures()
+            XCTAssertEqual(stack.occurrences.map(\.text), ["one", "two"])
+            XCTAssertEqual(coordinator.pendingCount, 0)
+            XCTAssertEqual(coordinator.pendingByteCount, 0)
+            XCTAssertNotNil(history.captureNotice, "An earlier accepted copy must not erase a later rejection")
+            coordinator.enqueue(.text("four"), observedChangeCount: 4, stackCaptureContext: context)
+            await coordinator.drainPendingCaptures()
+            XCTAssertEqual(stack.occurrences.map(\.text), ["one", "two", "four"])
+            XCTAssertNil(history.captureNotice)
+            coordinator.enqueue(.text(String(repeating: "x", count: byteLimit + 1)), observedChangeCount: 5, stackCaptureContext: context)
+            XCTAssertEqual(coordinator.pendingCount, 0)
+            XCTAssertEqual(coordinator.pendingByteCount, 0)
+            XCTAssertEqual(stack.occurrences.count, 3)
+            XCTAssertNotNil(history.captureNotice)
+        }
+    }
+
     func testStartIsUniqueAndAppendsExactDuplicateUnicodeOccurrences() {
         let controller = StackSessionController()
         let entry = HistoryEntry(id: UUID(), text: "same 🦊\nvalue", activityAt: .now)

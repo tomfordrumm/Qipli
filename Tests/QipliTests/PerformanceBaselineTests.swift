@@ -39,43 +39,78 @@ final class PerformanceBaselineTests: XCTestCase {
         XCTAssertEqual(Set(first.map(\.id)).count, first.count)
     }
 
-    func testSearchBaselineWorkloadsPreserveLocalizedSubstringSemantics() {
+    func testProductionSearchScansEachCandidateOnceAndPagesKeepExactPayloadOutsideDisplay() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var inspected = 0
+        let store = try CoreDataHistoryStore(storeURL: root.appendingPathComponent("History.sqlite"), onSearchBatch: { inspected += $0 })
+        defer { store.close() }
+        let entries = SyntheticPerformanceFixtures.historyEntries(count: 10_000)
+        for entry in entries { _ = try store.create(text: entry.text, activityAt: entry.activityAt) }
         let probe = RecordingPerformanceProbe()
-        var inspectionCounts: [Int] = []
-
-        for size in [1_800, 10_000, 50_000] {
-            let entries = SyntheticPerformanceFixtures.historyEntries(count: size)
-            var inspectedEntries = 0
-            let matches = probe.probe.measure(.historySearch, itemCount: size) {
-                HistorySearchMatcher.matches(
-                    in: entries,
-                    query: "NÉEDLE",
-                    didInspect: { inspectedEntries += 1 }
-                )
-            }
-
-            XCTAssertEqual(matches.count, SyntheticPerformanceFixtures.expectedNeedleCount(in: size))
-            inspectionCounts.append(inspectedEntries)
+        let missing = try probe.probe.measure(.historySearch, itemCount: entries.count) {
+            try store.searchPage(query: "not-in-any-fixture", since: .distantPast, after: nil, limit: 500)
         }
-
-        XCTAssertEqual(inspectionCounts, [1_800, 10_000, 50_000])
-        XCTAssertEqual(probe.observations.map(\.operation), Array(repeating: .historySearch, count: 3))
-        XCTAssertEqual(probe.observations.map(\.itemCount), [1_800, 10_000, 50_000])
-        XCTAssertTrue(probe.observations.allSatisfy { $0.elapsedNanoseconds > 0 })
+        XCTAssertTrue(missing.descriptors.isEmpty)
+        XCTAssertEqual(inspected, 10_000)
+        inspected = 0
+        let matches = try store.searchPage(query: "NÉEDLE", since: .distantPast, after: nil, limit: 500)
+        XCTAssertEqual(matches.descriptors.count, SyntheticPerformanceFixtures.expectedNeedleCount(in: entries.count))
+        XCTAssertEqual(inspected, 10_000)
+        let page = try probe.probe.measure(.historyFetch, itemCount: entries.count) {
+            try store.fetchPage(since: .distantPast, after: nil, limit: 500)
+        }
+        XCTAssertEqual(page.descriptors.count, 500)
+        XCTAssertTrue(page.hasMore)
+        XCTAssertTrue(page.descriptors.allSatisfy { ($0.textPreview?.count ?? 0) <= HistoryPreview.maximumCharacters + 1 })
+        XCTAssertEqual(probe.observations.map(\.operation), [.historySearch, .historyFetch])
     }
 
-    func testHistoryFetchBaselineUsesAggregateEntryCount() throws {
-        let entries = SyntheticPerformanceFixtures.historyEntries(count: 1_800)
-        let store = BaselineHistoryStore(entries: entries)
-        let probe = RecordingPerformanceProbe()
-
-        let fetched = try probe.probe.measure(.historyFetch, itemCount: entries.count) {
-            try store.fetchCurrent(since: .distantPast)
+    func testCancelledProductionSearchStopsBeforeReadingTheNextBatch() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let started = expectation(description: "first batch")
+        let release = DispatchSemaphore(value: 0)
+        var inspected = 0
+        let store = try CoreDataHistoryStore(storeURL: root.appendingPathComponent("History.sqlite"), onSearchBatch: { count in
+            inspected += count
+            started.fulfill()
+            release.wait()
+        })
+        defer { store.close() }
+        for entry in SyntheticPerformanceFixtures.historyEntries(count: 600) {
+            _ = try store.create(text: entry.text, activityAt: entry.activityAt)
         }
+        let search = Task.detached {
+            try store.searchPage(query: "missing", since: .distantPast, after: nil, limit: 500)
+        }
+        await fulfillment(of: [started], timeout: 5)
+        search.cancel()
+        release.signal()
+        do {
+            _ = try await search.value
+            XCTFail("Cancelled storage work must throw rather than finish the scan")
+        } catch is CancellationError { }
+        XCTAssertEqual(inspected, 256)
+    }
 
-        XCTAssertEqual(fetched, entries)
-        XCTAssertEqual(probe.observations.single?.operation, .historyFetch)
-        XCTAssertEqual(probe.observations.single?.itemCount, 1_800)
+    func testThumbnailCacheEvictsLeastRecentlyUsedAndNeverExceedsBudget() {
+        let first = UUID(), second = UUID(), third = UUID()
+        var cache = HistoryThumbnailCache(byteLimit: 8)
+        cache.insert(Data(repeating: 1, count: 4), for: first)
+        cache.insert(Data(repeating: 2, count: 4), for: second)
+        XCTAssertNotNil(cache.value(for: first))
+        XCTAssertEqual(cache.insert(Data(repeating: 3, count: 4), for: third), [second])
+        XCTAssertNotNil(cache.value(for: first))
+        XCTAssertNil(cache.value(for: second))
+        XCTAssertEqual(cache.byteCount, 8)
+        cache.insert(Data(repeating: 4, count: 9), for: UUID())
+        XCTAssertEqual(cache.byteCount, 8)
+        cache.removeAll()
+        XCTAssertEqual(cache.byteCount, 0)
+        XCTAssertTrue(cache.values.isEmpty)
     }
 
     func testPreviewBaselineKeepsExactOccurrenceTextOutsideDisplayValue() {
@@ -272,22 +307,6 @@ private final class RecordingPerformanceProbe {
     lazy var probe = PerformanceProbe(recorder: { [weak self] observation in
         self?.observations.append(observation)
     })
-}
-
-private final class BaselineHistoryStore: HistoryStoring {
-    private let entries: [HistoryEntry]
-
-    init(entries: [HistoryEntry]) {
-        self.entries = entries
-    }
-
-    func fetchCurrent(since cutoff: Date) throws -> [HistoryEntry] { entries }
-    func create(text: String, activityAt: Date) throws -> HistoryEntry {
-        HistoryEntry(id: UUID(), text: text, activityAt: activityAt)
-    }
-    func markUsed(id: UUID, activityAt: Date) throws {}
-    func delete(id: UUID) throws {}
-    func clearAll() throws {}
 }
 
 private final class BaselinePasteboard: PasteboardReading {

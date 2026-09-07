@@ -28,7 +28,7 @@ covers:
 
 ## Статус и prerequisite
 
-S023 завершён, а D-035 принят с production defaults: 32 MiB на image item, 64 MiB на occurrence, 1 GiB на durable original image bytes, 128 MiB на thumbnail cache и 512 px на длинную сторону thumbnail. Лимиты пока не выносятся в UI.
+S023 завершён, а D-035 принят с production defaults: 32 MiB на image item, 64 MiB на occurrence, 1 GiB на durable original image bytes, 16 MiB на encoded-thumbnail LRU cache по D-041 и 512 px на длинную сторону thumbnail. Лимиты пока не выносятся в UI.
 
 ## В scope
 
@@ -108,3 +108,7 @@ S023 завершён, а D-035 принят с production defaults: 32 MiB на
 
 - [x] 2026-09-01 пользователь подтвердил ручную native/browser matrix: image copy из native app и browser, restart, stable image name, visible/offscreen thumbnail behavior, metadata search, exact paste, oversize/storage-full notice, Delete/Clear All и copy при active Stack.
 - [x] 2026-09-01 optimized universal Release, runtime/version checks и scoped security diff scan прошли; S024 technical gates закрыты.
+
+### Уточнение D-041 (2026-09-07)
+
+После review cache уменьшен со 128 до 16 MiB и очищается при memory pressure; повторный запрос восстанавливает thumbnail. Byte quotas пересчитываются один раз и затем обновляются после commit/delete, с reconciliation после cleanup/failure/restart. Adapter прекращает дальнейшие image reads при превышении per-item/per-occurrence bytes, ordered capture admission ограничен 64 MiB/64 occurrences. Durable-original limits и exact pasteback не меняются; см. `docs/TECHNICAL.md`.

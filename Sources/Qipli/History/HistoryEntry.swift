@@ -101,7 +101,7 @@ enum HistoryRepresentationKind: String, Codable, Equatable, Sendable {
     case videoReference
 }
 
-struct HistoryRepresentationDescriptor: Equatable, Sendable {
+struct HistoryRepresentationDescriptor: Codable, Equatable, Sendable {
     let kind: HistoryRepresentationKind
     let typeIdentifier: String
 }
@@ -228,6 +228,36 @@ enum HistoryCapture: Equatable, Sendable {
         }
     }
 
+    var payloadByteCount: Int {
+        var bytes = 0
+        func add(_ count: Int) {
+            let sum = bytes.addingReportingOverflow(count)
+            bytes = sum.overflow ? .max : sum.partialValue
+        }
+        func images(_ items: [ManagedImageCaptureItem]) {
+            for item in items { for representation in item.representations { add(representation.data.count) } }
+        }
+        func references(_ items: [HistoryReferenceCaptureItem]) {
+            for item in items {
+                for text in [item.urlString ?? "", item.metadata.displayName, item.metadata.fileExtension,
+                             item.metadata.typeIdentifier, item.metadata.domain ?? "", item.metadata.searchText] { add(text.utf8.count) }
+            }
+        }
+        switch self {
+        case let .text(text): add(text.utf8.count)
+        case let .richText(text, items):
+            add(text.utf8.count)
+            for item in items {
+                add(item.canonicalText?.utf8.count ?? 0)
+                for representation in item.representations { add(representation.data.count) }
+            }
+        case let .images(items): images(items)
+        case let .references(items): references(items)
+        case let .mixed(imageItems, referenceItems): images(imageItems); references(referenceItems)
+        }
+        return bytes
+    }
+
     var failureMessage: String {
         switch self {
         case .text: "Qipli could not save the copied text."
@@ -317,29 +347,56 @@ struct HistoryOccurrenceDescriptor: Identifiable, Equatable, Sendable {
     }
 }
 
+/// Persisted display projection. Full text and paste manifests are loaded only
+/// for a selected paste; full search fields stay behind the store boundary.
+struct HistoryDisplayMetadata: Codable {
+    let textPreview: String?
+    let representations: [HistoryRepresentationDescriptor]
+    let imageMetadata: [HistoryImageMetadata]
+    let referenceMetadata: [HistoryReferenceMetadata]
+
+    init(entry: HistoryEntry) {
+        textPreview = entry.isTextOnly ? HistoryPreview.text(for: entry.text) : nil
+        representations = entry.representations
+        imageMetadata = entry.imageMetadata
+        referenceMetadata = entry.referenceMetadata.map {
+            HistoryReferenceMetadata(
+                displayName: HistoryPreview.text(for: $0.displayName),
+                fileExtension: HistoryPreview.text(for: $0.fileExtension),
+                typeIdentifier: $0.typeIdentifier,
+                byteCount: $0.byteCount,
+                domain: $0.domain.map(HistoryPreview.text(for:)),
+                searchText: HistoryPreview.text(for: $0.searchText),
+                availability: $0.availability
+            )
+        }
+    }
+
+    func descriptor(id: UUID, activityAt: Date, rank: HistorySearchRank? = nil) -> HistoryOccurrenceDescriptor {
+        HistoryOccurrenceDescriptor(
+            id: id, activityAt: activityAt, searchRank: rank, textPreview: textPreview,
+            representations: representations, imageMetadata: imageMetadata, referenceMetadata: referenceMetadata
+        )
+    }
+}
+
 enum HistorySearchRank: Int, CaseIterable, Equatable, Sendable {
     case exactOrPrefixURL = 0
     case otherTypedURL = 1
     case otherMatch = 2
 
     static func classify(entry: HistoryEntry, query: String) -> Self? {
-        guard !query.isEmpty,
-              entry.searchableMetadata.localizedCaseInsensitiveContains(query)
-        else { return nil }
+        let urlValues: [String]? = entry.representations.contains { $0.kind == .url }
+            ? entry.referenceMetadata.filter { $0.typeIdentifier == "public.url" }
+                .flatMap { [$0.domain, $0.searchText].compactMap { $0 } }
+            : nil
+        return classify(searchableText: entry.searchableMetadata, urlValues: urlValues, query: query)
+    }
 
-        let isTypedURL = entry.representations.contains { $0.kind == .url }
-        guard isTypedURL else { return .otherMatch }
-
-        let urlValues = entry.referenceMetadata
-            .filter { $0.typeIdentifier == "public.url" }
-            .flatMap { metadata in
-            [metadata.domain, metadata.searchText]
-                .compactMap { $0 }
-        }
-        if urlValues.contains(where: { isExactOrPrefix($0, query: query) }) {
-            return .exactOrPrefixURL
-        }
-        return .otherTypedURL
+    static func classify(searchableText: String, urlValues: [String]?, query: String) -> Self? {
+        guard !query.isEmpty, searchableText.localizedCaseInsensitiveContains(query) else { return nil }
+        guard let urlValues else { return .otherMatch }
+        return urlValues.contains { isExactOrPrefix($0, query: query) } ? .exactOrPrefixURL : .otherTypedURL
     }
 
     private static func isExactOrPrefix(_ value: String, query: String) -> Bool {

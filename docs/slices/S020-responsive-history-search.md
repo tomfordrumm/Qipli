@@ -80,3 +80,7 @@ covers:
 
 - 2026-08-30 пользователь подтвердил rapid typing/clear/retype smoke в реальной History panel на двух машинах. Срез переведён в `done`.
 - Search по-прежнему линейный по полному snapshot; срез устраняет main-thread stall и stale publication, но сознательно не вводит FTS и не меняет substring semantics.
+
+### Уточнение D-041 (2026-09-07)
+
+Исторический `BackgroundHistorySearcher` и full-entry compatibility snapshot удалены из production. UI использует обязательный paging contract, а localized matching/cancellation выполняются в repository scan. Существующие preview, exact text и stale-generation acceptance сохранены; production traversal/cancellation проверяются на реальном SQLite store в `PerformanceBaselineTests`.

@@ -11,6 +11,7 @@ enum ApplicationShellPasteboardRouting {
 
 
     static func capture(from change: PasteboardTypedChange) -> HistoryCapture? {
+        guard change.captureFailure == nil else { return nil }
         if shouldCaptureRichText(change), let canonicalText = change.canonicalText {
             return .richText(text: canonicalText, items: change.richTextItems)
         }
@@ -96,6 +97,11 @@ final class ApplicationShell: NSObject {
             },
             onExternalChange: { [weak stackCaptureCoordinator, weak stackSessionController] change in
                 let captureContext = stackSessionController?.captureContext
+                if let failure = change.captureFailure {
+                    stackCaptureCoordinator?.reject(message: failure.localizedDescription,
+                        observedChangeCount: change.changeCount, stackCaptureContext: captureContext)
+                    return
+                }
                 if let capture = ApplicationShellPasteboardRouting.capture(from: change) {
                     stackCaptureCoordinator?.enqueue(
                         capture,

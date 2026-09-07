@@ -63,6 +63,7 @@ final class HistoryRichTextAssetStore: HistoryRichTextAssetStoring {
     let policy: HistoryRichTextStoragePolicy
     private let fileManager: FileManager
     private let assetDirectory: ManagedAssetDirectory
+    private let byteCounter: ManagedAssetByteCounter
 
     init(
         rootURL: URL,
@@ -74,6 +75,7 @@ final class HistoryRichTextAssetStore: HistoryRichTextAssetStoring {
         self.policy = policy
         self.fileManager = fileManager
         self.assetDirectory = assetDirectory
+        byteCounter = ManagedAssetByteCounter(rootURL: assetDirectory.rootURL.appendingPathComponent("rich", isDirectory: true), fileManager: fileManager)
         try ensureManagedDirectory(self.rootURL)
         try ensureManagedDirectory(self.rootURL.appendingPathComponent(".tmp", isDirectory: true))
         try ensureManagedDirectory(self.rootURL.appendingPathComponent("rich", isDirectory: true))
@@ -120,7 +122,7 @@ final class HistoryRichTextAssetStore: HistoryRichTextAssetStoring {
             ))
         }
 
-        guard currentBytes() + occurrenceBytes <= policy.maxTotalBytes else {
+        guard try byteCounter.bytes() + occurrenceBytes <= policy.maxTotalBytes else {
             throw HistoryRichTextStoreError.storageLimitReached
         }
 
@@ -147,9 +149,11 @@ final class HistoryRichTextAssetStore: HistoryRichTextAssetStoring {
                 }
             }
             try fileManager.removeItem(at: tempRoot)
+            byteCounter.didCommit(bytes: occurrenceBytes)
             return manifest
         } catch {
             try? fileManager.removeItem(at: tempRoot)
+            byteCounter.invalidate()
             for url in committedURLs { try? fileManager.removeItem(at: url) }
             throw (error as? HistoryRichTextStoreError) ?? .writeFailed
         }
@@ -201,13 +205,14 @@ final class HistoryRichTextAssetStore: HistoryRichTextAssetStoring {
         for representation in manifest.representations {
             let url = try managedURL(for: representation.relativePath)
             if fileManager.fileExists(atPath: url.path) {
-                try fileManager.removeItem(at: url)
+                try byteCounter.removeFile(at: url)
             }
         }
         try removeEmptyOccurrenceDirectory(for: manifest.occurrenceID)
     }
 
     func removeAllOwnedAssets() throws {
+        defer { byteCounter.invalidate() }
         let richURL = rootURL.appendingPathComponent("rich", isDirectory: true)
         try ensureManagedDirectory(richURL)
         for url in try fileManager.contentsOfDirectory(at: richURL, includingPropertiesForKeys: nil) {
@@ -221,6 +226,7 @@ final class HistoryRichTextAssetStore: HistoryRichTextAssetStoring {
     }
 
     func removeOwnedAssets(for occurrenceID: UUID) throws {
+        defer { byteCounter.invalidate() }
         let url = rootURL.appendingPathComponent("rich/\(occurrenceID.uuidString)", isDirectory: true)
         guard fileManager.fileExists(atPath: url.path), isDirectory(url), !isSymbolicLink(url) else { return }
         try fileManager.removeItem(at: url)
@@ -233,6 +239,7 @@ final class HistoryRichTextAssetStore: HistoryRichTextAssetStoring {
     }
 
     func cleanupOrphanAssets(knownOccurrenceIDs: Set<UUID>) throws {
+        defer { byteCounter.invalidate() }
         let richURL = rootURL.appendingPathComponent("rich", isDirectory: true)
         try ensureManagedDirectory(richURL)
         for url in try fileManager.contentsOfDirectory(at: richURL, includingPropertiesForKeys: nil) {
@@ -263,23 +270,7 @@ final class HistoryRichTextAssetStore: HistoryRichTextAssetStoring {
         try fileManager.removeItem(at: url)
     }
 
-    private func currentBytes() -> Int {
-        let richURL = rootURL.appendingPathComponent("rich", isDirectory: true)
-        guard isDirectory(richURL), !isSymbolicLink(richURL),
-              let enumerator = fileManager.enumerator(at: richURL, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles])
-        else { return 0 }
-        return enumerator.reduce(0) { result, item in
-            guard let url = item as? URL,
-                  url.pathExtension == "asset",
-                  UUID(uuidString: url.deletingLastPathComponent().lastPathComponent) != nil,
-                  !isSymbolicLink(url.deletingLastPathComponent()),
-                  let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-                  values.isRegularFile == true,
-                  let size = values.fileSize
-            else { return result }
-            return result + size
-        }
-    }
+
 
     private func isDirectory(_ url: URL) -> Bool {
         assetDirectory.isDirectory(url)
