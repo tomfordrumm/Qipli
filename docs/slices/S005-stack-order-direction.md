@@ -1,7 +1,6 @@
 ---
 id: S005
 title: Порядок и направление обхода
-status: done
 depends_on:
   - S004
 covers:
@@ -83,7 +82,7 @@ covers:
 - [x] Все acceptance criteria выполнены.
 - [x] Автоматические и ручные проверки пройдены.
 - [x] Приложение собирается без новой регрессии.
-- [x] `STATE.md` и frontmatter синхронно обновлены.
+- [x] `STATE.md` обновлён.
 - [x] Новые значимые решения не требуются: контракт следует BR-005 и существующему in-memory lifecycle.
 - [x] Implementation report заполнен.
 

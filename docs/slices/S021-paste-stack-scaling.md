@@ -1,7 +1,6 @@
 ---
 id: S021
 title: Масштабируемый Paste Stack
-status: done
 depends_on:
   - S020
 covers:

@@ -1,7 +1,6 @@
 ---
 id: S025
 title: Referenced URL, file and video History
-status: done
 depends_on:
   - S023
   - S024

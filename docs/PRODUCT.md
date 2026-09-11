@@ -106,7 +106,7 @@ Qipli — бесплатное open-source приложение для macOS. Т
 
 - сохранение завершённых стеков как повторно используемых наборов.
 - настройка положения Top Notch справа, слева или снизу экрана с теми же состояниями и зеркально направленным раскрытием; первая поставка фиксирует только верхнее положение;
-- отдельное полноразмерное окно History, действие `Развернуть`, Favorites и дополнительные разделы библиотеки; возврат к ним требует нового подтверждённого пользовательского пути;
+- отдельное полноразмерное окно History, действие `Развернуть`, категории избранного и дополнительные разделы библиотеки; Favorites в существующей Top Notch входит в S029;
 - beta-channel, phased rollout и delta updates; первый публичный update feed поддерживает один stable channel и полные ZIP.
 - изображения, файлы и видео внутри Paste Stack;
 - OCR изображений, транскрипция/анализ видео и content search по media;
@@ -194,7 +194,7 @@ Qipli — бесплатное open-source приложение для macOS. Т
 | ID | Требование | Источник |
 |---|---|---|
 | FR-001 | Пока Qipli запущен, каждое новое содержимое общего буфера обмена, имеющее текстовое представление и хотя бы один непробельный символ, сохраняется как отдельная запись истории. | Бриф, уточнение пользователя 2026-08-10 |
-| FR-002 | Записи, чья последняя активность (захват или успешно отправленная history paste-команда) моложе 30 дней, доступны; просроченные записи удаляются при запуске и во время работы. | Бриф, уточнённый пользовательский сценарий 2026-08-08 |
+| FR-002 | Записи, чья последняя активность (захват или успешно отправленная history paste-команда) моложе 30 дней, доступны; просроченные записи удаляются при запуске и во время работы, кроме избранного по BR-026. | Бриф, уточнённый пользовательский сценарий 2026-08-08 |
 | FR-003 | Default shortcut `⌘⇧V` открывает Top Notch поверх текущего приложения на экране с текущим user target и сразу фокусирует встроенный поиск. Пользовательское переназначение History shortcut из Settings сохраняется. | Бриф, уточнено пользователем 2026-09-01 |
 | FR-004 | Top Notch History поддерживает поиск по локальной searchable metadata, keyboard selection и понятные пустое/ошибочное состояния. | Бриф, уточнено пользователем 2026-09-01/2026-09-02 |
 | FR-005 | `Enter` или double-click вставляет выбранную occurrence в поле приложения, активное до открытия History; после успешно отправленной history paste-команды эта exact occurrence становится самой недавней без создания duplicate. | Бриф, уточнённый пользовательский сценарий 2026-08-08/2026-09-03 |
@@ -227,7 +227,7 @@ Qipli — бесплатное open-source приложение для macOS. Т
 | FR-032 | Если inline payload превышает per-item или total managed-storage limit, Qipli не сохраняет частичную occurrence, не удаляет старую историю автоматически и показывает понятное non-destructive уведомление. | Пользователь 2026-08-31 |
 | FR-033 | Top Notch показывает встроенный поиск и горизонтальную bounded-подборку type-aware карточек. Text-карточка вмещает несколько строк; image использует локальный thumbnail; URL/file/video не запускают сеть и честно показывают local metadata или unavailable state. | Пользователь 2026-09-01 |
 | FR-034 | Отложено в BL-004: `Развернуть` и отдельное полноценное окно History не входят в активную поставку. | Пользователь 2026-09-01; выведено в backlog пользователем 2026-09-02 |
-| FR-035 | Отложено в BL-005: History/Favorites navigation и favorite marker не входят в активную поставку. | Пользователь 2026-09-01; выведено в backlog пользователем 2026-09-02 |
+| FR-035 | Звезда слева над Search переключает History/Favorites в Top Notch; поиск действует внутри режима. Звезда карточки добавляет/снимает избранное, видна при hover/selection и постоянно у избранных. Категорий нет. | Пользователь 2026-09-08, D-042 |
 | FR-036 | Paste Stack использует Top Notch shell вместо отдельного перемещаемого окна: Start/Collect, ordered cards, reorder/direction, Next/Processing/Used, Reactivate, Cancel и auto-finish сохраняют существующие session/input contracts и nonactivating focus behavior. | Пользователь 2026-09-02 |
 | FR-037 | Text occurrence сохраняет exact canonical plain string и, когда source предоставляет их в том же pasteboard item, bounded raw `public.rtf`/`public.html` representations без преобразования markup или загрузки external resources. | Пользователь 2026-09-03 |
 | FR-038 | Для rich text `Enter` и double-click выполняют formatted History paste с plain fallback, а exact `⇧Enter` выполняет plain-only paste. Default `⌘⇧V` продолжает только открывать History. | Пользователь 2026-09-03 |
@@ -244,7 +244,7 @@ Qipli — бесплатное open-source приложение для macOS. Т
 |---|---|
 | BR-001 | MVP принимает только элементы с текстовым представлением и хотя бы одним непробельным символом. Пустые и состоящие только из Unicode whitespace строки игнорируются; принятый текст, включая Unicode, пробелы, переводы строк, ссылки и код, сохраняется без нормализации содержимого. |
 | BR-002 | Одно внешнее изменение буфера с текстом создаёт одну запись истории. Одинаковые события не дедуплицируются ни в истории, ни в активном стеке. |
-| BR-003 | Срок хранения считается от последней активности: initial capture или успешно отправленной history paste-команды. Запись с возрастом 30 дней и более не должна показываться пользователю. |
+| BR-003 | Срок хранения считается от последней активности: initial capture или успешно отправленной history paste-команды. Обычная запись с возрастом 30 дней и более не показывается; избранное защищено от expiry по BR-026. |
 | BR-004 | Paste Stack — временная сессия в памяти. Его элементы ссылаются на копирования текущей сессии, но закрытие стека не управляет жизненным циклом истории. |
 | BR-005 | Ручная перестановка задаёт базовый видимый порядок. Прямой обход идёт сверху вниз, обратный — снизу вверх. Изменение порядка и направления гарантируется до первого обработанного `⌘V`. |
 | BR-006 | Повторно активированный элемент имеет одноразовый приоритет над текущим следующим; после его повторной обработки обход продолжается с ранее ожидавшего элемента. `⌘⇧Z` повторно активирует только последнее successfully dispatched exact occurrence, повторяется идемпотентно до следующей успешной отправки и никогда не является undo в приложении назначения. |
@@ -264,12 +264,12 @@ Qipli — бесплатное open-source приложение для macOS. Т
 | BR-020 | Text и небольшая searchable metadata хранятся в Core Data. Inline image bytes принадлежат Qipli и хранятся в managed Application Support storage. File/video bytes не копируются: Qipli хранит только локальный reference и никогда не удаляет или изменяет исходный объект. |
 | BR-021 | Capacity policy fail closed отклоняет новую managed occurrence целиком. Qipli не создаёт metadata-only placeholder для отклонённого inline image и не освобождает место скрытым удалением существующей истории. Production byte limits должны быть приняты до реализации S024. |
 | BR-022 | History paste восстанавливает все сохранённые supported representations и ordered items одной occurrence, регистрирует exact final pasteboard `changeCount` как self-write и не создаёт новую History occurrence. Preview, title и searchable metadata не заменяют exact paste payload. |
-| BR-023 | 30-day retention и activity promotion принадлежат occurrence. Delete, expiry и Clear All удаляют owned metadata, managed image bytes и derivatives; file/video source остаётся нетронутым. Missing file reference остаётся видимой unavailable occurrence до delete/expiry. |
+| BR-023 | 30-day retention и activity promotion принадлежат occurrence; для избранного действует исключение BR-026. Delete, expiry и Clear All удаляют owned metadata, managed image bytes и derivatives; file/video source остаётся нетронутым. Missing file reference остаётся видимой unavailable occurrence до delete/expiry. |
 | BR-024 | Paste Stack остаётся text-only в первой typed-History поставке. Media copy во время active Stack сохраняется в History, не меняет Stack order/state и сообщает, что этот type пока не добавлен в Stack. Обычный `⌘V` и существующий text Stack contract не меняются. |
 | BR-025 | Отложено в BL-004: transfer Top Notch → full History не является текущим продуктовым контрактом. |
-| BR-026 | Отложено в BL-005: favorite marker и его retention semantics должны быть подтверждены заново до реализации. |
+| BR-026 | Избранное хранится без автоматического истечения вместе с owned assets. Снятие звезды возвращает обычный срок от прежнего activityAt, не продлевая его. Toggle не дублирует payload. Explicit Delete/Clear All включают избранное; media quotas сохраняются. |
 | BR-027 | Текущая Top Notch поставка закреплена сверху. Положение справа, слева или снизу не входит в S027/S030 и не должно появиться как частично работающая настройка. |
-| BR-028 | Общая Top Notch оболочка не объединяет activation lifecycle: History активирует Qipli и принимает Search focus, Paste Stack не становится key, не закрывается по click-away/resign-key и завершается только Cancel, global Escape или auto-finish. Специальный active-Stack-to-History flow не входит в текущую поставку. |
+| BR-028 | Общая Top Notch оболочка не объединяет activation lifecycle: History становится nonactivating key panel и принимает Search focus без обязательной активации Qipli, Paste Stack не становится key, не закрывается по click-away/resign-key и завершается только Cancel, global Escape или auto-finish. Специальный active-Stack-to-History flow не входит в текущую поставку. |
 | BR-029 | Canonical plain string остаётся единственным text value для validation, search, preview и Paste Stack. Rich representations принадлежат тому же ordered pasteboard item, materialize-ятся только для selected History paste и не создают отдельную occurrence или карточку. |
 | BR-030 | Первая formatted-text поставка allowlist-ит только стандартные `public.rtf` и `public.html` вместе с `public.utf8-plain-text`. RTFD, WebArchive, private/dynamic types и произвольные source-specific representations не читаются и не восстанавливаются. |
 | BR-031 | Rich capacity policy использует production defaults 16 MiB на representation, 32 MiB на occurrence и 512 MiB на все durable rich assets. Overflow деградирует capture до plain-only с non-payload notice; missing/corrupt уже сохранённый rich asset останавливает default paste, но explicit `⇧Enter` остаётся доступным. Auto-eviction не выполняется. |
@@ -435,4 +435,8 @@ Qipli — бесплатное open-source приложение для macOS. Т
 - Нужна ли отдельная команда, одновременно очищающая историю Qipli и текущий системный буфер?
 - Production defaults для managed images приняты в D-035: 32 MiB на image item, 64 MiB на occurrence, 1 GiB на durable originals, 16 MiB на encoded-thumbnail LRU cache по D-041 и 512 px на длинную сторону thumbnail. Позднее общий quota может стать пользовательской настройкой без изменения fail-closed/no-auto-eviction поведения.
 - Production defaults для rich text приняты в D-039: 16 MiB на RTF/HTML representation, 32 MiB на occurrence и 512 MiB total durable storage. Controlled source/target probe может изменить числа до production code, но не plain-only fallback или no-auto-eviction contract.
-- Отдельное full History window и Favorites находятся в BL-004/BL-005. Их presentation и retention semantics не определены и не блокируют S030.
+- Отдельное full History window остаётся в BL-004. Favorites возвращён из BL-005 в S029 по D-042 без зависимости от S028; категории не входят в scope.
+
+## Избранное: расширение S029
+
+Подтверждено 2026-09-08. Автоматический 30-day lifecycle во всех требованиях этого документа применяется к обычным записям. Избранные occurrences и их managed representations сохраняются до явного удаления или возврата под обычную retention policy. Search и paging охватывают также старые избранные записи. Никакие возможности менеджера паролей не заявляются. Детальный пользовательский путь и acceptance находятся в S029.

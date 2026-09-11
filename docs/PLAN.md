@@ -1,8 +1,8 @@
 # Qipli — план поставки и развития продукта
 
-Статус: core MVP подтверждён; signed public `v1.0.8` опубликован; typed History, S027 и S030 завершены; S031 ожидает installed update verification; S032 реализован и ожидает manual verification; S014 остаётся с отдельным immutable-rerun gate
+Текущие operational-статусы и gates находятся в [`STATE.md`](STATE.md). Этот файл фиксирует порядок поставки, зависимости, coverage и ожидаемый результат срезов.
 
-Дата: 2026-09-04
+Дата: 2026-09-08
 
 Источник оперативных статусов: [`STATE.md`](STATE.md)
 
@@ -30,24 +30,24 @@
 ## Milestone M3 — Визуальный polish и product setup
 
 9. [`S009 — Адаптивные стеклянные панели`](slices/S009-adaptive-glass-panels.md) — зависит от S001, S003 и S007; может выполняться до S008, пока release credentials недоступны.
-10. [`S010 — Settings, пользовательские сочетания и запуск при входе`](slices/S010-settings-shortcuts-login.md) — зависит от S001, S007 и S009; завершён.
-11. [`S011 — Опциональный first-run onboarding`](slices/S011-first-run-onboarding.md) — зависит от S010; завершён после пользовательской ручной проверки на двух машинах.
-12. [`S012 — Edge-to-edge Paste Stack с кастомным header`](slices/S012-borderless-paste-stack-panel.md) — зависит от S007 и S009; завершён после пользовательской visual/interaction matrix на двух машинах.
-16. [`S016 — Надёжная навигация и закрытие History`](slices/S016-history-interaction-reliability.md) — зависит от S003; завершён после пользовательской ручной macOS проверки на двух машинах.
+10. [`S010 — Settings, пользовательские сочетания и запуск при входе`](slices/S010-settings-shortcuts-login.md) — зависит от S001, S007 и S009.
+11. [`S011 — Опциональный first-run onboarding`](slices/S011-first-run-onboarding.md) — зависит от S010; критерии включают пользовательскую ручную проверку.
+12. [`S012 — Edge-to-edge Paste Stack с кастомным header`](slices/S012-borderless-paste-stack-panel.md) — зависит от S007 и S009; критерии включают visual/interaction matrix.
+16. [`S016 — Надёжная навигация и закрытие History`](slices/S016-history-interaction-reliability.md) — зависит от S003; критерии включают ручную macOS проверку.
 
 Результат: визуально цельный Qipli имеет единое Settings window, пользовательские shortcuts, явный launch-at-login control и опциональный first-run onboarding до начала clipboard capture.
 
 ## Milestone M4 — Публичная поставка и безопасные обновления
 
-13. [`S013 — Версии и безопасный public CI`](slices/S013-versioning-public-ci.md) — завершён; локальные, push-to-main, обычный PR и fork-style runs прошли без release secrets и write permissions.
-14. [`S014 — Публичный репозиторий и подписанные GitHub-релизы`](slices/S014-public-signed-github-releases.md) — protected `v1.0.5` run опубликовал Developer ID-signed/notarized DMG, stable latest alias и Sparkle ZIP; clean-machine install/launch подтверждены. Статус `needs_verification` до immutable rerun proof.
-15. [`S015 — Безопасные обновления через Sparkle`](slices/S015-sparkle-secure-updates.md) — завершён после ручной update/failure/accessibility matrix; broken `v1.0.1` сохраняется immutable, `v1.0.2` является runtime-linking hotfix, production feed указывает на `v1.0.5`.
+13. [`S013 — Версии и безопасный public CI`](slices/S013-versioning-public-ci.md) — локальные, push-to-main, обычный PR и fork-style runs без release secrets и write permissions.
+14. [`S014 — Публичный репозиторий и подписанные GitHub-релизы`](slices/S014-public-signed-github-releases.md) — protected run публикует Developer ID-signed/notarized DMG, stable latest alias и Sparkle ZIP; immutable rerun и clean-machine verification вынесены в `STATE.md`.
+15. [`S015 — Безопасные обновления через Sparkle`](slices/S015-sparkle-secure-updates.md) — manual update/failure/accessibility matrix, immutable broken `v1.0.1`, runtime-linking hotfix `v1.0.2` и production feed описаны в slice.
 
 Результат: публичный репозиторий проверяет вклад без signing secrets, версионный tag создаёт проверенный DMG для ручной установки и immutable ZIP для Sparkle, а установленный Qipli может безопасно перейти на следующую подписанную версию.
 
 ## Milestone M5 — Публичный MVP
 
-8. [`S008 — Приватность и первый стабильный релиз через GitHub`](slices/S008-release-hardening.md) — финальный release gate; зависит от S003, S007, S010–S012 и S014–S016 и остаётся заблокированным до operational proof immutable rerun опубликованного release tag.
+8. [`S008 — Приватность и первый стабильный релиз через GitHub`](slices/S008-release-hardening.md) — финальный release gate; зависит от S003, S007, S010–S012 и S014–S016. Операционные gates находятся в `STATE.md`.
 
 Результат: подписанный notarized артефакт для macOS 14+, заново скачанный и проверенный на чистой системе вместе с onboarding, Settings, permission, custom-shortcut и launch-at-login flows.
 
@@ -55,12 +55,12 @@
 
 После milestone локальные History и Paste Stack сохраняют подтверждённое поведение при росте данных, persistent I/O не блокирует main actor, а performance regressions обнаруживаются воспроизводимыми payload-free checks.
 
-17. [`S017 — Performance baselines и instrumentation`](slices/S017-performance-baselines.md) — завершён; безопасные fixtures, измеряемые seams и исходные baselines зафиксированы до оптимизаций.
-18. [`S018 — Эффективное History storage`](slices/S018-history-storage-efficiency.md) — завершён; UUID/composite order indices, batch retention и migration/query-plan verification реализованы.
-19. [`S019 — Асинхронный History pipeline`](slices/S019-async-history-pipeline.md) — завершён; background persistence, строгий порядок capture, отсутствие unconditional show reload и manual immediate-show smoke подтверждены.
-20. [`S020 — Отзывчивый поиск и ограниченные previews`](slices/S020-responsive-history-search.md) — завершён; cancellable stale-safe off-main search, bounded UI text traversal и manual rapid-typing smoke подтверждены.
-21. [`S021 — Масштабируемый Paste Stack`](slices/S021-paste-stack-scaling.md) — завершён; single-pass next traversal, один подготовленный next ID и manual Stack smoke подтверждены.
-22. [`S022 — Энергоэффективный pasteboard polling`](slices/S022-pasteboard-polling-energy.md) — завершён; tolerance-aware scheduler, direct main-actor poll, idle observation и manual clipboard/sleep-wake smoke подтверждены.
+17. [`S017 — Performance baselines и instrumentation`](slices/S017-performance-baselines.md) — безопасные fixtures, измеряемые seams и исходные baselines до оптимизаций.
+18. [`S018 — Эффективное History storage`](slices/S018-history-storage-efficiency.md) — UUID/composite order indices, batch retention и migration/query-plan verification.
+19. [`S019 — Асинхронный History pipeline`](slices/S019-async-history-pipeline.md) — background persistence, строгий порядок capture и отсутствие unconditional show reload.
+20. [`S020 — Отзывчивый поиск и ограниченные previews`](slices/S020-responsive-history-search.md) — cancellable stale-safe off-main search и bounded UI text traversal.
+21. [`S021 — Масштабируемый Paste Stack`](slices/S021-paste-stack-scaling.md) — single-pass next traversal и один подготовленный next ID.
+22. [`S022 — Энергоэффективный pasteboard polling`](slices/S022-pasteboard-polling-energy.md) — tolerance-aware scheduler и direct main-actor poll.
 
 Результат: приложение имеет измеряемые performance contracts и focused regression coverage для storage, capture, search, preview, Stack и polling без изменения privacy или пользовательских сценариев.
 
@@ -68,10 +68,10 @@
 
 После milestone History работает как ограниченный metadata-каталог: первая и последующие страницы содержат не более 500 descriptors, поиск выполняется в persistence по всему 30-дневному окну, а text, URL, inline images и file/video references восстанавливаются через typed pasteboard contract без загрузки media payload в UI snapshot.
 
-23. [`S023 — Bounded typed History foundation`](slices/S023-paginated-typed-history-foundation.md) — `done`; bounded schema/query boundary, migration, search parity и native History contract реализованы и проверены.
-24. [`S024 — Managed image History`](slices/S024-managed-image-history.md) — `done`; manual native/browser matrix, optimized universal Release и scoped security diff scan подтверждены.
-25. [`S025 — Referenced URL, file and video History`](slices/S025-referenced-url-file-video-history.md) — `done`; implementation, automated gates и manual browser/Finder matrix подтверждены.
-26. [`S026 — Typed History migration and release hardening`](slices/S026-typed-history-release-hardening.md) — `done`; migration fault-injection, privacy/cleanup audit, signed/notarized `v1.0.6 (7)` и update/clean-machine typed History smoke подтверждены.
+23. [`S023 — Bounded typed History foundation`](slices/S023-paginated-typed-history-foundation.md) — bounded schema/query boundary, migration, search parity и native History contract.
+24. [`S024 — Managed image History`](slices/S024-managed-image-history.md) — manual native/browser matrix, optimized universal Release и scoped security diff scan.
+25. [`S025 — Referenced URL, file and video History`](slices/S025-referenced-url-file-video-history.md) — implementation, automated gates и manual browser/Finder matrix.
+26. [`S026 — Typed History migration and release hardening`](slices/S026-typed-history-release-hardening.md) — migration fault-injection, privacy/cleanup audit, signed/notarized release и typed History smoke.
 
 Результат: media расширяет History без роста initial working set, скрытого auto-eviction или копирования source file/video bytes. Paste Stack остаётся text-only до отдельного будущего решения.
 
@@ -79,15 +79,15 @@
 
 После milestone default `⌘⇧V` открывает верхнюю карточную панель с поиском, type-aware cards и прежним exact paste/focus contract.
 
-27. [`S027 — Top Notch History shelf`](slices/S027-top-notch-history-shelf.md) — `done`; implementation, focused automated gates и ручная geometry/focus/paste/accessibility matrix верхней transient-панели подтверждены.
+27. [`S027 — Top Notch History shelf`](slices/S027-top-notch-history-shelf.md) — implementation, focused automated gates и ручная geometry/focus/paste/accessibility matrix верхней transient-панели.
 
-Результат: быстрый transient History path остаётся keyboard-first. S028 и S029 выведены из активного плана в BL-004/BL-005 решением D-038; отдельное окно, Favorites и альтернативное положение остаются backlog.
+Результат: быстрый transient History path остаётся keyboard-first. S028 и альтернативное положение остаются backlog по D-038. S029 возвращён отдельным milestone M12 по D-042.
 
 ## Milestone M9 — Paste Stack в Top Notch
 
 После milestone `⌘⇧C` и status menu показывают Paste Stack в той же hardware-safe верхней форме, что History, но Stack сохраняет отдельный nonactivating lifecycle и весь подтверждённый sequence/recovery contract.
 
-30. [`S030 — Paste Stack в Top Notch`](slices/S030-top-notch-paste-stack.md) — `done`; implementation, full SwiftPM/Xcode checks и manual acceptance подтверждены; зависит от завершённых S007/S012/S021/S027 и заменяет отдельное перемещаемое Stack window единым верхним presentation.
+30. [`S030 — Paste Stack в Top Notch`](slices/S030-top-notch-paste-stack.md) — implementation, full SwiftPM/Xcode checks и manual acceptance; зависит от S007/S012/S021/S027 и заменяет отдельное перемещаемое Stack window единым верхним presentation.
 
 Результат: History и Paste Stack используют одну визуальную Top Notch оболочку. History принимает Search focus и закрывается по своим transient rules; Stack не активирует Qipli, остаётся видимым во время работы во внешнем приложении и схлопывается только после Cancel/Escape/auto-finish.
 
@@ -95,7 +95,7 @@
 
 После milestone text occurrence сохраняет canonical plain text и bounded source-provided RTF/HTML. Обычная History-вставка сохраняет поддерживаемое target-приложением форматирование, а `⇧Enter` явно вставляет только plain text без изменения default `⌘⇧V` или Paste Stack.
 
-31. [`S031 — Форматированный текст в History`](slices/S031-formatted-text-history.md) — `needs_verification`; implementation, automated checks, manual acceptance и signed public `v1.0.8` подтверждены, остаётся реальный installed Sparkle update smoke с сохранением History; зависит от завершённых S023/S026/S027 и расширяет typed storage/paste materialization без нового network owner или rich-text UI renderer.
+31. [`S031 — Форматированный текст в History`](slices/S031-formatted-text-history.md) — implementation, automated checks, manual acceptance и signed public release; installed Sparkle update smoke вынесен в `STATE.md`; зависит от S023/S026/S027 и расширяет typed storage/paste materialization без нового network owner или rich-text UI renderer.
 
 Результат: форматированный фрагмент можно найти по canonical plain text, вставить с formatting по `Enter`/double-click или без formatting по `⇧Enter`. Oversize rich payload сохраняется plain-only; Paste Stack остаётся text-only. Manual acceptance и signed public Release подтверждены; остаётся installed update smoke.
 
@@ -103,9 +103,15 @@
 
 После milestone Top Notch History показывает карточки без дублирующих type labels, full-bleed image thumbnails и более компактный текст. Выбор мышкой не перезагружает ленту карточек. Удаление требует exact `⇧Backspace`, а search выводит typed URL matches раньше incidental text matches во всём retention window.
 
-32. [`S032 — Полировка карточек и релевантный поиск History`](slices/S032-history-card-polish-ranked-search.md) — `needs_verification`; implementation, focused/full automated checks, universal builds и signed public `v1.0.8` прошли; остаётся installed-app visual/search/accessibility matrix. Зависит от завершённых S023–S025 и S027, не требует schema migration, нового network owner или изменения paste contracts.
+32. [`S032 — Полировка карточек и релевантный поиск History`](slices/S032-history-card-polish-ranked-search.md) — implementation, focused/full automated checks, universal builds и signed public release; installed-app visual/search/accessibility matrix вынесена в `STATE.md`. Зависит от S023–S025 и S027, не требует schema migration, нового network owner или изменения paste contracts.
 
 Результат: запрос `localhost` показывает сохранённые URL на первом экране, обычный Backspace безопасно редактирует Search, изображения используют всю площадь карточки с читаемой metadata overlay, а click меняет только selection без reload или viewport jump.
+
+## Milestone M12 — Избранное в Top Notch
+
+29. [`S029 — Избранное в Top Notch History`](slices/S029-history-favorites-navigation.md) — зависит от S023/S024/S025/S027, без зависимости от отложенного S028.
+
+Результат: звезда над Search фильтрует избранные карточки; marker на карточке сохраняется после перезапуска и защищает occurrence и owned assets от автоматической очистки. Категории и отдельное окно не входят в поставку. Требуются migration, retention/search regression checks и installed update verification.
 
 ## Граф зависимостей
 
@@ -125,16 +131,17 @@ S016 + S024 -> S027
 S007 + S012 + S021 + S027 -> S030
 S023 + S026 + S027 -> S031
 S023 + S024 + S025 + S027 -> S032
+S023 + S024 + S025 + S027 -> S029
 ```
 
-Граф ацикличен. Performance hardening S017–S022 завершён. Typed History начинается с bounded schema/query boundary в S023; managed images добавляются в S024; reference-only URL/file/video — в S025; migration/release proof — в S026. S023–S026 завершены. Top Notch S027 реализован и принят по manual geometry/focus/paste/accessibility matrix. Решением D-038 S028/S029 перенесены в backlog. S030 реализован и принят по manual Stack matrix, без специального active-Stack-to-History flow. S031 реализован по accepted text-primary RTF/HTML contract, manual acceptance подтверждена, остаётся clean Xcode/release verification; Stack не менялся. S032 реализован и меняет только History cards, local delete admission и search ordering поверх существующей typed metadata; automated checks и unsigned universal Debug/Release builds прошли, остаётся installed-app visual/search/accessibility matrix. Известное ограничение отключения дисплея во время reveal сохранено в BL-006. S013 завершён после локальных и hosted main/PR/fork CI runs. S014 опубликовал реальный `v1.0.5`, clean-machine proof подтверждён, остаётся immutable rerun. S015 завершён после ручной update/failure/accessibility matrix; production feed указывает на `v1.0.5`. S008 остаётся финальным gate только до operational rerun proof. Изменения pasteboard/input, permission, ServiceManagement, network, dependency, signing, update или performance contracts должны сначала согласовываться в `TECHNICAL.md` и `DECISIONS.md`.
+Граф ацикличен. Performance hardening S017–S022, typed History S023–S026, Top Notch S027 и Paste Stack S030 описаны своими slice-файлами; их operational-статусы и оставшиеся gates находятся в `STATE.md`. S028 остаётся в backlog по D-038; S029 возвращён по D-042. S031 и S032 расширяют существующие typed History и card/search contracts без нового network owner. Изменения pasteboard/input, permission, ServiceManagement, network, dependency, signing, update или performance contracts должны сначала согласовываться в `TECHNICAL.md` и `DECISIONS.md`.
 
 ## Покрытие требований
 
 | Требование | Срезы |
 |---|---|
 | FR-001 | S002 |
-| FR-002 | S002 |
+| FR-002 | S002, S029 |
 | FR-003 | S003, S027 |
 | FR-004 | S003, S027 |
 | FR-005 | S003, S027, S031 |
@@ -158,17 +165,18 @@ S023 + S024 + S025 + S027 -> S032
 | FR-023 | S014, S008 |
 | FR-024–FR-025 | S015, S008 |
 | FR-026 | S016, S008, S027 |
-| FR-027 | S023, S026 |
+| FR-027 | S023, S026, S029 |
 | FR-028 | S024, S025 |
 | FR-029 | S024 |
 | FR-030 | S025 |
 | FR-031 | S024, S025 |
 | FR-032 | S024, S026 |
 | FR-033 | S027 |
+| FR-035 | S029 |
 | FR-036 | S030 |
 | FR-037–FR-039 | S031 |
 | FR-040–FR-044 | S032 |
-| BR-001–BR-004 | S002, S004 |
+| BR-001–BR-004 | S002, S004; BR-003 также S029 |
 | BR-005 | S005 |
 | BR-006 | S007 |
 | BR-007–BR-008 | S003, S006 |
@@ -182,9 +190,10 @@ S023 + S024 + S025 + S027 -> S032
 | BR-019–BR-020 | S024, S025, S031 |
 | BR-021 | S024, S026 |
 | BR-022 | S024, S025, S027, S031 |
-| BR-023 | S024, S025, S026 |
+| BR-023 | S024, S025, S026, S029 |
 | BR-024 | S024, S025, S030, S031 |
-| BR-027 | S027, S030 |
+| BR-026 | S029 |
+| BR-027 | S027, S030, S029 |
 | BR-028 | S030 |
 | BR-029–BR-031 | S031 |
 | BR-032–BR-033 | S032 |
@@ -200,24 +209,24 @@ S023 + S024 + S025 + S027 -> S032
 | NFR-012–NFR-013 | S013, S014 |
 | NFR-014 | S014, S015, S008 |
 | NFR-015 | S015, S008 |
-| NFR-016 | S018, S019, S031 |
+| NFR-016 | S018, S019, S031, S029 |
 | NFR-017 | S019 |
 | NFR-018–NFR-019 | S017, S020, S030 |
 | NFR-020 | S017, S019, S022 |
 | NFR-021 | S023, S027, S031 |
 | NFR-022 | S024, S025 |
 | NFR-023–NFR-024 | S024, S025, S026, S031 |
-| NFR-025 | S023, S026 |
+| NFR-025 | S023, S026, S029 |
 | NFR-026 | S027, S030 |
-| NFR-027–NFR-029 | S027, S030 |
+| NFR-027–NFR-029 | S027, S030; NFR-027/NFR-028 также S029 |
 | NFR-030 | S031 |
 | NFR-031–NFR-032 | S032 |
 
-Каждое must-have требование покрыто хотя бы одним активным срезом. Отложенные FR-034/FR-035 и BR-025/BR-026 сохранены как evidence в BL-004/BL-005 и S028/S029, но не входят в coverage текущей поставки. Детальные acceptance criteria и verification находятся только в соответствующих slice-файлах.
+Каждое must-have требование покрыто хотя бы одним активным срезом. Отложенные FR-034 и BR-025 сохранены в BL-004/S028 вне текущей поставки. FR-035 и BR-026 покрывает активный S029. Детальные acceptance criteria и verification находятся только в соответствующих slice-файлах.
 
 ## Правила изменения плана
 
-- Статус меняется только в [`STATE.md`](STATE.md); frontmatter среза синхронизируется в той же правке.
+- Статус меняется только в [`STATE.md`](STATE.md); slice frontmatter содержит только стабильную идентичность, зависимости и coverage.
 - `planned` срез должен быть перепроверен на зависимости и переведён в `ready` непосредственно перед реализацией.
 - `backlog` срез не входит в dependency graph, current coverage или очередь реализации; для возврата нужен подтверждённый пользовательский путь, новое accepted decision и повторная проверка требований.
 - Значимое отклонение от продукта или архитектуры сначала записывается в [`DECISIONS.md`](DECISIONS.md).

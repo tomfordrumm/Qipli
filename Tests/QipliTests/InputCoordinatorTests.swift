@@ -144,6 +144,23 @@ final class SyntheticEventMarkerTests: XCTestCase {
 }
 
 final class CGEventTapAdapterClassificationTests: XCTestCase {
+    func testRegisteredHistoryPassesToCarbonWithoutDuplicateDispatchAndFailedRegistrationFallsBack() throws {
+        let history = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_V), flags: [.maskCommand, .maskShift])
+        let stack = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_C), flags: [.maskCommand, .maskShift])
+        XCTAssertNil(CGEventTapAdapter.consumedAction(
+            type: .keyDown, event: history, stackSessionIsActive: false,
+            historyHotKeyIsRegistered: true
+        ))
+        XCTAssertEqual(CGEventTapAdapter.consumedAction(
+            type: .keyDown, event: history, stackSessionIsActive: false,
+            historyHotKeyIsRegistered: false
+        ), .hotKey(.history))
+        XCTAssertEqual(CGEventTapAdapter.consumedAction(
+            type: .keyDown, event: stack, stackSessionIsActive: false,
+            historyHotKeyIsRegistered: true
+        ), .hotKey(.pasteStack))
+    }
+
     func testRecognizesOnlyTheConfiguredCommandShiftHotKeys() throws {
         let history = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_V), flags: [.maskCommand, .maskShift])
         let pasteStack = try makeKeyEvent(keyCode: CGKeyCode(kVK_ANSI_C), flags: [.maskCommand, .maskShift])

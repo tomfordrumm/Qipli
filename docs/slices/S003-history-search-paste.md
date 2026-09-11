@@ -1,7 +1,6 @@
 ---
 id: S003
 title: Поиск и повторная вставка из истории
-status: done
 depends_on:
   - S002
 covers:
@@ -77,7 +76,7 @@ covers:
 
 ## Acceptance criteria
 
-- [x] `⌘⇧V` из другого приложения открывает одну history panel поверх него, принудительно активирует Qipli и фокусирует пустую строку поиска без дополнительного клика; target app не исполняет собственный `⌘⇧V` до открытия панели.
+- [x] `⌘⇧V` из другого приложения открывает одну history panel поверх него, получает keyboard focus и фокусирует пустую строку поиска без дополнительного клика; target app не исполняет собственный `⌘⇧V` до открытия панели.
 - [x] Ввод запроса фильтрует записи по регистронезависимому вхождению подстроки; пустой запрос показывает latest-first список, отсутствие совпадений — отдельное состояние.
 - [x] Up/Down перемещают явный selection в границах результатов и без animation прокручивают long list ровно настолько, чтобы selected row была видима; после изменения запроса selection становится первым результатом либо отсутствует.
 - [x] Каждый свежий `⌘⇧V`/menu show после reload возвращает reusable history list к first selected row с top anchor; этот presentation reset не выполняется при reopen после paste failure.
@@ -102,7 +101,7 @@ covers:
 - [x] Все acceptance criteria выполнены.
 - [x] Автоматические и ручные проверки пройдены.
 - [x] Приложение собирается без новой регрессии.
-- [x] `STATE.md` и frontmatter синхронно обновлены.
+- [x] `STATE.md` обновлён.
 - [x] Новые значимые решения записаны в `DECISIONS.md`.
 - [x] Implementation report заполнен.
 
@@ -110,7 +109,7 @@ covers:
 
 ### Реализовано
 
-- History panel сохраняет prior frontmost target до показа и сразу order-front; явный `⌘⇧V`/menu action затем вызывает локализованную strong activation request, потому что cooperative `NSApp.activate()` не дал keyboard focus accessory app в ручной проверке. После подтверждённой activation panel повторно становится key и first-show/reuse autofocus ставит пустой search field без click; при исчерпании checks panel остаётся видимой и доступной по click.
+- History panel сохраняет prior frontmost target до показа. Уточнение D-012 от 2026-09-08 заменяет прежнее ожидание strong activation: `.nonactivatingPanel` получает key status напрямую, затем first-show/reuse autofocus фокусирует Search. Пользователь подтвердил Chrome password-field focus 2026-09-08, текущие остальные gates см. `docs/STATE.md`.
 - Search выполняется in-memory по исходному тексту через `localizedCaseInsensitiveContains`; selection хранится по `HistoryEntry.id`, стрелки ограничены видимыми результатами, а delete выбирает ближайшую запись.
 - View-based `NSTableView` переиспользует native row views по stable entry UUID. Up/Down через weak AppKit bridge в том же вызове меняют highlight и вызывают `scrollRowToVisible`, поэтому selection не может уйти за viewport в ожидании SwiftUI render.
 - Fresh `showHistory` после `makeKeyAndOrderFront` выдаёт отдельный presentation viewport-reset request. Native table синхронно выбирает first visible entry и возвращает clip view к top; signal не связан с search focus и не выполняется в paste-failure reopen.

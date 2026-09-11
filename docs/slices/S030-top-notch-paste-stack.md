@@ -1,7 +1,6 @@
 ---
 id: S030
 title: Paste Stack в Top Notch
-status: done
 depends_on:
   - S007
   - S012

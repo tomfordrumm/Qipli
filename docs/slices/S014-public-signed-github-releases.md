@@ -1,7 +1,6 @@
 ---
 id: S014
 title: Публичный репозиторий и подписанные GitHub-релизы
-status: needs_verification
 depends_on:
   - S013
 covers:

@@ -277,9 +277,9 @@ S031 не добавляет global event-tap binding. History-owned local key r
 ### Вставка из истории
 
 1. До активации History сохраняются frontmost non-Qipli application и контекст, достаточный для возврата; текущий display определяется из active target window/mouse fallback без чтения clipboard payload.
-2. После startup History reload reusable Top Notch prewarm-ится без показа. Явный `⌘⇧V`/menu action вычисляет safe top frame, раскрывает panel вниз и через единственный AppKit adapter запрашивает strong user-initiated activation; после `isActive` panel становится key и Search получает focus. Fresh show синхронно выбирает first occurrence и card shelf возвращает viewport к leading anchor; paste-failure reopen не сбрасывает retry context.
+2. После startup History reload reusable Top Notch prewarm-ится без показа. Явный `⌘⇧V`/menu action вычисляет safe top frame и раскрывает borderless `.nonactivatingPanel`: `orderFrontRegardless` → `makeKey` → Search focus. Keyboard admission зависит от key History window, а не `NSApp.isActive`; внешнее приложение может оставаться active. Style mask задаётся при создании panel, а не переключается у живого окна. Каждый явный show синхронно выбирает first occurrence и после panel layout, до reveal animation, напрямую сбрасывает clip origin card shelf в начало, даже если selected ID и snapshot не изменились; paste-failure reopen не сбрасывает retry context. History больше не использует application activation retries; Settings/onboarding сохраняют свой activating-window adapter.
 3. До S023 по `Enter` immutable selected text становился внутренней записью в system pasteboard. Typed History materializes selected occurrence only after reservation: text/URL берутся из metadata, image читается из managed asset, file/video reference разрешается без чтения всего source в память. В S031 default `Enter`/double-click добавляет сохранённые RTF/HTML рядом с canonical `.string`, а exact `⇧Enter` materializes только `.string`. Writer восстанавливает ordered pasteboard items и выбранные supported representations. Exact final `changeCount` сразу регистрируется как self-write.
-4. Сразу после successful write активное History presentation в том же обработчике становится прозрачным и перестаёт принимать mouse events. Пока невидимая Qipli ещё active, оно yield/request-activates captured application; command не отправляется до подтверждённого active target.
+4. Сразу после successful write активное History presentation в том же обработчике становится прозрачным и перестаёт принимать mouse events. Если captured application уже active, повторный activation request не нужен; иначе используется прежний yield/request-activation path. Command не отправляется до подтверждённого active target и `orderOut`, освобождающего keyboard focus nonactivating History.
 5. Bounded deadline с main-run-loop retries проверяет `NSRunningApplication.isActive`; при active target presentation выполняет `orderOut` перед synthetic `⌘V`. Пользователь не видит activation wait.
 6. После accepted-but-exhausted activation или dispatch failure presentation восстанавливается с retryable error. Pasteboard не переписывается и команда не дублируется.
 7. Только после успешной отправки tagged `⌘V` `PanelController` неблокирующе обновляет activity exact selected ID. Durable/cache order меняется сразу, но visible cards не перестраиваются до следующей fresh History presentation; ошибка durable update не меняет уже успешный paste.
@@ -396,7 +396,9 @@ Launch-at-login state не дублируется в `UserDefaults`: источ�
 
 ## 7. Состояние фокуса и совместимость приложений
 
-History panel может стать key window для поиска, поэтому Qipli сохраняет прежнее frontmost application до показа панели. Вставка выполняется после закрытия панели и повторной активации приложения.
+History является nonactivating key panel для поиска; Qipli сохраняет прежнее frontmost application до показа. Вставка выполняется после освобождения panel keyboard focus через `orderOut` и подтверждения active target; уже активная цель не требует повторной активации.
+
+History shortcut регистрируется через публичный Carbon `RegisterEventHotKey`, чтобы открытие History не зависело от keyboard event tap, недоступного при Secure Event Input. Регистрация использует текущий binding, обновляется из Settings и снимается при остановке input adapter. При успешной регистрации event tap пропускает этот chord без второго dispatch; при конфликте/ошибке регистрации сохраняется прежний event-tap fallback, который не обеспечивает открытие при Secure Input. Paste Stack и synthetic paste сохраняют прежний Core Graphics контракт. Qipli не отключает Secure Input и не читает содержимое password field.
 
 Обязательная ручная матрица:
 
@@ -444,7 +446,7 @@ QipliUITests/         in-app keyboard and panel flows
 - UI: focus поиска, arrows, selection, empty/no-results, stack states и drag reorder внутри Qipli;
 - S004: session uniqueness/duplicates/release, save-before-append, stale deferred capture token/start watermark, hotkey start → panel → tagged source-Copy ordering/repeat/menu-empty/failure, Escape active-filter contract и pure multi-display placement clamp;
 - S005: 0/1/N direct/reverse next, exact-ID reorder with duplicate text, contiguous positions, invalid atomic rejection, append after reorder, traversal lock and drag/accessibility intent seam;
-- S009: capability/provider selection, one-surface-per-panel configuration и неизменность History activation/Paste Stack nonactivation/window lifecycle contracts;
+- S009: capability/provider selection, one-surface-per-panel configuration и History key-focus/Paste Stack non-key window lifecycle contracts;
 - S010: shortcut codec/atomic validation/default recovery/runtime matching, singleton Settings lifecycle и injected `SMAppService` status/register/unregister adapter;
 - S011: fresh/completed/interrupted/reopened onboarding state machine, startup gate idempotence и отсутствие implicit permission/login-item side effects;
 - S013: version/tag validation, CI permission/static-secret checks и unsigned SwiftPM/Xcode build path;
@@ -540,3 +542,17 @@ CI использует тот же verifier, но создаёт временн
 - Первая Top Notch версия реализует только top placement. Future right/left/bottom placement переиспользует presentation states, но требует отдельного slice для screen-edge geometry, mirrored motion и Settings migration.
 
 Изменение любого из этих пунктов записывается в [`DECISIONS.md`](DECISIONS.md), а затронутые критерии срезов обновляются до продолжения реализации.
+
+## Избранное S029
+
+Целевой контракт D-042, код пока не реализован. Это исключение из описанного выше 30-day lifecycle для favorite occurrences, включая rich и image assets.
+
+- Persisted `isFavorite` Boolean с default false и совместимым migration path добавляется к occurrence и bounded descriptor. Старые stores сохраняют UUID, legacy capturedAt/activityAt, exact payload и manifests. Индекс/filter query plan проверяется на реальной программной Core Data model; invalid migration не заменяет базу пустой.
+- Read eligibility: `isFavorite OR capturedAt > cutoff`. Favorites дополнительно требует isFavorite. Expiry: `NOT isFavorite AND capturedAt <= cutoff`. Legacy capturedAt хранит activityAt. Эти условия применяются согласованно к обычным pages, ranked search, selected payload resolution и cleanup. Нельзя сначала отфильтровать favorites через старое 30-day окно.
+- Set favorite проходит единственный последовательный write pipeline HistoryService/store, по UUID и desired Boolean, без materialization payload и без activity promotion. Toggle, cleanup, delete и paste promotion сериализуются. Ошибки не публикуют ложный successful marker.
+- Mode входит в query identity вместе с query/generation. Смена режима и membership сбрасывает continuation; устаревший async result после mutation не возвращает removed item. Ranking и keyset остаются прежними внутри eligible set. Page limit ≤500; нет full-history UI snapshot. Descriptor/card reuse обязательно обновляет marker.
+- Owned image/rich assets живой favorite occurrence остаются reachable для orphan reconciliation. Expiry manifest fetch и batch delete исключают favorites одинаково. Delete/Clear All сохраняют existing ownership cleanup; reference-only sources не удаляются. Quotas включают favorite bytes и не увеличиваются: overflow использует существующий admission/fallback contract без eviction. Favorite не гарантирует доступность внешнего source file.
+- Unfavorite не обновляет activityAt; просроченная запись попадает под следующий обычный cleanup, в том числе при немедленном refresh. Нужны boundary tests и понятный tooltip. Не добавлять новый grace period.
+- UI star actions отделены от card selection/paste handlers. Keyboard focus и VoiceOver получают name/state; Enter/Space на star не отправляют paste. Существующие History focus restoration, click-away и system pasteboard suppression сохраняются. Новых permissions, frameworks, сети и глобальных shortcuts нет.
+- UI сообщает, что избранное не очищается автоматически; подтверждение Clear All явно включает избранное. Не заявлять secure vault или дополнительную защиту password content. Payload/marker не попадают в логи, telemetry или clipboard metadata.
+- Проверка включает migration/reopen/failure, retention и asset ownership, quotas, ranked deep paging, mutation races и installed-app matrix S029. Платформенные контракты не меняются, новая проверка Apple API для этого документа не требуется; migration и UI ещё предстоит проверить реализацией.

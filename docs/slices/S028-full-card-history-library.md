@@ -1,7 +1,6 @@
 ---
 id: S028
 title: Полноценная карточная History
-status: backlog
 depends_on:
   - S027
 covers:

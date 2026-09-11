@@ -128,8 +128,8 @@ struct PanelWindowChrome: Equatable {
     let cornerRadius: CGFloat
 }
 
-/// Explicitly preserves each panel's pre-S009 AppKit contract while allowing
-/// the content view itself to become an adaptive material surface.
+/// Keeps window focus and material configuration separate. History may become
+/// key without activating Qipli; Paste Stack never becomes key.
 struct PanelWindowConfiguration {
     let title: String
     let contentRect: NSRect
@@ -143,7 +143,7 @@ struct PanelWindowConfiguration {
             Self(
                 title: "History",
                 contentRect: NSRect(origin: .zero, size: TopNotchHistoryGeometry.defaultPanelSize),
-                styleMask: [.borderless],
+                styleMask: [.borderless, .nonactivatingPanel],
                 chrome: PanelWindowChrome(cornerRadius: 20),
                 dismissesOnOutsideClick: true
             )

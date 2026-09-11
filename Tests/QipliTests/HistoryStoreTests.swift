@@ -921,6 +921,7 @@ final class HistoryStoreTests: XCTestCase {
         let entries = try upgradedDomainStore.fetchCurrent(since: .distantPast)
 
         XCTAssertEqual(entries, [HistoryEntry(id: id, text: "legacy occurrence", activityAt: activityAt)])
+        XCTAssertFalse(entries[0].isFavorite)
 
         let exactIDPlan = try sqliteOutput(
             database: storeURL,
@@ -1125,6 +1126,102 @@ final class HistoryStoreTests: XCTestCase {
 
         XCTAssertEqual(try service.entries().map(\.id), [recent.id])
         XCTAssertEqual(try store.fetchCurrent(since: cutoff).map(\.id), [recent.id])
+        store.close()
+    }
+
+    func testFavoriteOccurrenceSurvivesRetentionAndPersistsAcrossRestart() throws {
+        let now = Date(timeIntervalSinceReferenceDate: 9_100_000)
+        let cutoff = now.addingTimeInterval(-HistoryService.retention)
+        let clock = MutableClock(now: now)
+        let store = try makeStore()
+        let service = HistoryService(store: store, clock: clock)
+        let oldFavorite = try store.create(text: "old favorite", activityAt: cutoff.addingTimeInterval(-1))
+        let oldRegular = try store.create(text: "old regular", activityAt: cutoff.addingTimeInterval(-2))
+        let recent = try store.create(text: "recent", activityAt: now)
+
+        try service.setFavorite(id: oldFavorite.id, isFavorite: true)
+
+        XCTAssertEqual(try service.entries().map(\.id), [recent.id, oldFavorite.id])
+        XCTAssertEqual(try service.entries(mode: .favorites).map(\.id), [oldFavorite.id])
+        XCTAssertEqual(
+            try store.fetchPage(
+                since: cutoff,
+                after: nil,
+                limit: 500,
+                favoritesOnly: true
+            ).descriptors.map(\.id),
+            [oldFavorite.id]
+        )
+        XCTAssertTrue(try service.entries().contains { $0.id == oldFavorite.id && $0.isFavorite })
+        XCTAssertFalse(try service.entries().contains { $0.id == oldRegular.id })
+
+        store.close()
+        let restarted = try CoreDataHistoryStore(storeURL: directory.appendingPathComponent("History.sqlite"))
+        XCTAssertEqual(try restarted.fetchEntry(id: oldFavorite.id)?.isFavorite, true)
+        XCTAssertNil(try restarted.fetchEntry(id: oldRegular.id))
+        restarted.close()
+    }
+
+    func testFavoriteTypedAssetsAreKeptByCleanupUntilUnfavorited() throws {
+        let now = Date(timeIntervalSinceReferenceDate: 9_200_000)
+        let old = now.addingTimeInterval(-HistoryService.retention - 1)
+        let clock = MutableClock(now: old)
+        let store = try makeStore()
+        let service = HistoryService(store: store, clock: clock)
+        let imageData = try makePNGData()
+        let favoriteImage = try XCTUnwrap(try service.capture(imageItems: [
+            ManagedImageCaptureItem(order: 0, representations: [
+                ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: imageData)
+            ])
+        ]))
+        let favoriteRich = try XCTUnwrap(try service.capture(
+            text: "favorite rich",
+            richTextItems: [HistoryRichTextCaptureItem(order: 0, representations: [
+                HistoryRichTextCaptureRepresentation(typeIdentifier: "public.rtf", data: Data("{\\rtf1 favorite}".utf8))
+            ])]
+        ))
+        let regularImage = try XCTUnwrap(try service.capture(imageItems: [
+            ManagedImageCaptureItem(order: 0, representations: [
+                ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: imageData)
+            ])
+        ]))
+        try service.setFavorite(id: favoriteImage.id, isFavorite: true)
+        try service.setFavorite(id: favoriteRich.entry.id, isFavorite: true)
+
+        clock.now = now
+        XCTAssertEqual(Set(try service.entries().map(\.id)), Set([favoriteImage.id, favoriteRich.entry.id]))
+        XCTAssertNotNil(try service.thumbnailData(id: favoriteImage.id))
+        XCTAssertNotNil(try service.pastePayload(id: favoriteRich.entry.id))
+        XCTAssertNil(try store.fetchEntry(id: regularImage.id))
+
+        try service.setFavorite(id: favoriteImage.id, isFavorite: false)
+        _ = try service.entries()
+        XCTAssertNil(try store.fetchEntry(id: favoriteImage.id))
+        store.close()
+    }
+
+    func testFavoriteSearchPagesUseFavoriteEligibilityBeyondFirstPage() throws {
+        let now = Date(timeIntervalSinceReferenceDate: 9_300_000)
+        let clock = MutableClock(now: now)
+        let store = try makeStore()
+        let service = HistoryService(store: store, clock: clock)
+        var ids = [UUID]()
+        for index in 0..<501 {
+            let entry = try store.create(text: "favorite item \(index)", activityAt: now.addingTimeInterval(-TimeInterval(index)))
+            ids.append(entry.id)
+            try service.setFavorite(id: entry.id, isFavorite: true)
+        }
+
+        let firstPage = try service.page(mode: .favorites)
+        let secondPage = try service.page(after: firstPage.nextCursor, mode: .favorites)
+        XCTAssertEqual(firstPage.descriptors.count, 500)
+        XCTAssertEqual(secondPage.descriptors.count, 1)
+        XCTAssertEqual(Set(firstPage.descriptors.map(\.id) + secondPage.descriptors.map(\.id)), Set(ids))
+        XCTAssertTrue(firstPage.descriptors.allSatisfy(\.isFavorite))
+        XCTAssertEqual(
+            try service.searchPage(query: "favorite item 500", mode: .favorites).descriptors.map(\.id),
+            [ids[500]]
+        )
         store.close()
     }
 

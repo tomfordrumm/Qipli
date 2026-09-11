@@ -96,7 +96,7 @@ final class PanelMaterialProviderTests: XCTestCase {
         XCTAssertEqual(topNotchConfiguration.contentRect.size, NSSize(width: 1_080, height: 276))
         XCTAssertTrue(topNotchConfiguration.dismissesOnOutsideClick)
         XCTAssertFalse(topNotchConfiguration.styleMask.contains(.titled))
-        XCTAssertFalse(topNotchConfiguration.styleMask.contains(.nonactivatingPanel))
+        XCTAssertTrue(topNotchConfiguration.styleMask.contains(.nonactivatingPanel))
 
         let stackConfiguration = PanelWindowConfiguration.make(for: .pasteStack)
         XCTAssertEqual(stackConfiguration.chrome, PanelWindowChrome(cornerRadius: 0))

@@ -43,6 +43,7 @@
 - Решение: SwiftUI для содержимого, AppKit для shell/panels/focus, Core Graphics event tap для активного `⌘V` и synthetic paste.
 - Причина: минимальный набор системных frameworks без стороннего runtime.
 - Последствия: системные адаптеры отделяются от тестируемой state machine; S001 подтвердил permission, event, focus и synthetic-event подход на macOS 14.
+- Уточнение 2026-09-07: History opener использует публичный Carbon `RegisterEventHotKey`, поскольку Secure Event Input блокирует keyboard event tap. Регистрация exclusive, без сторонней dependency или новых permissions; ошибка регистрации сохраняет прежний tap fallback. Settings обновляет регистрацию, stop снимает её, успешная регистрация исключает duplicate dispatch из tap. Проверены Apple SDK `CarbonEvents.h` и опубликованная [матрица input API AltTab](https://github.com/lwouis/alt-tab-macos/blob/master/src/experimentations/README.md). Автоматические проверки не заменяют installed-app password-field acceptance.
 
 ## D-005 — Без App Sandbox, с Hardened Runtime
 
@@ -122,7 +123,10 @@
 - Контекст: обычный `NSApp.activate()` — кооперативный запрос и в accessory app может оставить предыдущее приложение активным, из-за чего History видна, но не получает клавиатуру.
 - Решение: сразу после явной команды пользователя `⌘⇧V` или пункта меню Qipli изолированно вызывает legacy `activate(ignoringOtherApps: true)`, затем проверяет `isActive` и повторно делает History panel key/focus. Другие пути не используют эту активацию.
 - Причина: History — keyboard-first surface; команда пользователя является явным намерением переключить фокус. Вызов локализован в одном AppKit adapter из-за deprecation на macOS 14.
-- Последствия: Qipli намеренно перехватывает фокус только по собственному hotkey/menu action; сохраняется ограниченная проверка активации и ручная проверка реального focus flow перед `done`.
+- Последствия: Qipli намеренно перехватывает фокус только по собственному hotkey/menu action; реальный focus flow проверяется вручную перед `done`.
+- Уточнение 2026-09-08: после сообщения пользователя об открытии History из password field без keyboard focus три run-loop проверки заменены ожиданием `NSApplication.didBecomeActiveNotification` и одним deferred activation retry после Carbon handler. Закрытие, paste handoff и повторный show отменяют прежнее ожидание; скрытая panel не получает focus. Это не отключает Secure Event Input. Apple [activation guidance](https://developer.apple.com/documentation/appkit/nsapplication/activate%28ignoringotherapps%3A%29) перепроверена: запрос может завершиться с задержкой.
+
+- Текущий контракт, 2026-09-08: live Debug trace после пользовательского воспроизведения в Chrome показал `secureInput=true`, `frontChrome=true`, `active=false`, `key=false` даже через 1000 ms после двух AppKit requests. Для History прежняя strong-activation стратегия заменена на `.nonactivatingPanel` с `orderFrontRegardless`/`makeKey` и Search focus по key-window transition. Пользователь подтвердил исправление фокуса в Chrome password field 2026-09-08; временная диагностика удалена по его запросу. Settings/onboarding продолжают использовать прежний adapter. Native panel получает keyboard focus независимо от app activation; Secure Input не отключается. Уже active paste target не реактивируется, а panel освобождает focus до synthetic paste. Основания: Apple [nonactivatingPanel](https://developer.apple.com/documentation/appkit/nswindow/stylemask-swift.struct/nonactivatingpanel), [becomesKeyOnlyIfNeeded](https://developer.apple.com/documentation/appkit/nspanel/becomeskeyonlyifneeded), а также аналогичный public AppKit путь в [Maccy FloatingPanel](https://github.com/p0deje/Maccy/blob/master/Maccy/FloatingPanel.swift). Подтверждение исправления focus не заменяет отдельную release matrix, включая custom shortcut/reset.
 
 ## D-013 — Activity recency без миграции history store
 
@@ -366,7 +370,7 @@
 
 ## D-037: Favorites не продлевает 30-day retention
 
-- Статус: `withdrawn to backlog by D-038`
+- Статус: `superseded by D-042`; ранее withdrawn to backlog by D-038
 - Дата: 2026-09-01
 - Источник: консервативное предположение агента из запроса пользователя о Favorites
 - Контекст: пользователь подтвердил раздел Favorites, но не определил, должен ли favorite закреплять occurrence бессрочно. Бессрочное хранение изменит существующий privacy/retention contract, cleanup и ожидания по disk usage.
@@ -412,3 +416,12 @@
 - Контекст: optimized synthetic SQLite benchmark на 10 000 коротких text entries дал median 507 ms для отсутствующего query и 332 ms для первой страницы text matches. Repository сканировал три rank groups, full entries материализовались до display projection, asset quotas пересчитывали дерево файлов при каждом capture, а UI сохранял compatibility search для test stores.
 - Решение: один cancellable chronological scan классифицирует каждую candidate не более одного раза и держит не более `limit + 1` UUID/date/rank на группу; localized matching, rank и exact payload сохраняются. Optional persisted display/search projections добавляются lightweight migration, заполняются ограниченными batches и обновляются атомарно с occurrence; text не дублируется в derived search field. Unfiltered pages читают только display projection. Asset stores ведут in-memory byte totals, сверяются с диском при первом использовании/восстановлении и инвалидируют totals при cleanup/failure. Thumbnail budget снижается со 128 до 16 MiB encoded data, eviction учитывает последнее использование; memory pressure очищает производные данные. Ordered capture admission ограничивается 64 MiB pending payload и 64 occurrences; переполнение отклоняет новую occurrence с payload-free notice, не вытесняет сохранённую историю и сообщает Stack о пропущенном capture. Один oversized blob всё ещё может быть materialized AppKit до проверки размера; image representations проверяются по мере чтения. Non-paging compatibility и test-only probes переносятся из product code в tests.
 - Последствия: новая projection требует проверки migration/restart, typed availability refresh, exact rich/plain paste и отсутствия UI payload snapshots. Search всё ещё выполняет localized substring scan, без FTS/сети/новых dependencies. Quota accounting предполагает единственного writer внутри приложения; crash/restart и failure выполняют reconciliation. Pending byte budget относится к admitted payload, не является обещанием общего RSS ceiling. Все существующие release/manual gates сохраняются отдельно от automated evidence этого исправления.
+
+## D-042: Избранное в Top Notch с защитой от автоматической очистки
+
+- Статус: `accepted`
+- Дата: 2026-09-08
+- Источник: пользователь подтвердил header star слева над Search, toggle на карточках, отсутствие категорий и защиту избранного от автоматической очистки; также подтверждён возврат обычной retention после снятия звезды.
+- Решение: вернуть S029 из BL-005 в активный план независимо от S028. History/Favorites переключаются в существующей панели; Search ограничивается выбранным режимом. Favorite является marker существующей occurrence, сохраняется после relaunch и защищает owned payload от expiry. Toggle не меняет activityAt.
+- Уточнения планирования: History включает favorites; режим сбрасывается на History при новом открытии. Ручные Delete/Clear All сохраняют смысл и включают favorites, UI сообщает это явно. Существующие media quotas остаются общими, favorite не даёт quota exemption. Эти детали сохраняют текущие data/delete contracts и не добавляют пользовательских разделов.
+- Последствия: D-037 заменён; D-038 сохраняется для Top Notch и отложенного S028, но больше не откладывает S029. Нужны migration, изменения всех read/expiry predicates, asset lifecycle и query identity. Категории, переименование, сохранённые стеки, password vault и image-as-file не входят в это решение. Implementation и verification ещё не выполнены.

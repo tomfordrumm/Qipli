@@ -8,6 +8,7 @@
 - `docs/TECHNICAL.md` — источник истины для архитектуры, системных контрактов macOS, данных, разрешений, безопасности, тестов и распространения.
 - `docs/PLAN.md` — milestones, порядок срезов, зависимости и покрытие требований.
 - `docs/STATE.md` — единственный источник истины для текущих статусов, блокеров, последней проверки и следующего действия.
+- `docs/STATE-HISTORY.md` — архивные переходы и verification snapshots; не загружается как обычный operational-контекст.
 - `docs/BACKLOG.md` — отложенные наблюдения и идеи, которые пока не входят в план и не назначены на срез.
 - `docs/DECISIONS.md` — журнал подтверждённых решений, предложений и предположений.
 - `docs/slices/S001-foundation-permissions.md` — walking skeleton и проверка Accessibility/event tap.
@@ -38,7 +39,7 @@
 - `docs/slices/S026-typed-history-release-hardening.md` — migration, privacy, cleanup и signed update verification typed History.
 - `docs/slices/S027-top-notch-history-shelf.md` — верхняя transient History с Search, карточками и hardware-safe placement.
 - `docs/slices/S028-full-card-history-library.md` — отложенная в backlog историческая спецификация отдельного полноразмерного окна History.
-- `docs/slices/S029-history-favorites-navigation.md` — отложенная в backlog историческая спецификация Favorites.
+- `docs/slices/S029-history-favorites-navigation.md` — избранное в Top Notch, фильтр и защита от автоматической очистки.
 - `docs/slices/S030-top-notch-paste-stack.md` — перенос полного Paste Stack user path в nonactivating Top Notch presentation.
 - `docs/slices/S031-formatted-text-history.md` — bounded RTF/HTML representations, rich paste и явная plain-text вставка из History.
 - `docs/slices/S032-history-card-polish-ranked-search.md` — full-bleed image cards, безопасное удаление и URL-first ranking в History search.
@@ -56,14 +57,14 @@
 
 - **Вопрос о коде:** прочитайте релевантный код и тесты. `docs/PRODUCT.md` нужен только при споре об ожидаемом поведении; `docs/STATE.md` необязателен.
 - **Локальная визуальная, текстовая или техническая правка:** прочитайте затронутый код, UI и тесты. Документы не нужны, если поведение и контракты не меняются.
-- **Продолжение плановой реализации:** прочитайте `docs/STATE.md`, выбранный slice-файл и только связанные с его `covers` требования в `docs/PRODUCT.md`/`docs/TECHNICAL.md`.
+- **Продолжение плановой реализации:** прочитайте актуальный snapshot в `docs/STATE.md`, выбранный slice-файл и только связанные с его `covers` требования в `docs/PRODUCT.md`/`docs/TECHNICAL.md`. `docs/STATE-HISTORY.md` открывайте только для восстановления происхождения решения или старого evidence.
 - **Новая функция:** прочитайте границу MVP в `docs/PRODUCT.md`, `docs/PLAN.md`, релевантные решения и срезы. До реализации создайте или обновите slice и coverage map.
 - **Изменение данных, архитектуры, системного ввода, разрешений или релиза:** прочитайте `docs/TECHNICAL.md`, `docs/DECISIONS.md` и затронутые срезы. Перепроверьте Apple platform sources, если меняются минимальная macOS, Accessibility/event tap, sandbox, entitlements или distribution.
 - **Незапланированное исправление:** можно работать вне активного среза. Обновляйте документацию только если меняются поведение, контракт, данные, архитектура, статус или план.
 
 ### Завершение среза
 
-Не ставьте `done`, пока все acceptance criteria и verification steps не пройдены, Implementation report не заполнен, `docs/STATE.md` и frontmatter не синхронизированы, а новые значимые решения не записаны. Похожий код без проверки получает максимум `needs_verification`.
+Не ставьте `done`, пока все acceptance criteria и verification steps не пройдены, Implementation report не заполнен, статус не обновлён в `docs/STATE.md`, а новые значимые решения не записаны. Mutable status не дублируется в slice frontmatter. Похожий код без проверки получает максимум `needs_verification`.
 
 ### Правила Qipli
 
@@ -75,5 +76,5 @@
 
 ### Рост документации
 
-Сначала добавляйте раздел в существующий документ. Выносите отдельный файл только для самостоятельного домена с собственным жизненным циклом. После выноса оставляйте одну точку истины, исправляйте ссылки и карту документов.
+Сначала добавляйте раздел в существующий документ. `docs/STATE.md` остаётся коротким operational snapshot, а не changelog или audit log. Исторические переходы и подробные старые evidence выносите в `docs/STATE-HISTORY.md` или документ соответствующего домена. Выносите отдельный файл только для самостоятельного домена с собственным жизненным циклом. После выноса оставляйте одну точку истины, исправляйте ссылки и карту документов.
 <!-- END EASY PRD WORKFLOW -->

@@ -318,6 +318,7 @@ struct HistoryOccurrence: Identifiable, Equatable, Sendable {
 struct HistoryOccurrenceDescriptor: Identifiable, Equatable, Sendable {
     let id: UUID
     let activityAt: Date
+    let isFavorite: Bool
     let searchRank: HistorySearchRank?
     let textPreview: String?
     let representations: [HistoryRepresentationDescriptor]
@@ -327,6 +328,7 @@ struct HistoryOccurrenceDescriptor: Identifiable, Equatable, Sendable {
     init(
         id: UUID,
         activityAt: Date,
+        isFavorite: Bool = false,
         searchRank: HistorySearchRank? = nil,
         textPreview: String?,
         representations: [HistoryRepresentationDescriptor],
@@ -335,6 +337,7 @@ struct HistoryOccurrenceDescriptor: Identifiable, Equatable, Sendable {
     ) {
         self.id = id
         self.activityAt = activityAt
+        self.isFavorite = isFavorite
         self.searchRank = searchRank
         self.textPreview = textPreview
         self.representations = representations
@@ -354,6 +357,15 @@ struct HistoryDisplayMetadata: Codable {
     let representations: [HistoryRepresentationDescriptor]
     let imageMetadata: [HistoryImageMetadata]
     let referenceMetadata: [HistoryReferenceMetadata]
+    let isFavorite: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case textPreview
+        case representations
+        case imageMetadata
+        case referenceMetadata
+        case isFavorite
+    }
 
     init(entry: HistoryEntry) {
         textPreview = entry.isTextOnly ? HistoryPreview.text(for: entry.text) : nil
@@ -370,11 +382,26 @@ struct HistoryDisplayMetadata: Codable {
                 availability: $0.availability
             )
         }
+        isFavorite = entry.isFavorite
     }
 
-    func descriptor(id: UUID, activityAt: Date, rank: HistorySearchRank? = nil) -> HistoryOccurrenceDescriptor {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        textPreview = try container.decodeIfPresent(String.self, forKey: .textPreview)
+        representations = try container.decode([HistoryRepresentationDescriptor].self, forKey: .representations)
+        imageMetadata = try container.decodeIfPresent([HistoryImageMetadata].self, forKey: .imageMetadata) ?? []
+        referenceMetadata = try container.decodeIfPresent([HistoryReferenceMetadata].self, forKey: .referenceMetadata) ?? []
+        isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
+    }
+
+    func descriptor(
+        id: UUID,
+        activityAt: Date,
+        rank: HistorySearchRank? = nil,
+        isFavorite: Bool? = nil
+    ) -> HistoryOccurrenceDescriptor {
         HistoryOccurrenceDescriptor(
-            id: id, activityAt: activityAt, searchRank: rank, textPreview: textPreview,
+            id: id, activityAt: activityAt, isFavorite: isFavorite ?? self.isFavorite, searchRank: rank, textPreview: textPreview,
             representations: representations, imageMetadata: imageMetadata, referenceMetadata: referenceMetadata
         )
     }
@@ -445,6 +472,7 @@ struct HistoryEntry: Identifiable, Equatable, Sendable {
     let managedImageItems: [ManagedImageAssetItemManifest]
     let managedImageName: String?
     let referenceMetadata: [HistoryReferenceMetadata]
+    let isFavorite: Bool
     /// Rich text remains text-primary. This flag is the explicit materialization
     /// capability used by the selected-paste path.
     let hasRichText: Bool
@@ -461,7 +489,8 @@ struct HistoryEntry: Identifiable, Equatable, Sendable {
         managedImageItems: [ManagedImageAssetItemManifest] = [],
         managedImageName: String? = nil,
         referenceMetadata: [HistoryReferenceMetadata] = [],
-        hasRichText: Bool = false
+        hasRichText: Bool = false,
+        isFavorite: Bool = false
     ) {
         self.id = id
         self.text = text
@@ -473,6 +502,7 @@ struct HistoryEntry: Identifiable, Equatable, Sendable {
         self.managedImageName = managedImageName
         self.referenceMetadata = referenceMetadata
         self.hasRichText = hasRichText
+        self.isFavorite = isFavorite
     }
 
     var isImageEntry: Bool {

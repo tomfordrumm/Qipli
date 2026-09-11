@@ -14,33 +14,76 @@ enum HistoryTextPolicy {
     }
 }
 
+enum HistoryFilterMode: Equatable, Sendable {
+    case history
+    case favorites
+
+    var favoritesOnly: Bool { self == .favorites }
+}
+
 /// Owns retention policy and the only history write path.
 final class HistoryService {
     static let retention: TimeInterval = 30 * 24 * 60 * 60
     static let pageSize = 500
 
     private let store: HistoryStoring
+    private let favoriteStore: HistoryFavoriteStoring?
     private let typedStore: TypedHistoryStoring?
     private let richTextStore: RichTextHistoryStoring?
     private let clock: HistoryClock
 
     init(store: HistoryStoring, clock: HistoryClock = SystemHistoryClock()) {
         self.store = store
+        favoriteStore = store as? HistoryFavoriteStoring
         typedStore = store as? TypedHistoryStoring
         richTextStore = store as? RichTextHistoryStoring
         self.clock = clock
     }
 
-    func entries() throws -> [HistoryEntry] {
-        try store.fetchCurrent(since: retentionCutoff).filter(Self.isRenderable)
+    func entries(mode: HistoryFilterMode = .history) throws -> [HistoryEntry] {
+        let entries: [HistoryEntry] = if let favoriteStore {
+            try favoriteStore.fetchCurrent(since: retentionCutoff, favoritesOnly: mode.favoritesOnly)
+        } else if mode == .favorites {
+            []
+        } else {
+            try store.fetchCurrent(since: retentionCutoff)
+        }
+        return entries.filter(Self.isRenderable)
     }
 
-    func page(after cursor: HistoryPageCursor? = nil) throws -> HistoryPage {
-        try store.fetchPage(since: retentionCutoff, after: cursor, limit: Self.pageSize)
+    func page(after cursor: HistoryPageCursor? = nil, mode: HistoryFilterMode = .history) throws -> HistoryPage {
+        if let favoriteStore {
+            return try favoriteStore.fetchPage(
+                since: retentionCutoff,
+                after: cursor,
+                limit: Self.pageSize,
+                favoritesOnly: mode.favoritesOnly
+            )
+        }
+        if mode == .favorites {
+            return HistoryPage(descriptors: [], nextCursor: nil, hasMore: false)
+        }
+        return try store.fetchPage(since: retentionCutoff, after: cursor, limit: Self.pageSize)
     }
 
-    func searchPage(query: String, after cursor: HistoryPageCursor? = nil) throws -> HistoryPage {
-        try store.searchPage(query: query, since: retentionCutoff, after: cursor, limit: Self.pageSize)
+    func searchPage(
+        query: String,
+        after cursor: HistoryPageCursor? = nil,
+        mode: HistoryFilterMode = .history
+    ) throws -> HistoryPage {
+        if let favoriteStore {
+            return try favoriteStore.searchPage(
+                query: query,
+                since: retentionCutoff,
+                after: cursor,
+                limit: Self.pageSize,
+                favoritesOnly: mode.favoritesOnly
+            )
+        }
+        if mode == .favorites {
+            return HistoryPage(descriptors: [], nextCursor: nil, hasMore: false)
+        }
+        return try store.searchPage(query: query, since: retentionCutoff, after: cursor, limit: Self.pageSize)
     }
 
     func entry(id: UUID) throws -> HistoryEntry? {
@@ -125,6 +168,11 @@ final class HistoryService {
         try store.clearAll()
     }
 
+    func setFavorite(id: UUID, isFavorite: Bool) throws {
+        guard let favoriteStore else { throw HistoryStoreError.unavailable }
+        try favoriteStore.setFavorite(id: id, isFavorite: isFavorite)
+    }
+
     private var retentionCutoff: Date {
         clock.now.addingTimeInterval(-Self.retention)
     }
@@ -144,17 +192,21 @@ actor SerializedHistoryService {
         self.service = service
     }
 
-    func entries() throws -> [HistoryEntry] {
-        try service.entries()
+    func entries(mode: HistoryFilterMode = .history) throws -> [HistoryEntry] {
+        try service.entries(mode: mode)
     }
 
 
-    func page(after cursor: HistoryPageCursor? = nil) throws -> HistoryPage {
-        try service.page(after: cursor)
+    func page(after cursor: HistoryPageCursor? = nil, mode: HistoryFilterMode = .history) throws -> HistoryPage {
+        try service.page(after: cursor, mode: mode)
     }
 
-    func searchPage(query: String, after cursor: HistoryPageCursor? = nil) throws -> HistoryPage {
-        try service.searchPage(query: query, after: cursor)
+    func searchPage(
+        query: String,
+        after cursor: HistoryPageCursor? = nil,
+        mode: HistoryFilterMode = .history
+    ) throws -> HistoryPage {
+        try service.searchPage(query: query, after: cursor, mode: mode)
     }
 
     func entry(id: UUID) throws -> HistoryEntry? {
@@ -187,5 +239,9 @@ actor SerializedHistoryService {
 
     func clearAll() throws {
         try service.clearAll()
+    }
+
+    func setFavorite(id: UUID, isFavorite: Bool) throws {
+        try service.setFavorite(id: id, isFavorite: isFavorite)
     }
 }

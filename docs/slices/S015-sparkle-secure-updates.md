@@ -1,7 +1,6 @@
 ---
 id: S015
 title: Безопасные обновления через Sparkle
-status: done
 depends_on:
   - S014
 covers:

@@ -21,6 +21,28 @@ protocol HistoryPagingStoring: AnyObject {
     func fetchOccurrence(id: UUID) throws -> HistoryOccurrence?
 }
 
+/// Optional capability kept separate from the legacy store protocol so small
+/// test/demonstration stores can continue to exercise the text History path.
+/// The production Core Data store implements the filtered queries directly,
+/// rather than loading the full retention window just to find favorites.
+protocol HistoryFavoriteStoring: AnyObject {
+    func fetchCurrent(since cutoff: Date, favoritesOnly: Bool) throws -> [HistoryEntry]
+    func fetchPage(
+        since cutoff: Date,
+        after cursor: HistoryPageCursor?,
+        limit: Int,
+        favoritesOnly: Bool
+    ) throws -> HistoryPage
+    func searchPage(
+        query: String,
+        since cutoff: Date,
+        after cursor: HistoryPageCursor?,
+        limit: Int,
+        favoritesOnly: Bool
+    ) throws -> HistoryPage
+    func setFavorite(id: UUID, isFavorite: Bool) throws
+}
+
 protocol TypedHistoryStoring: AnyObject {
     func createImage(items: [ManagedImageCaptureItem], activityAt: Date) throws -> HistoryEntry
     func createReference(items: [HistoryReferenceCaptureItem], activityAt: Date) throws -> HistoryEntry
@@ -49,7 +71,7 @@ enum HistoryStoreError: LocalizedError, Equatable {
 }
 
 /// A local-only SQLite store. No managed objects cross this boundary.
-final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHistoryStoring, RichTextHistoryStoring {
+final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryFavoriteStoring, TypedHistoryStoring, RichTextHistoryStoring {
     private enum ImageManifestRecord {
         case absent
         case valid(ManagedImageAssetManifest)
@@ -109,10 +131,14 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
     }
 
     func fetchCurrent(since cutoff: Date) throws -> [HistoryEntry] {
+        try fetchCurrent(since: cutoff, favoritesOnly: false)
+    }
+
+    func fetchCurrent(since cutoff: Date, favoritesOnly: Bool) throws -> [HistoryEntry] {
         try contextSync { context in
             try self.removeExpired(before: cutoff, in: context)
             let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
-            request.predicate = NSPredicate(format: "capturedAt > %@", cutoff as NSDate)
+            request.predicate = Self.eligibilityPredicate(cutoff: cutoff, favoritesOnly: favoritesOnly)
             request.sortDescriptors = [
                 NSSortDescriptor(key: "capturedAt", ascending: false),
                 NSSortDescriptor(key: "id", ascending: false),
@@ -122,7 +148,16 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
     }
 
     func fetchPage(since cutoff: Date, after cursor: HistoryPageCursor?, limit: Int) throws -> HistoryPage {
-        try pageRequest(cutoff: cutoff, cursor: cursor, limit: limit)
+        try fetchPage(since: cutoff, after: cursor, limit: limit, favoritesOnly: false)
+    }
+
+    func fetchPage(
+        since cutoff: Date,
+        after cursor: HistoryPageCursor?,
+        limit: Int,
+        favoritesOnly: Bool
+    ) throws -> HistoryPage {
+        try pageRequest(cutoff: cutoff, cursor: cursor, limit: limit, favoritesOnly: favoritesOnly)
     }
 
     func searchPage(
@@ -131,10 +166,20 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
         after cursor: HistoryPageCursor?,
         limit: Int
     ) throws -> HistoryPage {
+        try searchPage(query: query, since: cutoff, after: cursor, limit: limit, favoritesOnly: false)
+    }
+
+    func searchPage(
+        query: String,
+        since cutoff: Date,
+        after cursor: HistoryPageCursor?,
+        limit: Int,
+        favoritesOnly: Bool
+    ) throws -> HistoryPage {
         guard !query.isEmpty else {
-            return try fetchPage(since: cutoff, after: cursor, limit: limit)
+            return try fetchPage(since: cutoff, after: cursor, limit: limit, favoritesOnly: favoritesOnly)
         }
-        return try rankedSearchPage(query: query, since: cutoff, after: cursor, limit: limit)
+        return try rankedSearchPage(query: query, since: cutoff, after: cursor, limit: limit, favoritesOnly: favoritesOnly)
     }
 
     func fetchEntry(id: UUID) throws -> HistoryEntry? {
@@ -293,6 +338,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
             object.setValue(manifest.occurrenceID, forKey: "id")
             object.setValue("", forKey: "text")
             object.setValue(activityAt, forKey: "capturedAt")
+            object.setValue(false, forKey: "isFavorite")
             object.setValue(HistoryRepresentationKind.inlineImage.rawValue, forKey: "itemKind")
             object.setValue(manifest.items.first?.order ?? 0, forKey: "itemOrder")
             object.setValue(manifest.representations.first?.typeIdentifier, forKey: "itemTypeIdentifier")
@@ -350,6 +396,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
             object.setValue(occurrenceID, forKey: "id")
             object.setValue("", forKey: "text")
             object.setValue(activityAt, forKey: "capturedAt")
+            object.setValue(false, forKey: "isFavorite")
             object.setValue(items.count == 1 ? items[0].kind.rawValue : HistoryRepresentationKind.fileReference.rawValue, forKey: "itemKind")
             object.setValue(items.map(\.order).min() ?? 0, forKey: "itemOrder")
             object.setValue(items.first?.typeIdentifier, forKey: "itemTypeIdentifier")
@@ -423,6 +470,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
             object.setValue(imageManifest.occurrenceID, forKey: "id")
             object.setValue("", forKey: "text")
             object.setValue(activityAt, forKey: "capturedAt")
+            object.setValue(false, forKey: "isFavorite")
             object.setValue(HistoryRepresentationKind.inlineImage.rawValue, forKey: "itemKind")
             object.setValue(min(imageManifest.items.first?.order ?? .max, referenceManifest.items.first?.order ?? .max), forKey: "itemOrder")
             object.setValue(imageManifest.representations.first?.typeIdentifier, forKey: "itemTypeIdentifier")
@@ -668,6 +716,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
             object.setValue(text, forKey: "text")
             // Keep this legacy SQLite/Core Data key so existing user stores load without migration.
             object.setValue(activityAt, forKey: "capturedAt")
+            object.setValue(false, forKey: "isFavorite")
             object.setValue(HistoryRepresentationKind.text.rawValue, forKey: "itemKind")
             object.setValue(0, forKey: "itemOrder")
             object.setValue("public.utf8-plain-text", forKey: "itemTypeIdentifier")
@@ -692,6 +741,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
             object.setValue(id, forKey: "id")
             object.setValue(text, forKey: "text")
             object.setValue(activityAt, forKey: "capturedAt")
+            object.setValue(false, forKey: "isFavorite")
             object.setValue(HistoryRepresentationKind.text.rawValue, forKey: "itemKind")
             object.setValue(0, forKey: "itemOrder")
             object.setValue("public.utf8-plain-text", forKey: "itemTypeIdentifier")
@@ -724,6 +774,18 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
             if context.hasChanges {
                 try context.save()
             }
+        }
+    }
+
+    func setFavorite(id: UUID, isFavorite: Bool) throws {
+        try contextSync { context in
+            let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
+            request.fetchLimit = 1
+            request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+            guard let object = try context.fetch(request).first else { return }
+            guard (object.value(forKey: "isFavorite") as? Bool ?? false) != isFavorite else { return }
+            object.setValue(isFavorite, forKey: "isFavorite")
+            try context.save()
         }
     }
 
@@ -860,7 +922,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
     private func removeExpired(before cutoff: Date, in context: NSManagedObjectContext) throws {
         try cleanupPendingImageDeletions(in: context)
         let manifestRequest = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
-        manifestRequest.predicate = NSPredicate(format: "capturedAt <= %@ AND (managedImageManifest != nil OR richTextManifest != nil)", cutoff as NSDate)
+        manifestRequest.predicate = NSPredicate(format: "capturedAt <= %@ AND (isFavorite == nil OR isFavorite == NO) AND (managedImageManifest != nil OR richTextManifest != nil)", cutoff as NSDate)
         let expiredObjects = try context.fetch(manifestRequest)
         for object in expiredObjects where Self.manifest(from: object) != nil || Self.richTextManifest(from: object) != nil {
             object.setValue(true, forKey: "managedImageDeletionPending")
@@ -881,7 +943,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
             }
         }
         let request = NSFetchRequest<NSFetchRequestResult>(entityName: Self.entityName)
-        request.predicate = NSPredicate(format: "capturedAt <= %@", cutoff as NSDate)
+        request.predicate = NSPredicate(format: "capturedAt <= %@ AND (isFavorite == nil OR isFavorite == NO)", cutoff as NSDate)
         let deleteRequest = NSBatchDeleteRequest(fetchRequest: request)
         deleteRequest.resultType = .resultTypeObjectIDs
         guard let result = try context.execute(deleteRequest) as? NSBatchDeleteResult,
@@ -898,15 +960,20 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
         }
     }
 
-    private static let displayProperties = ["id", "capturedAt", "displayMetadata"]
+    private static let displayProperties = ["id", "capturedAt", "displayMetadata", "isFavorite"]
 
-    private static func displayRequest(cutoff: Date, cursor: HistoryPageCursor?, limit: Int) -> NSFetchRequest<NSDictionary> {
+    private static func displayRequest(
+        cutoff: Date,
+        cursor: HistoryPageCursor?,
+        limit: Int,
+        favoritesOnly: Bool
+    ) -> NSFetchRequest<NSDictionary> {
         let request = NSFetchRequest<NSDictionary>(entityName: entityName)
         request.resultType = .dictionaryResultType
         request.propertiesToFetch = displayProperties
         request.fetchLimit = limit
         request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-            cursorPredicate(cutoff: cutoff, cursor: cursor),
+            cursorPredicate(cutoff: cutoff, cursor: cursor, favoritesOnly: favoritesOnly),
             NSPredicate(format: "isRenderable == YES AND (managedImageDeletionPending == nil OR managedImageDeletionPending == NO)")
         ])
         request.sortDescriptors = [NSSortDescriptor(key: "capturedAt", ascending: false), NSSortDescriptor(key: "id", ascending: false)]
@@ -916,21 +983,42 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
     private static func displayDescriptor(from row: NSDictionary, rank: HistorySearchRank? = nil) throws -> HistoryOccurrenceDescriptor {
         guard let id = row["id"] as? UUID, let activityAt = row["capturedAt"] as? Date,
               let data = row["displayMetadata"] as? Data else { throw HistoryStoreError.unavailable }
-        return try JSONDecoder().decode(HistoryDisplayMetadata.self, from: data)
-            .descriptor(id: id, activityAt: activityAt, rank: rank)
+        let metadata = try JSONDecoder().decode(HistoryDisplayMetadata.self, from: data)
+        return metadata.descriptor(
+            id: id,
+            activityAt: activityAt,
+            rank: rank,
+            isFavorite: row["isFavorite"] as? Bool
+        )
     }
 
-    private func pageRequest(cutoff: Date, cursor: HistoryPageCursor?, limit: Int) throws -> HistoryPage {
+    private func pageRequest(
+        cutoff: Date,
+        cursor: HistoryPageCursor?,
+        limit: Int,
+        favoritesOnly: Bool
+    ) throws -> HistoryPage {
         precondition((1...HistoryService.pageSize).contains(limit))
         return try contextSync { context in
             try self.removeExpired(before: cutoff, in: context)
-            let rows = try context.fetch(Self.displayRequest(cutoff: cutoff, cursor: cursor, limit: limit + 1))
+            let rows = try context.fetch(Self.displayRequest(
+                cutoff: cutoff,
+                cursor: cursor,
+                limit: limit + 1,
+                favoritesOnly: favoritesOnly
+            ))
             let descriptors = try rows.prefix(limit).map { try Self.displayDescriptor(from: $0) }
             return Self.page(descriptors: descriptors, hasMore: rows.count > limit)
         }
     }
 
-    private func rankedSearchPage(query: String, since cutoff: Date, after cursor: HistoryPageCursor?, limit: Int) throws -> HistoryPage {
+    private func rankedSearchPage(
+        query: String,
+        since cutoff: Date,
+        after cursor: HistoryPageCursor?,
+        limit: Int,
+        favoritesOnly: Bool
+    ) throws -> HistoryPage {
         precondition((1...HistoryService.pageSize).contains(limit))
         // Keep the task handle within its lifetime even while Core Data executes
         // on its private queue. Cancelling the caller stops obsolete scan work.
@@ -947,7 +1035,12 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
                 let batchSize = 256
                 while true {
                     try checkCancellation()
-                    let request = Self.displayRequest(cutoff: cutoff, cursor: scanCursor, limit: batchSize)
+                    let request = Self.displayRequest(
+                        cutoff: cutoff,
+                        cursor: scanCursor,
+                        limit: batchSize,
+                        favoritesOnly: favoritesOnly
+                    )
                     request.propertiesToFetch = ["id", "capturedAt", "text", "searchMetadata", "searchURLValues"]
                     let rows = try context.fetch(request)
                     self.onSearchBatch?(rows.count)
@@ -977,7 +1070,12 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
                 let matches = buckets.flatMap { $0 }
                 let selected = matches.prefix(limit)
                 guard !selected.isEmpty else { return Self.page(descriptors: [], hasMore: false) }
-                let request = Self.displayRequest(cutoff: cutoff, cursor: nil, limit: limit)
+                let request = Self.displayRequest(
+                    cutoff: cutoff,
+                    cursor: nil,
+                    limit: limit,
+                    favoritesOnly: favoritesOnly
+                )
                 request.predicate = NSPredicate(format: "id IN %@", selected.map(\.id))
                 let rows = try context.fetch(request)
                 let rowsByID = Dictionary(uniqueKeysWithValues: rows.compactMap { row in
@@ -1028,9 +1126,13 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
         }
     }
 
-    private static func cursorPredicate(cutoff: Date, cursor: HistoryPageCursor?) -> NSPredicate {
-        let retention = NSPredicate(format: "capturedAt > %@", cutoff as NSDate)
-        guard let cursor else { return retention }
+    private static func cursorPredicate(
+        cutoff: Date,
+        cursor: HistoryPageCursor?,
+        favoritesOnly: Bool
+    ) -> NSPredicate {
+        let eligibility = eligibilityPredicate(cutoff: cutoff, favoritesOnly: favoritesOnly)
+        guard let cursor else { return eligibility }
         let afterCursor = NSPredicate(
             format: "capturedAt <= %@ AND (capturedAt < %@ OR (capturedAt == %@ AND id < %@))",
             cursor.activityAt as NSDate,
@@ -1038,7 +1140,14 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
             cursor.activityAt as NSDate,
             cursor.id as CVarArg
         )
-        return NSCompoundPredicate(andPredicateWithSubpredicates: [retention, afterCursor])
+        return NSCompoundPredicate(andPredicateWithSubpredicates: [eligibility, afterCursor])
+    }
+
+    private static func eligibilityPredicate(cutoff: Date, favoritesOnly: Bool) -> NSPredicate {
+        if favoritesOnly {
+            return NSPredicate(format: "isFavorite == YES")
+        }
+        return NSPredicate(format: "isFavorite == YES OR capturedAt > %@", cutoff as NSDate)
     }
 
     private static func entry(from object: NSManagedObject) -> HistoryEntry? {
@@ -1111,7 +1220,8 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
             managedImageItems: managedImageItems,
             managedImageName: managedImageName,
             referenceMetadata: referenceManifest?.items.map(\.metadata) ?? [],
-            hasRichText: object.value(forKey: "richTextManifest") as? String != nil
+            hasRichText: object.value(forKey: "richTextManifest") as? String != nil,
+            isFavorite: object.value(forKey: "isFavorite") as? Bool ?? false
         )
     }
 
@@ -1338,7 +1448,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
         // Fetch indexes are not part of Core Data's compatibility hash by default.
         // Bump the entity hash so existing stores perform a lightweight migration
         // and receive the S018 index layout instead of keeping their legacy index.
-        entry.versionHashModifier = "performance-indexes-v1-managed-image-delete-v1-reference-v1-rich-text-v1-display-v1"
+        entry.versionHashModifier = "performance-indexes-v1-managed-image-delete-v1-reference-v1-rich-text-v1-display-v1-favorites-v1"
 
         let id = NSAttributeDescription()
         id.name = "id"
@@ -1354,6 +1464,14 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
         capturedAt.name = "capturedAt"
         capturedAt.attributeType = .dateAttributeType
         capturedAt.isOptional = false
+
+        let isFavorite = NSAttributeDescription()
+        isFavorite.name = "isFavorite"
+        isFavorite.attributeType = .booleanAttributeType
+        // Optional keeps lightweight migration compatible with the earliest
+        // stores; entry(from:) treats an absent value as the false default.
+        isFavorite.isOptional = true
+        isFavorite.defaultValue = false
 
         let itemKind = NSAttributeDescription()
         itemKind.name = "itemKind"
@@ -1407,7 +1525,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
         searchURLValues.attributeType = .binaryDataAttributeType
         searchURLValues.isOptional = true
 
-        entry.properties = [id, text, capturedAt, itemKind, itemOrder, itemTypeIdentifier, managedImageManifest, managedImageDeletionPending, referenceManifest, richTextManifest, displayMetadata, isRenderable, searchMetadata, searchURLValues]
+        entry.properties = [id, text, capturedAt, isFavorite, itemKind, itemOrder, itemTypeIdentifier, managedImageManifest, managedImageDeletionPending, referenceManifest, richTextManifest, displayMetadata, isRenderable, searchMetadata, searchURLValues]
         let idIndex = NSFetchIndexDescription(
             name: "idIndex",
             elements: [NSFetchIndexElementDescription(property: id, collationType: .binary)]
@@ -1419,14 +1537,22 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
                 NSFetchIndexElementDescription(property: id, collationType: .binary),
             ]
         )
-        entry.indexes = [idIndex, activityOrderIndex]
+        let favoriteActivityIndex = NSFetchIndexDescription(
+            name: "favoriteActivityIndex",
+            elements: [
+                NSFetchIndexElementDescription(property: isFavorite, collationType: .binary),
+                NSFetchIndexElementDescription(property: capturedAt, collationType: .binary),
+                NSFetchIndexElementDescription(property: id, collationType: .binary),
+            ]
+        )
+        entry.indexes = [idIndex, activityOrderIndex, favoriteActivityIndex]
         model.entities = [entry]
         return NSPersistentContainer(name: "QipliHistory", managedObjectModel: model)
     }
 }
 
 /// Delays opening the default store until it is needed, so a transient launch-time failure can be retried.
-final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHistoryStoring, RichTextHistoryStoring {
+final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryFavoriteStoring, TypedHistoryStoring, RichTextHistoryStoring {
     private let makeStore: () throws -> HistoryStoring
     private var loadedStore: HistoryStoring?
 
@@ -1436,6 +1562,10 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
 
     func fetchCurrent(since cutoff: Date) throws -> [HistoryEntry] {
         try store().fetchCurrent(since: cutoff)
+    }
+
+    func fetchCurrent(since cutoff: Date, favoritesOnly: Bool) throws -> [HistoryEntry] {
+        try favoriteStore().fetchCurrent(since: cutoff, favoritesOnly: favoritesOnly)
     }
 
     func create(text: String, activityAt: Date) throws -> HistoryEntry {
@@ -1454,8 +1584,21 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
         try store().clearAll()
     }
 
+    func setFavorite(id: UUID, isFavorite: Bool) throws {
+        try favoriteStore().setFavorite(id: id, isFavorite: isFavorite)
+    }
+
     func fetchPage(since cutoff: Date, after cursor: HistoryPageCursor?, limit: Int) throws -> HistoryPage {
         try store().fetchPage(since: cutoff, after: cursor, limit: limit)
+    }
+
+    func fetchPage(
+        since cutoff: Date,
+        after cursor: HistoryPageCursor?,
+        limit: Int,
+        favoritesOnly: Bool
+    ) throws -> HistoryPage {
+        try favoriteStore().fetchPage(since: cutoff, after: cursor, limit: limit, favoritesOnly: favoritesOnly)
     }
 
     func searchPage(
@@ -1465,6 +1608,22 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
         limit: Int
     ) throws -> HistoryPage {
         try store().searchPage(query: query, since: cutoff, after: cursor, limit: limit)
+    }
+
+    func searchPage(
+        query: String,
+        since cutoff: Date,
+        after cursor: HistoryPageCursor?,
+        limit: Int,
+        favoritesOnly: Bool
+    ) throws -> HistoryPage {
+        try favoriteStore().searchPage(
+            query: query,
+            since: cutoff,
+            after: cursor,
+            limit: limit,
+            favoritesOnly: favoritesOnly
+        )
     }
 
     func fetchEntry(id: UUID) throws -> HistoryEntry? {
@@ -1526,5 +1685,12 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, TypedHis
             throw HistoryStoreError.unavailable
         }
         return typedStore
+    }
+
+    private func favoriteStore() throws -> HistoryFavoriteStoring {
+        guard let favoriteStore = try store() as? HistoryFavoriteStoring else {
+            throw HistoryStoreError.unavailable
+        }
+        return favoriteStore
     }
 }
