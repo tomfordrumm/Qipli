@@ -394,6 +394,35 @@ final class HistoryViewModelSearchTests: XCTestCase {
     private func makeEntry(_ text: String, offset: TimeInterval) -> HistoryEntry {
         HistoryEntry(id: UUID(), text: text, activityAt: Date.now.addingTimeInterval(offset))
     }
+
+    func testFavoriteModeFiltersSearchAndNewPresentationResetsToHistory() async {
+        let favorite = makeEntry("favorite alpha", offset: 2)
+        let regular = makeEntry("regular beta", offset: 1)
+        let store = InMemoryHistoryStore(entries: [favorite, regular])
+        let viewModel = HistoryViewModel(
+            service: HistoryService(store: store),
+            searchDebounceNanoseconds: 0
+        )
+
+        await viewModel.reload(selectFirstResult: true)
+        await viewModel.setFavorite(id: favorite.id, isFavorite: true)
+        viewModel.switchMode(to: .favorites)
+        await viewModel.waitForPendingSearch()
+        XCTAssertEqual(viewModel.mode, HistoryFilterMode.favorites)
+        XCTAssertEqual(viewModel.visibleEntries.map(\.id), [favorite.id])
+
+        viewModel.updateQuery("alpha")
+        await viewModel.waitForPendingSearch()
+        XCTAssertEqual(viewModel.visibleEntries.map(\.id), [favorite.id])
+        viewModel.updateQuery("beta")
+        await viewModel.waitForPendingSearch()
+        XCTAssertTrue(viewModel.visibleEntries.isEmpty)
+
+        viewModel.prepareForPresentation()
+        XCTAssertEqual(viewModel.mode, HistoryFilterMode.history)
+        await viewModel.waitForPendingSearch()
+        XCTAssertEqual(viewModel.visibleEntries.map(\.id), [favorite.id, regular.id])
+    }
 }
 
 @MainActor
@@ -775,71 +804,22 @@ final class HistoryPasteExecutorTests: XCTestCase {
 }
 
 @MainActor
-final class PanelActivationPresenterTests: XCTestCase {
-    func testUsesStrongUserInitiatedActivationAndRunsCompletionWhenActive() {
-        let application = FakeQipliApplication(activeResults: [false, true])
-        let presenter = PanelActivationPresenter(
-            application: application,
-            scheduleNextMainRunLoop: { $0() }
-        )
-        var completionCount = 0
-
-        presenter.presentImmediatelyThenWhenActive(
-            requiresStrongUserActivation: true,
-            present: {},
-            whenActive: {
-                completionCount += 1
-            }
-        )
-
-        XCTAssertEqual(application.strongActivationRequestCount, 1)
-        XCTAssertEqual(application.activationRequestCount, 0)
-        XCTAssertEqual(application.activeCheckCount, 2)
-        XCTAssertEqual(completionCount, 1)
-    }
-
-    func testRegularPanelUsesCooperativeActivation() {
-        let application = FakeQipliApplication(activeResults: [true])
-        let presenter = PanelActivationPresenter(
-            application: application,
-            scheduleNextMainRunLoop: { $0() }
-        )
-
-        presenter.presentImmediatelyThenWhenActive(
-            requiresStrongUserActivation: false,
-            present: {},
-            whenActive: {}
-        )
-
-        XCTAssertEqual(application.activationRequestCount, 1)
-        XCTAssertEqual(application.strongActivationRequestCount, 0)
-    }
-
-    func testExhaustedActivationStillRunsImmediatePresentationAndSkipsActiveCompletion() {
-        let application = FakeQipliApplication(activeResults: [false, false, false])
-        let presenter = PanelActivationPresenter(
-            application: application,
-            scheduleNextMainRunLoop: { $0() }
-        )
-        var presentationCount = 0
-        var completionCount = 0
-
-        presenter.presentImmediatelyThenWhenActive(
-            requiresStrongUserActivation: true,
-            present: { presentationCount += 1 },
-            whenActive: { completionCount += 1 }
-        )
-
-        XCTAssertEqual(application.strongActivationRequestCount, 1)
-        XCTAssertEqual(application.activationRequestCount, 0)
-        XCTAssertEqual(application.activeCheckCount, 3)
-        XCTAssertEqual(presentationCount, 1)
-        XCTAssertEqual(completionCount, 0)
-    }
-}
-
-@MainActor
 final class HistoryPanelInteractionTests: XCTestCase {
+    func testHistoryCanTakeKeyboardFocusWithoutApplicationActivation() {
+        let configuration = PanelWindowConfiguration.make(for: .topNotchHistory)
+        let panel = TopNotchHistoryPanel(
+            contentRect: configuration.contentRect,
+            styleMask: configuration.styleMask,
+            backing: .buffered,
+            defer: false
+        )
+        configuration.applyPresentation(to: panel)
+        XCTAssertTrue(panel.styleMask.contains(.nonactivatingPanel))
+        XCTAssertTrue(panel.canBecomeKey)
+        XCTAssertFalse(panel.canBecomeMain)
+        XCTAssertFalse(panel.becomesKeyOnlyIfNeeded)
+    }
+
     func testTopNotchPanelConsumesSemanticCancelThroughItsOwner() {
         let panel = TopNotchHistoryPanel(
             contentRect: .zero,
@@ -974,9 +954,10 @@ final class HistoryPanelInteractionTests: XCTestCase {
 
         XCTAssertEqual(events, ["poll", "present", "drain"])
     }
+
 }
 
-private final class InMemoryHistoryStore: HistoryStoring {
+private final class InMemoryHistoryStore: HistoryStoring, HistoryFavoriteStoring {
     var entries: [HistoryEntry]
     var markUsedError: Error?
     var clearAllError: Error?
@@ -1004,6 +985,57 @@ private final class InMemoryHistoryStore: HistoryStoring {
             }
     }
 
+    func fetchCurrent(since cutoff: Date, favoritesOnly: Bool) throws -> [HistoryEntry] {
+        try fetchCurrent(since: cutoff).filter { !favoritesOnly || $0.isFavorite }
+    }
+
+    func fetchPage(
+        since cutoff: Date,
+        after cursor: HistoryPageCursor?,
+        limit: Int,
+        favoritesOnly: Bool
+    ) throws -> HistoryPage {
+        try makeFavoritePage(
+            entries: fetchCurrent(since: cutoff, favoritesOnly: favoritesOnly),
+            after: cursor,
+            limit: limit,
+            query: nil
+        )
+    }
+
+    func searchPage(
+        query: String,
+        since cutoff: Date,
+        after cursor: HistoryPageCursor?,
+        limit: Int,
+        favoritesOnly: Bool
+    ) throws -> HistoryPage {
+        try makeFavoritePage(
+            entries: fetchCurrent(since: cutoff, favoritesOnly: favoritesOnly),
+            after: cursor,
+            limit: limit,
+            query: query
+        )
+    }
+
+    func setFavorite(id: UUID, isFavorite: Bool) throws {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        let entry = entries[index]
+        entries[index] = HistoryEntry(
+            id: entry.id,
+            text: entry.text,
+            activityAt: entry.activityAt,
+            representations: entry.representations,
+            imageMetadata: entry.imageMetadata,
+            managedImages: entry.managedImages,
+            managedImageItems: entry.managedImageItems,
+            managedImageName: entry.managedImageName,
+            referenceMetadata: entry.referenceMetadata,
+            hasRichText: entry.hasRichText,
+            isFavorite: isFavorite
+        )
+    }
+
     func create(text: String, activityAt: Date) throws -> HistoryEntry {
         recordOperation("create")
         let entry = HistoryEntry(id: UUID(), text: text, activityAt: activityAt)
@@ -1016,7 +1048,19 @@ private final class InMemoryHistoryStore: HistoryStoring {
         if let markUsedError { throw markUsedError }
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
         let entry = entries[index]
-        entries[index] = HistoryEntry(id: entry.id, text: entry.text, activityAt: activityAt)
+        entries[index] = HistoryEntry(
+            id: entry.id,
+            text: entry.text,
+            activityAt: activityAt,
+            representations: entry.representations,
+            imageMetadata: entry.imageMetadata,
+            managedImages: entry.managedImages,
+            managedImageItems: entry.managedImageItems,
+            managedImageName: entry.managedImageName,
+            referenceMetadata: entry.referenceMetadata,
+            hasRichText: entry.hasRichText,
+            isFavorite: entry.isFavorite
+        )
     }
 
     func delete(id: UUID) throws {
@@ -1033,6 +1077,35 @@ private final class InMemoryHistoryStore: HistoryStoring {
     private func recordOperation(_ name: String) {
         operationNames.append(name)
         operationWasOnMainThread.append(Thread.isMainThread)
+    }
+
+    private func makeFavoritePage(
+        entries: [HistoryEntry],
+        after cursor: HistoryPageCursor?,
+        limit: Int,
+        query: String?
+    ) throws -> HistoryPage {
+        let ranked = entries.compactMap { entry -> (HistoryEntry, HistorySearchRank?)? in
+            guard let query, !query.isEmpty else { return (entry, nil) }
+            guard let rank = HistorySearchRank.classify(entry: entry, query: query) else { return nil }
+            return (entry, rank)
+        }.sorted {
+            if $0.1 != $1.1 { return ($0.1?.rawValue ?? 0) < ($1.1?.rawValue ?? 0) }
+            if $0.0.activityAt != $1.0.activityAt { return $0.0.activityAt > $1.0.activityAt }
+            return $0.0.id.uuidString > $1.0.id.uuidString
+        }.filter { entry, rank in
+            guard let cursor else { return true }
+            if rank != cursor.searchRank { return (rank?.rawValue ?? 0) > (cursor.searchRank?.rawValue ?? 0) }
+            return entry.activityAt < cursor.activityAt || (entry.activityAt == cursor.activityAt && entry.id.uuidString < cursor.id.uuidString)
+        }
+        let descriptors = ranked.prefix(limit).map { entry, rank in
+            HistoryDisplayMetadata(entry: entry).descriptor(id: entry.id, activityAt: entry.activityAt, rank: rank)
+        }
+        return HistoryPage(
+            descriptors: descriptors,
+            nextCursor: descriptors.last.map { HistoryPageCursor(activityAt: $0.activityAt, id: $0.id, searchRank: $0.searchRank) },
+            hasMore: ranked.count > limit
+        )
     }
 }
 
@@ -1165,35 +1238,6 @@ private final class FakePasteCommandDispatcher: TaggedPasteCommandDispatching {
         return result
     }
 }
-
-@MainActor
-private final class FakeQipliApplication: QipliApplicationActivating {
-    private var activeResults: [Bool]
-    private(set) var activationRequestCount = 0
-    private(set) var strongActivationRequestCount = 0
-    private(set) var activeCheckCount = 0
-
-    init(activeResults: [Bool]) {
-        self.activeResults = activeResults
-    }
-
-    var isActive: Bool {
-        activeCheckCount += 1
-        if activeResults.count > 1 {
-            return activeResults.removeFirst()
-        }
-        return activeResults.first ?? false
-    }
-
-    func requestActivation() {
-        activationRequestCount += 1
-    }
-
-    func requestUserInitiatedActivation() {
-        strongActivationRequestCount += 1
-    }
-}
-
 
 private extension Result where Success == Void, Failure == HistoryPasteFailure {
     var failureValue: HistoryPasteFailure? {

@@ -1,7 +1,6 @@
 ---
 id: S023
 title: Bounded typed History foundation
-status: done
 depends_on:
   - S018
   - S019

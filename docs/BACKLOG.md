@@ -36,11 +36,7 @@
 
 ## BL-005 — Favorites
 
-- Связано с: S029, withdrawn D-037, BL-004.
-- Наблюдение: прежний Favorites flow был частью навигации отдельного full History window. После отказа от этого окна место, пользовательский путь и retention-семантика Favorites снова не определены.
-- Решение на сейчас: favorite marker, migration и navigation не входят в активный продуктовый контракт.
-- Следующее действие: сначала подтвердить конкретный сценарий Favorites и решить, влияет ли marker на 30-day retention; затем заново определить presentation независимо от старого S029.
-- Ограничение: не добавлять бессрочное хранение clipboard payload, отдельную копию occurrence или скрытую retention policy без нового accepted decision.
+Возвращено в активный план 2026-09-08 по D-042. Спецификация находится в [S029](slices/S029-history-favorites-navigation.md), operational-статус в [STATE.md](STATE.md). Старые предположения о full window и expiry заменены. Категории не входят в первую поставку.
 
 ## BL-006 — Отключение дисплея во время reveal Paste Stack
 

@@ -321,6 +321,13 @@ final class SystemTopNotchScreenProvider: TopNotchScreenProviding {
 struct TopNotchHistoryCollectionApplyPlan: Equatable {
     let reloadData: Bool
     let thumbnailEntryIDs: [UUID]
+    let cardEntryIDs: [UUID]
+
+    init(reloadData: Bool, thumbnailEntryIDs: [UUID], cardEntryIDs: [UUID] = []) {
+        self.reloadData = reloadData
+        self.thumbnailEntryIDs = thumbnailEntryIDs
+        self.cardEntryIDs = cardEntryIDs
+    }
 }
 
 enum TopNotchHistoryCollectionReconciler {
@@ -334,9 +341,14 @@ enum TopNotchHistoryCollectionReconciler {
         ids: [UUID],
         thumbnailUpdateRevisionsByEntryID: [UUID: Int],
         lastThumbnailUpdateRevisionsByEntryID: [UUID: Int],
-        visibleEntryIDs: Set<UUID>
+        visibleEntryIDs: Set<UUID>,
+        lastCards: [TopNotchHistoryCardDescriptor]? = nil,
+        cards: [TopNotchHistoryCardDescriptor]? = nil
     ) -> TopNotchHistoryCollectionApplyPlan {
-        guard !force, lastRevision == snapshotRevision, lastIDs == ids else {
+        guard !force, lastIDs == ids else {
+            return TopNotchHistoryCollectionApplyPlan(reloadData: true, thumbnailEntryIDs: [])
+        }
+        if lastRevision != snapshotRevision, (lastCards == nil || cards == nil) {
             return TopNotchHistoryCollectionApplyPlan(reloadData: true, thumbnailEntryIDs: [])
         }
         return TopNotchHistoryCollectionApplyPlan(
@@ -345,6 +357,9 @@ enum TopNotchHistoryCollectionReconciler {
                 visibleEntryIDs.contains($0)
                     && (thumbnailUpdateRevisionsByEntryID[$0] ?? -1)
                         > (lastThumbnailUpdateRevisionsByEntryID[$0] ?? -1)
+            },
+            cardEntryIDs: zip(lastCards ?? [], cards ?? []).compactMap { previous, current in
+                previous != current ? current.id : nil
             }
         )
     }
@@ -368,6 +383,15 @@ final class TopNotchHistoryInteractionBridge {
     func applySnapshot(entryIDs: [UUID], selectedEntryID: UUID?) {
         self.entryIDs = entryIDs
         applySelection(id: selectedEntryID, scroll: false)
+    }
+
+    /// A reused collection retains its clip origin even when the first card is
+    /// already selected. Reset it explicitly for each user-initiated show, after
+    /// panel layout and before the reveal animation.
+    func resetViewportToStart() {
+        guard let scrollView = collectionView?.enclosingScrollView else { return }
+        scrollView.contentView.scroll(to: .zero)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     func applySelection(id: UUID?, scroll: Bool = true) {
@@ -423,6 +447,7 @@ enum TopNotchHistoryCardKind: Equatable {
 
 struct TopNotchHistoryCardDescriptor: Equatable {
     let id: UUID
+    let isFavorite: Bool
     let kind: TopNotchHistoryCardKind
     let title: String
     let detail: String
@@ -432,6 +457,7 @@ struct TopNotchHistoryCardDescriptor: Equatable {
         make(descriptor: HistoryOccurrenceDescriptor(
             id: entry.id,
             activityAt: entry.activityAt,
+            isFavorite: entry.isFavorite,
             textPreview: entry.isTextOnly ? HistoryPreview.text(for: entry.text) : nil,
             representations: entry.representations,
             imageMetadata: entry.imageMetadata,
@@ -476,6 +502,7 @@ struct TopNotchHistoryCardDescriptor: Equatable {
         let boundedDetail = HistoryPreview.text(for: detail)
         return Self(
             id: descriptor.id,
+            isFavorite: descriptor.isFavorite,
             kind: kind,
             title: kind.title,
             detail: boundedDetail,
@@ -495,20 +522,26 @@ struct TopNotchHistoryShelfView: View {
     @FocusState private var searchIsFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            searchField
-            if let notice = viewModel.captureNotice {
-                Label(notice, systemImage: "exclamationmark.triangle")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        ZStack(alignment: .topLeading) {
+            VStack(alignment: .leading, spacing: 10) {
+                searchField
+                if let notice = viewModel.captureNotice {
+                    Label(notice, systemImage: "exclamationmark.triangle")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                content
+                footer
             }
-            content
-            footer
+            .padding(.top, layoutModel.topContentInset + 14)
+            .padding(.horizontal, TopNotchHistoryGeometry.contentHorizontalInset)
+            .padding(.bottom, 14)
+
+            favoriteToggle
+                .padding(.top, 14)
+                .padding(.leading, TopNotchHistoryGeometry.contentHorizontalInset)
         }
-        .padding(.top, layoutModel.topContentInset + 14)
-        .padding(.horizontal, TopNotchHistoryGeometry.contentHorizontalInset)
-        .padding(.bottom, 14)
         .frame(
             minWidth: TopNotchHistoryGeometry.minimumPanelSize.width,
             idealWidth: TopNotchHistoryGeometry.defaultPanelSize.width,
@@ -531,12 +564,28 @@ struct TopNotchHistoryShelfView: View {
         }
     }
 
+    private var favoriteToggle: some View {
+        Button {
+            viewModel.switchMode(to: viewModel.mode == .history ? .favorites : .history)
+        } label: {
+            Image(systemName: viewModel.mode == .favorites ? "star.fill" : "star")
+                .frame(width: 18, height: 18)
+                .frame(width: 30, height: 30)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(viewModel.mode == .favorites ? .yellow : .secondary)
+        .contentShape(Rectangle())
+        .accessibilityLabel(viewModel.mode == .favorites ? "Show all History" : "Show Favorites")
+        .accessibilityValue(viewModel.mode == .favorites ? "On" : "Off")
+        .accessibilityAddTraits(.isButton)
+    }
+
     private var searchField: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
-            TextField("Search history", text: Binding(
+            TextField(viewModel.mode == .favorites ? "Search favorites" : "Search history", text: Binding(
                 get: { viewModel.query },
                 set: { viewModel.updateQuery($0) }
             ))
@@ -564,6 +613,7 @@ struct TopNotchHistoryShelfView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Close History")
         }
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background {
@@ -583,7 +633,13 @@ struct TopNotchHistoryShelfView: View {
             ProgressView("Loading history…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .empty:
-            ContentUnavailableView("No History Yet", systemImage: "clipboard", description: Text("Copied items will appear here while Qipli is running."))
+            Group {
+                if viewModel.mode == .favorites {
+                    ContentUnavailableView("No Favorites Yet", systemImage: "star", description: Text("Star a History card to find it here."))
+                } else {
+                    ContentUnavailableView("No History Yet", systemImage: "clipboard", description: Text("Copied items will appear here while Qipli is running."))
+                }
+            }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         case let .list(descriptors):
             if descriptors.isEmpty {
@@ -591,7 +647,11 @@ struct TopNotchHistoryShelfView: View {
                     ProgressView("Searching…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    ContentUnavailableView("No Matching History", systemImage: "magnifyingglass", description: Text("Try a different search term."))
+                    ContentUnavailableView(
+                        viewModel.mode == .favorites ? "No Matching Favorites" : "No Matching History",
+                        systemImage: "magnifyingglass",
+                        description: Text("Try a different search term.")
+                    )
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 }
             } else {
@@ -608,6 +668,9 @@ struct TopNotchHistoryShelfView: View {
                     pasteEntry: { id in
                         guard canPaste else { return }
                         pasteEntry(id)
+                    },
+                    toggleFavorite: { id, isFavorite in
+                        Task { @MainActor in await viewModel.setFavorite(id: id, isFavorite: isFavorite) }
                     },
                     loadMore: {
                         Task { @MainActor in await viewModel.loadMore() }
@@ -638,6 +701,18 @@ struct TopNotchHistoryShelfView: View {
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel("Paste failed. \(failure.message)")
+            }
+            if let favoriteFailure = viewModel.favoriteFailure {
+                HStack(spacing: 8) {
+                    Text(favoriteFailure.message)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                    Button("Retry") {
+                        Task { @MainActor in await viewModel.retryFavorite() }
+                    }
+                    .font(.caption)
+                }
+                .accessibilityElement(children: .combine)
             }
             HStack(spacing: 8) {
                 if permissionService.state != .granted {
@@ -692,6 +767,7 @@ struct TopNotchHistoryCollectionView: NSViewRepresentable {
     let requestThumbnail: (UUID) -> Void
     let selectEntry: (UUID) -> Void
     let pasteEntry: (UUID) -> Void
+    let toggleFavorite: (UUID, Bool) -> Void
     let loadMore: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -738,6 +814,7 @@ struct TopNotchHistoryCollectionView: NSViewRepresentable {
         private var parent: TopNotchHistoryCollectionView
         private var lastRevision = -1
         private var lastIDs: [UUID] = []
+        private var lastCards: [TopNotchHistoryCardDescriptor] = []
         private var lastThumbnailUpdateRevisionsByEntryID: [UUID: Int] = [:]
         private var isApplyingSelection = false
 
@@ -759,14 +836,19 @@ struct TopNotchHistoryCollectionView: NSViewRepresentable {
                 ids: ids,
                 thumbnailUpdateRevisionsByEntryID: parent.thumbnailUpdateRevisionsByEntryID,
                 lastThumbnailUpdateRevisionsByEntryID: lastThumbnailUpdateRevisionsByEntryID,
-                visibleEntryIDs: visibleEntryIDs
+                visibleEntryIDs: visibleEntryIDs,
+                lastCards: lastCards,
+                cards: parent.cards
             )
             if plan.reloadData {
                 lastRevision = parent.snapshotRevision
                 lastIDs = ids
+                lastCards = parent.cards
                 collectionView.reloadData()
                 lastThumbnailUpdateRevisionsByEntryID = parent.thumbnailUpdateRevisionsByEntryID
             } else {
+                lastRevision = parent.snapshotRevision
+                lastCards = parent.cards
                 if plan.thumbnailEntryIDs.isEmpty == false {
                     for thumbnailEntryID in plan.thumbnailEntryIDs {
                         let indexPath = IndexPath(
@@ -778,6 +860,13 @@ struct TopNotchHistoryCollectionView: NSViewRepresentable {
                         }
                         lastThumbnailUpdateRevisionsByEntryID[thumbnailEntryID] =
                             parent.thumbnailUpdateRevisionsByEntryID[thumbnailEntryID]
+                    }
+                }
+                for entryID in plan.cardEntryIDs {
+                    let indexPath = IndexPath(item: ids.firstIndex(of: entryID) ?? NSNotFound, section: 0)
+                    if let item = collectionView.item(at: indexPath) as? TopNotchHistoryCollectionItem,
+                       let card = parent.cards.first(where: { $0.id == entryID }) {
+                        item.updateFavorite(card.isFavorite)
                     }
                 }
             }
@@ -809,7 +898,10 @@ struct TopNotchHistoryCollectionView: NSViewRepresentable {
                 thumbnailData: parent.thumbnailData(card.id),
                 isSelected: indexPath.item == parent.cards.firstIndex(where: { $0.id == parent.selectedEntryID }),
                 requestThumbnail: { [weak self] in self?.parent.requestThumbnail(card.id) },
-                doubleClick: { [weak self] in self?.parent.pasteEntry(card.id) }
+                doubleClick: { [weak self] in self?.parent.pasteEntry(card.id) },
+                toggleFavorite: { [weak self] isFavorite in
+                    self?.parent.toggleFavorite(card.id, isFavorite)
+                }
             )
             return item
         }
@@ -847,19 +939,25 @@ private final class TopNotchHistoryCollectionItem: NSCollectionViewItem {
         thumbnailData: Data?,
         isSelected: Bool,
         requestThumbnail: @escaping () -> Void,
-        doubleClick: @escaping () -> Void
+        doubleClick: @escaping () -> Void,
+        toggleFavorite: @escaping (Bool) -> Void
     ) {
         cardView.configure(
             card: card,
             thumbnailData: thumbnailData,
             isSelected: isSelected,
             requestThumbnail: requestThumbnail,
-            doubleClick: doubleClick
+            doubleClick: doubleClick,
+            toggleFavorite: toggleFavorite
         )
     }
 
     func updateThumbnail(data: Data?) {
         cardView.updateThumbnail(data: data)
+    }
+
+    func updateFavorite(_ isFavorite: Bool) {
+        cardView.updateFavorite(isFavorite)
     }
 }
 
@@ -1074,6 +1172,7 @@ enum TopNotchHistoryCardTextLayout {
 
 private final class TopNotchHistoryCardView: NSView {
     private let iconView = NSImageView()
+    private let favoriteButton = NSButton()
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
     private let thumbnailView = TopNotchAspectFillImageView()
     private let imageFallbackView = NSImageView()
@@ -1085,6 +1184,10 @@ private final class TopNotchHistoryCardView: NSView {
     private var isImageCard = false
     private var requestThumbnail: (() -> Void)?
     private var doubleClick: (() -> Void)?
+    private var toggleFavorite: ((Bool) -> Void)?
+    private var isFavorite = false
+    private var isSelected = false
+    private var isHovered = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1101,7 +1204,8 @@ private final class TopNotchHistoryCardView: NSView {
         thumbnailData: Data?,
         isSelected: Bool,
         requestThumbnail: @escaping () -> Void,
-        doubleClick: @escaping () -> Void
+        doubleClick: @escaping () -> Void,
+        toggleFavorite: @escaping (Bool) -> Void
     ) {
         detailLabel.stringValue = card.detail
         iconView.image = NSImage(systemSymbolName: card.kind.symbolName, accessibilityDescription: card.title)
@@ -1122,6 +1226,8 @@ private final class TopNotchHistoryCardView: NSView {
         imageDetailBottomConstraint.isActive = card.kind == .image
         self.requestThumbnail = requestThumbnail
         self.doubleClick = doubleClick
+        self.toggleFavorite = toggleFavorite
+        updateFavorite(card.isFavorite)
         if card.kind == .image, thumbnailData == nil { requestThumbnail() }
         setAccessibilityLabel(card.accessibilityLabel)
         updateSelection(isSelected)
@@ -1134,6 +1240,45 @@ private final class TopNotchHistoryCardView: NSView {
         thumbnailView.isHidden = image == nil
         imageFallbackView.isHidden = image != nil
         imageScrim.isHidden = false
+    }
+
+    func updateFavorite(_ isFavorite: Bool) {
+        self.isFavorite = isFavorite
+        favoriteButton.state = isFavorite ? .on : .off
+        favoriteButton.image = NSImage(
+            systemSymbolName: isFavorite ? "star.fill" : "star",
+            accessibilityDescription: isFavorite ? "Favorite" : "Not Favorite"
+        )
+        favoriteButton.toolTip = isFavorite ? "Remove from Favorites" : "Add to Favorites"
+        favoriteButton.setAccessibilityLabel(isFavorite ? "Remove from Favorites" : "Add to Favorites")
+        favoriteButton.setAccessibilityValue(isFavorite ? "On" : "Off")
+        favoriteButton.isHidden = !(isFavorite || isSelected || isHovered)
+    }
+
+    @objc private func favoriteButtonPressed() {
+        toggleFavorite?(!isFavorite)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for trackingArea in trackingAreas { removeTrackingArea(trackingArea) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.activeInKeyWindow, .mouseEnteredAndExited, .inVisibleRect],
+            owner: self
+        ))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        isHovered = true
+        favoriteButton.isHidden = false
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        isHovered = false
+        favoriteButton.isHidden = !(isFavorite || isSelected)
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -1164,7 +1309,16 @@ private final class TopNotchHistoryCardView: NSView {
         detailLabel.font = .systemFont(ofSize: 13, weight: .medium)
         TopNotchHistoryCardTextLayout.configure(detailLabel)
 
-        for subview in [thumbnailView, imageFallbackView, imageScrim, iconView, detailLabel] {
+        favoriteButton.isBordered = false
+        favoriteButton.imagePosition = .imageOnly
+        favoriteButton.contentTintColor = .secondaryLabelColor
+        favoriteButton.target = self
+        favoriteButton.action = #selector(favoriteButtonPressed)
+        favoriteButton.focusRingType = .default
+        favoriteButton.setAccessibilityRole(.button)
+        favoriteButton.isHidden = true
+
+        for subview in [thumbnailView, imageFallbackView, imageScrim, iconView, detailLabel, favoriteButton] {
             subview.translatesAutoresizingMaskIntoConstraints = false
             addSubview(subview)
         }
@@ -1189,6 +1343,10 @@ private final class TopNotchHistoryCardView: NSView {
             iconView.topAnchor.constraint(equalTo: topAnchor, constant: 14),
             iconView.widthAnchor.constraint(equalToConstant: 18),
             iconView.heightAnchor.constraint(equalToConstant: 18),
+            favoriteButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            favoriteButton.topAnchor.constraint(equalTo: topAnchor, constant: 9),
+            favoriteButton.widthAnchor.constraint(equalToConstant: 24),
+            favoriteButton.heightAnchor.constraint(equalToConstant: 24),
             detailLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             detailLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
         ])
@@ -1201,6 +1359,7 @@ private final class TopNotchHistoryCardView: NSView {
     }
 
     fileprivate func updateSelection(_ isSelected: Bool) {
+        self.isSelected = isSelected
         layer?.borderWidth = isSelected ? 2 : 1
         let baseColor = NSColor(calibratedWhite: 0.08, alpha: 1)
         layer?.backgroundColor = (isSelected ? NSColor.controlAccentColor : baseColor)
@@ -1208,5 +1367,6 @@ private final class TopNotchHistoryCardView: NSView {
             .cgColor
         layer?.borderColor = (isSelected ? NSColor.controlAccentColor : NSColor.separatorColor).cgColor
         setAccessibilityValue(isSelected ? "Selected" : nil)
+        favoriteButton.isHidden = !(isFavorite || isSelected || isHovered)
     }
 }

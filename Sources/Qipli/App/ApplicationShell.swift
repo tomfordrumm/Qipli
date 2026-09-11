@@ -48,6 +48,7 @@ final class ApplicationShell: NSObject {
     private var onboardingWindowController: OnboardingWindowController!
     private var retentionTimer: Timer?
     private var permissionStateObservation: AnyCancellable?
+    private var historyShortcutObservation: AnyCancellable?
     private var updateAvailabilityObservation: AnyCancellable?
     private var statusItem: NSStatusItem?
     private let pasteStackMenuItem = NSMenuItem()
@@ -69,6 +70,12 @@ final class ApplicationShell: NSObject {
         let resolvedInputAdapter = inputAdapter ?? CGEventTapAdapter(
             shortcutSnapshotProvider: { shortcutPreferences.currentSnapshot }
         )
+        historyShortcutObservation = shortcutPreferences.$snapshot
+            .map(\.history)
+            .removeDuplicates()
+            .sink { [weak resolvedInputAdapter] binding in
+                (resolvedInputAdapter as? CGEventTapAdapter)?.refreshHistoryShortcut(binding)
+            }
         let store: HistoryStoring
         if let historyStore {
             store = historyStore

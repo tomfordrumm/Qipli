@@ -1,7 +1,6 @@
 ---
 id: S022
 title: Энергоэффективный pasteboard polling
-status: done
 depends_on:
   - S021
 covers:

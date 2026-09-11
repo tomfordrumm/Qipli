@@ -1,7 +1,6 @@
 ---
 id: S019
 title: Асинхронный History pipeline
-status: done
 depends_on:
   - S018
 covers:

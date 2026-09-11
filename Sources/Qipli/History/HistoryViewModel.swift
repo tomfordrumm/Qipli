@@ -7,10 +7,17 @@ enum HistoryViewState: Equatable {
     case error
 }
 
+struct HistoryFavoriteFailure: Equatable {
+    let entryID: UUID
+    let desiredValue: Bool
+    let message: String
+}
+
 @MainActor
 final class HistoryViewModel: ObservableObject {
     @Published private(set) var state: HistoryViewState = .loading
     @Published private(set) var query = ""
+    @Published private(set) var mode: HistoryFilterMode = .history
     @Published private(set) var selectedEntryID: UUID?
     @Published private(set) var pasteFailure: HistoryPasteFailure?
     @Published private(set) var isPasteInProgress = false
@@ -20,6 +27,7 @@ final class HistoryViewModel: ObservableObject {
     var thumbnailDataByEntryID: [UUID: Data] { thumbnailCache.values }
     @Published private(set) var thumbnailUpdateRevisionsByEntryID: [UUID: Int] = [:]
     @Published private(set) var captureNotice: String?
+    @Published private(set) var favoriteFailure: HistoryFavoriteFailure?
     private(set) var visibleSnapshotRevision = 0
     private var thumbnailCache = HistoryThumbnailCache(byteLimit: HistoryImageStoragePolicy.production.thumbnailCacheBytes)
     private var memoryPressureSource: DispatchSourceMemoryPressure?
@@ -80,6 +88,10 @@ final class HistoryViewModel: ObservableObject {
     func prepareForPresentation() {
         let removedExpiredEntries = discardExpiredSnapshotEntries()
         let wasFiltered = !query.isEmpty
+        let wasFavorites = mode == .favorites
+        if wasFavorites {
+            mode = .history
+        }
         if wasFiltered {
             query = ""
         }
@@ -91,8 +103,8 @@ final class HistoryViewModel: ObservableObject {
         }
         guard hasLoadedSnapshot, state != .error else { return }
 
-        if removedExpiredEntries || wasFiltered || hasUnpublishedSnapshotChanges || !hasCurrentUnfilteredState {
-            if wasFiltered {
+        if removedExpiredEntries || wasFiltered || wasFavorites || hasUnpublishedSnapshotChanges || !hasCurrentUnfilteredState {
+            if wasFiltered || wasFavorites {
                 schedulePagedSearch(selectFirstResult: true, debounce: false)
             } else {
                 publish(descriptors: loadedDescriptors, selectFirstResult: true)
@@ -121,8 +133,8 @@ final class HistoryViewModel: ObservableObject {
             pageCursor = nil
             hasMorePages = false
             let page = query.isEmpty
-                ? try await service.page()
-                : try await service.searchPage(query: query)
+                ? try await service.page(mode: mode)
+                : try await service.searchPage(query: query, mode: mode)
             pageCursor = page.nextCursor
             hasMorePages = page.hasMore
             loadedDescriptors = page.descriptors
@@ -143,6 +155,13 @@ final class HistoryViewModel: ObservableObject {
         schedulePagedSearch(selectFirstResult: true, debounce: true)
     }
 
+    func switchMode(to mode: HistoryFilterMode) {
+        guard self.mode != mode else { return }
+        self.mode = mode
+        favoriteFailure = nil
+        schedulePagedSearch(selectFirstResult: true, debounce: false)
+    }
+
     /// Requests exactly one next page. The table calls this when its viewport
     /// reaches the end; the generation/cursor guards make repeated scroll
     /// notifications harmless.
@@ -159,6 +178,7 @@ final class HistoryViewModel: ObservableObject {
 
         let generation = pagingGeneration
         let requestedQuery = query
+        let requestedMode = mode
         let pageTaskToken = UUID()
         isLoadingMore = true
         self.pageTaskToken = pageTaskToken
@@ -167,6 +187,7 @@ final class HistoryViewModel: ObservableObject {
             await self?.performLoadMore(
                 after: cursor,
                 query: requestedQuery,
+                mode: requestedMode,
                 generation: generation
             )
         }
@@ -177,16 +198,18 @@ final class HistoryViewModel: ObservableObject {
     private func performLoadMore(
         after cursor: HistoryPageCursor,
         query requestedQuery: String,
+        mode requestedMode: HistoryFilterMode,
         generation: Int
     ) async {
         guard !Task.isCancelled else { return }
         do {
             let page = requestedQuery.isEmpty
-                ? try await service.page(after: cursor)
-                : try await service.searchPage(query: requestedQuery, after: cursor)
+                ? try await service.page(after: cursor, mode: requestedMode)
+                : try await service.searchPage(query: requestedQuery, after: cursor, mode: requestedMode)
             guard !Task.isCancelled,
                   generation == pagingGeneration,
-                  requestedQuery == query
+                  requestedQuery == query,
+                  requestedMode == mode
             else { return }
             let nextDescriptors = page.descriptors
             loadedDescriptors.append(contentsOf: nextDescriptors)
@@ -253,6 +276,58 @@ final class HistoryViewModel: ObservableObject {
         pasteFailure = nil
     }
 
+    func setFavorite(id: UUID, isFavorite: Bool) async {
+        favoriteFailure = nil
+        do {
+            try await service.setFavorite(id: id, isFavorite: isFavorite)
+            guard let index = loadedDescriptors.firstIndex(where: { $0.id == id }) else { return }
+            let previous = loadedDescriptors[index]
+            let updated = HistoryOccurrenceDescriptor(
+                id: previous.id,
+                activityAt: previous.activityAt,
+                isFavorite: isFavorite,
+                searchRank: previous.searchRank,
+                textPreview: previous.textPreview,
+                representations: previous.representations,
+                imageMetadata: previous.imageMetadata,
+                referenceMetadata: previous.referenceMetadata
+            )
+            if mode == .favorites, !isFavorite {
+                let selectedBefore = selectedEntryID
+                loadedDescriptors.remove(at: index)
+                if hasMorePages {
+                    let previousSearchRank = pageCursor?.searchRank
+                    pageCursor = loadedDescriptors.last.map {
+                        HistoryPageCursor(
+                            activityAt: $0.activityAt,
+                            id: $0.id,
+                            searchRank: $0.searchRank ?? previousSearchRank
+                        )
+                    }
+                }
+                publish(descriptors: loadedDescriptors, selectFirstResult: false)
+                if selectedBefore == id {
+                    selectedEntryID = loadedDescriptors.first?.id
+                }
+                if hasMorePages { await loadMore() }
+            } else {
+                loadedDescriptors[index] = updated
+                publish(descriptors: loadedDescriptors, selectFirstResult: false)
+            }
+        } catch {
+            favoriteFailure = HistoryFavoriteFailure(
+                entryID: id,
+                desiredValue: isFavorite,
+                message: "Could not update the favorite marker. Try again."
+            )
+        }
+    }
+
+    func retryFavorite() async {
+        guard let favoriteFailure else { return }
+        await setFavorite(id: favoriteFailure.entryID, isFavorite: favoriteFailure.desiredValue)
+    }
+
     func beginPaste() {
         guard !isPasteInProgress else { return }
         pasteFailure = nil
@@ -278,6 +353,7 @@ final class HistoryViewModel: ObservableObject {
             let updated = HistoryOccurrenceDescriptor(
                 id: previous.id,
                 activityAt: activityAt,
+                isFavorite: previous.isFavorite,
                 searchRank: previous.searchRank,
                 textPreview: previous.textPreview,
                 representations: previous.representations,
@@ -315,6 +391,10 @@ final class HistoryViewModel: ObservableObject {
             guard let result = try await service.capture(capture) else { return nil }
             captureNotice = result.notice
             let entry = result.entry
+            if mode == .favorites {
+                schedulePagedSearch(selectFirstResult: true, debounce: false)
+                return entry
+            }
             let descriptor = Self.descriptor(from: entry)
             loadedDescriptors.removeAll { $0.id == entry.id }
             let insertionIndex = loadedDescriptors.firstIndex(where: { Self.isNewer(descriptor, than: $0) }) ?? loadedDescriptors.endIndex
@@ -472,6 +552,7 @@ final class HistoryViewModel: ObservableObject {
         searchTask?.cancel()
         pageTask?.cancel()
         let requestedQuery = query
+        let requestedMode = mode
         let delay = debounce ? searchDebounceNanoseconds : 0
 
         isSearchInProgress = true
@@ -490,11 +571,12 @@ final class HistoryViewModel: ObservableObject {
             }
             do {
                 let page = requestedQuery.isEmpty
-                    ? try await self.service.page()
-                    : try await self.service.searchPage(query: requestedQuery)
+                    ? try await self.service.page(mode: requestedMode)
+                    : try await self.service.searchPage(query: requestedQuery, mode: requestedMode)
                 guard !Task.isCancelled,
                       generation == self.searchGeneration,
-                      requestedQuery == self.query
+                      requestedQuery == self.query,
+                      requestedMode == self.mode
                 else { return }
                 self.loadedDescriptors = page.descriptors
                 self.pageCursor = page.nextCursor
@@ -503,7 +585,8 @@ final class HistoryViewModel: ObservableObject {
                 self.publish(descriptors: self.loadedDescriptors, selectFirstResult: selectFirstResult)
             } catch {
                 guard generation == self.searchGeneration,
-                      requestedQuery == self.query
+                      requestedQuery == self.query,
+                      requestedMode == self.mode
                 else { return }
                 self.isSearchInProgress = false
                 self.state = .error
@@ -546,9 +629,9 @@ final class HistoryViewModel: ObservableObject {
     private func discardExpiredSnapshotEntries() -> Bool {
         guard hasLoadedSnapshot else { return false }
         let cutoff = now().addingTimeInterval(-HistoryService.retention)
-        let expiredIDs = loadedDescriptors.filter { $0.activityAt <= cutoff }.map(\.id)
+        let expiredIDs = loadedDescriptors.filter { !$0.isFavorite && $0.activityAt <= cutoff }.map(\.id)
         let previousCount = loadedDescriptors.count
-        loadedDescriptors.removeAll { $0.activityAt <= cutoff }
+        loadedDescriptors.removeAll { !$0.isFavorite && $0.activityAt <= cutoff }
         for id in expiredIDs { removeThumbnail(for: id) }
         if loadedDescriptors.count != previousCount, hasMorePages {
             let previousSearchRank = pageCursor?.searchRank

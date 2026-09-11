@@ -1,7 +1,6 @@
 ---
 id: S026
 title: Typed History migration and release hardening
-status: done
 depends_on:
   - S014
   - S015

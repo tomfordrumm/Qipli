@@ -1,7 +1,6 @@
 ---
 id: S018
 title: Эффективное History storage
-status: done
 depends_on:
   - S017
 covers:

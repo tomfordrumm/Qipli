@@ -1,7 +1,6 @@
 ---
 id: S012
 title: Edge-to-edge Paste Stack с кастомным header
-status: done
 depends_on:
   - S007
   - S009

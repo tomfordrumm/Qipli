@@ -1,7 +1,6 @@
 ---
 id: S013
 title: Версии и безопасный public CI
-status: done
 depends_on: []
 covers:
   - BR-015

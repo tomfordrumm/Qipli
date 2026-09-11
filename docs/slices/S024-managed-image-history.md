@@ -1,7 +1,6 @@
 ---
 id: S024
 title: Managed image History
-status: done
 depends_on:
   - S023
 covers:

@@ -1,7 +1,6 @@
 ---
 id: S017
 title: Performance baselines и instrumentation
-status: done
 depends_on: []
 covers:
   - NFR-008

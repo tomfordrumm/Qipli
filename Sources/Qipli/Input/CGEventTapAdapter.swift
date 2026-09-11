@@ -17,6 +17,7 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private let shortcutSnapshotProvider: () -> ShortcutSnapshot
+    private let historyHotKey = RegisteredHistoryHotKey()
     static let eventTapOptions: CGEventTapOptions = .defaultTap
     private(set) var status: GlobalInputStatus = .stopped {
         didSet { onStatusChange?(status) }
@@ -47,12 +48,15 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         tap = newTap
         runLoopSource = source
+        historyHotKey.onPress = { [weak self] in self?.onHotKey?(.history) }
+        historyHotKey.update(shortcutSnapshotProvider().history)
         recoveryPolicy.recordHealthyEvent()
         status = .ready
         return status
     }
 
     func stop() {
+        historyHotKey.stop()
         if let source = runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
             CFRunLoopSourceInvalidate(source)
@@ -64,6 +68,11 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         tap = nil
         recoveryPolicy.recordHealthyEvent()
         status = .stopped
+    }
+
+    func refreshHistoryShortcut(_ binding: ShortcutBinding) {
+        guard tap != nil else { return }
+        historyHotKey.update(binding)
     }
 
     /// Platform-spike APIs for command dispatchers. They never read or log pasteboard content.
@@ -102,7 +111,8 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
             stackSessionIsActive: adapter.shouldConsumeEscape?() ?? false,
             stackPasteInterception: adapter.stackPasteInterception,
             reactivationPreviousInterception: adapter.reactivationPreviousInterception,
-            shortcutSnapshot: adapter.shortcutSnapshotProvider()
+            shortcutSnapshot: adapter.shortcutSnapshotProvider(),
+            historyHotKeyIsRegistered: adapter.historyHotKey.isRegistered
         )
         adapter.handle(type: type, event: event, action: action)
         return action == nil ? Unmanaged.passUnretained(event) : nil
@@ -175,7 +185,8 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         stackSessionIsActive: Bool,
         stackPasteInterception: (() -> StackPasteInputDisposition)? = nil,
         reactivationPreviousInterception: (() -> StackReactivationInputDisposition)? = nil,
-        shortcutSnapshot: ShortcutSnapshot = .defaults
+        shortcutSnapshot: ShortcutSnapshot = .defaults,
+        historyHotKeyIsRegistered: Bool = false
     ) -> GlobalInputAction? {
         guard type == .keyDown,
               !SyntheticEventMarker.isQipliSynthetic(
@@ -186,6 +197,8 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         }
 
         if let hotKey = hotKey(for: event, shortcutSnapshot: shortcutSnapshot) {
+            // Pass History to Carbon without also scheduling an event-tap action.
+            if hotKey == .history, historyHotKeyIsRegistered { return nil }
             return .hotKey(hotKey)
         }
 
@@ -277,4 +290,69 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         }
         status = .ready
     }
+}
+
+/// Registers only the History chord, so opening History does not depend on
+/// observing the keyboard stream while another app owns Secure Event Input.
+private final class RegisteredHistoryHotKey {
+    var onPress: (() -> Void)?
+    private var handler: EventHandlerRef?
+    private var hotKey: EventHotKeyRef?
+    private var binding: ShortcutBinding?
+    private static let signature: OSType = 0x51697048 // QipH
+    var isRegistered: Bool { hotKey != nil }
+
+    func update(_ binding: ShortcutBinding) {
+        guard self.binding != binding || hotKey == nil else { return }
+        stop()
+        var eventType = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed)
+        )
+        let installed = InstallEventHandler(
+            GetApplicationEventTarget(),
+            { _, event, context in
+                guard let event, let context else { return OSStatus(eventNotHandledErr) }
+                var identifier = EventHotKeyID()
+                guard GetEventParameter(
+                    event, EventParamName(kEventParamDirectObject),
+                    EventParamType(typeEventHotKeyID), nil,
+                    MemoryLayout<EventHotKeyID>.size, nil, &identifier
+                ) == noErr,
+                identifier.signature == RegisteredHistoryHotKey.signature,
+                identifier.id == 1 else { return OSStatus(eventNotHandledErr) }
+                let owner = Unmanaged<RegisteredHistoryHotKey>.fromOpaque(context).takeUnretainedValue()
+                owner.onPress?()
+                return noErr
+            },
+            1, &eventType, Unmanaged.passUnretained(self).toOpaque(), &handler
+        )
+        guard installed == noErr else { stop(); return }
+        let result = RegisterEventHotKey(
+            UInt32(binding.keyCode), Self.carbonModifiers(binding.modifiers),
+            EventHotKeyID(signature: Self.signature, id: 1),
+            GetApplicationEventTarget(), UInt32(kEventHotKeyExclusive), &hotKey
+        )
+        guard result == noErr else { stop(); return }
+        self.binding = binding
+    }
+
+    private static func carbonModifiers(_ modifiers: ShortcutModifiers) -> UInt32 {
+        var result: UInt32 = 0
+        if modifiers.contains(.command) { result |= UInt32(cmdKey) }
+        if modifiers.contains(.control) { result |= UInt32(controlKey) }
+        if modifiers.contains(.option) { result |= UInt32(optionKey) }
+        if modifiers.contains(.shift) { result |= UInt32(shiftKey) }
+        return result
+    }
+
+    func stop() {
+        if let hotKey { UnregisterEventHotKey(hotKey) }
+        if let handler { RemoveEventHandler(handler) }
+        hotKey = nil
+        handler = nil
+        binding = nil
+    }
+
+    deinit { stop() }
 }

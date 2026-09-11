@@ -12,7 +12,6 @@ final class PanelController {
     private let screenProvider: PanelScreenProviding
     private let topNotchScreenProvider: TopNotchScreenProviding
     private let openAccessibilitySettings: () -> Void
-    private let activationPresenter: PanelActivationPresenter
     private let materialProvider: PanelMaterialProvider
     private let topNotchInteractionBridge = TopNotchHistoryInteractionBridge()
     private let topNotchLayoutModel = TopNotchHistoryLayoutModel()
@@ -41,11 +40,7 @@ final class PanelController {
         frontmostApplicationCapture: FrontmostApplicationCapturing = SystemFrontmostApplicationCapture(),
         screenProvider: PanelScreenProviding = SystemPanelScreenProvider(),
         topNotchScreenProvider: TopNotchScreenProviding = SystemTopNotchScreenProvider(),
-        applicationActivator: QipliApplicationActivating? = nil,
         materialProvider: PanelMaterialProvider? = nil,
-        activationScheduler: @escaping (@escaping () -> Void) -> Void = { action in
-            RunLoop.main.perform(inModes: [.common]) { action() }
-        },
         openAccessibilitySettings: @escaping () -> Void
     ) {
         self.permissionService = permissionService
@@ -57,11 +52,6 @@ final class PanelController {
         self.topNotchScreenProvider = topNotchScreenProvider
         self.openAccessibilitySettings = openAccessibilitySettings
         self.materialProvider = materialProvider ?? PanelMaterialProvider()
-        let resolvedApplicationActivator = applicationActivator ?? SystemQipliApplicationActivator()
-        activationPresenter = PanelActivationPresenter(
-            application: resolvedApplicationActivator,
-            scheduleNextMainRunLoop: activationScheduler
-        )
         screenParametersObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -112,10 +102,10 @@ final class PanelController {
             compactRect: topNotchCompactRect(collapsedFrame: collapsedFrame, expandedFrame: expandedFrame),
             reduceMotion: reduceMotion
         )
+        topNotchInteractionBridge.resetViewportToStart()
         present(
             panel,
             requestSearchFocus: true,
-            requiresStrongUserActivation: true,
             preserveFrame: true,
             afterPresent: { [weak self, weak panel] in
                 guard let self, let panel else { return }
@@ -165,7 +155,6 @@ final class PanelController {
 
         present(
             panel,
-            activatesApplication: false,
             preserveFrame: true,
             afterPresent: { [weak self, weak panel] in
                 guard let self, let panel else { return }
@@ -283,7 +272,6 @@ final class PanelController {
         present(
             historyPanel,
             requestSearchFocus: true,
-            requiresStrongUserActivation: true,
             preserveFrame: true
         )
     }
@@ -488,8 +476,6 @@ final class PanelController {
     private func present(
         _ panel: NSPanel,
         requestSearchFocus: Bool = false,
-        requiresStrongUserActivation: Bool = false,
-        activatesApplication: Bool = true,
         preserveFrame: Bool = false,
         afterPresent: @escaping () -> Void = {}
     ) {
@@ -499,28 +485,15 @@ final class PanelController {
         } else {
             panel.center()
         }
-        guard activatesApplication else {
-            panel.orderFrontRegardless()
-            afterPresent()
-            return
+        // History is a nonactivating panel: key-window ownership, rather than
+        // NSApp.isActive, admits keyboard input even when Chrome retains its
+        // active status for a password field. Stack never requests key status.
+        panel.orderFrontRegardless()
+        if requestSearchFocus {
+            panel.makeKey()
+            historyViewModel.requestSearchFocus()
         }
-        // `NSApplication.activate()` is an asynchronous, best-effort request. The
-        // panel must still be visible if activation is denied or delayed, so order
-        // it before waiting for the active-only keyboard follow-up.
-        activationPresenter.presentImmediatelyThenWhenActive(
-            requiresStrongUserActivation: requiresStrongUserActivation,
-            present: { [weak panel] in
-                panel?.makeKeyAndOrderFront(nil)
-                afterPresent()
-            },
-            whenActive: { [weak self, weak panel] in
-                guard let panel else { return }
-                panel.makeKey()
-                if requestSearchFocus {
-                    self?.historyViewModel.requestSearchFocus()
-                }
-            }
-        )
+        afterPresent()
     }
 
     /// A screen object can outlive the display it represents. Resolve the
@@ -1084,7 +1057,7 @@ final class TopNotchHistoryPanel: NSPanel {
     var onCancel: (() -> Void)?
 
     override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
+    override var canBecomeMain: Bool { false }
 
     override func cancelOperation(_ sender: Any?) {
         onCancel?()
@@ -1125,63 +1098,15 @@ final class SystemQipliApplicationActivator: QipliApplicationActivating {
     func requestUserInitiatedActivation() {
         StrongUserInitiatedActivation.request()
     }
+
+
 }
 
-/// Isolates the only legacy activation call. The command was explicitly initiated
-/// from Qipli's menu or global hotkey, so stealing focus is necessary for its
-/// keyboard-first History surface to work.
+/// Settings and onboarding are conventional activating windows. History owns
+/// keyboard focus through its nonactivating panel instead of this adapter.
+@MainActor
 private enum StrongUserInitiatedActivation {
     static func request() {
         NSApp.activate(ignoringOtherApps: true)
-    }
-}
-
-/// Requests AppKit activation and performs an optional active-only follow-up.
-///
-/// Panel visibility is deliberately outside this bounded check: activation is
-/// cooperative and may not be accepted by the system immediately.
-@MainActor
-final class PanelActivationPresenter {
-    private let application: QipliApplicationActivating
-    private let scheduleNextMainRunLoop: (@escaping () -> Void) -> Void
-    private let maximumChecks: Int
-
-    init(
-        application: QipliApplicationActivating,
-        maximumChecks: Int = 3,
-        scheduleNextMainRunLoop: @escaping (@escaping () -> Void) -> Void = { action in
-            RunLoop.main.perform(inModes: [.common]) { action() }
-        }
-    ) {
-        self.application = application
-        self.maximumChecks = maximumChecks
-        self.scheduleNextMainRunLoop = scheduleNextMainRunLoop
-    }
-
-    /// Runs `present` before the requested activation path. The second closure is
-    /// only for work that requires Qipli to be active.
-    func presentImmediatelyThenWhenActive(
-        requiresStrongUserActivation: Bool,
-        present: @escaping () -> Void,
-        whenActive: @escaping () -> Void
-    ) {
-        present()
-        if requiresStrongUserActivation {
-            application.requestUserInitiatedActivation()
-        } else {
-            application.requestActivation()
-        }
-        performWhenActive(remainingChecks: maximumChecks, action: whenActive)
-    }
-
-    private func performWhenActive(remainingChecks: Int, action: @escaping () -> Void) {
-        guard !application.isActive else {
-            action()
-            return
-        }
-        guard remainingChecks > 1 else { return }
-        scheduleNextMainRunLoop { [weak self] in
-            self?.performWhenActive(remainingChecks: remainingChecks - 1, action: action)
-        }
     }
 }

@@ -1,7 +1,6 @@
 ---
 id: S004
 title: Сбор и визуальная панель Paste Stack
-status: done
 depends_on:
   - S002
 covers:
@@ -93,7 +92,7 @@ covers:
 - [x] Все acceptance criteria выполнены.
 - [x] Автоматические и ручные проверки пройдены.
 - [x] Приложение собирается без новой регрессии.
-- [x] `STATE.md` и frontmatter синхронно обновлены.
+- [x] `STATE.md` обновлён.
 - [x] `DECISIONS.md` синхронизирован: принято D-014 для изменённой семантики `⌘⇧C`; применяется D-010.
 - [x] Implementation report заполнен.
 

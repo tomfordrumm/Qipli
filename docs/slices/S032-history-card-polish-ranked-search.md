@@ -1,7 +1,6 @@
 ---
 id: S032
 title: Полировка карточек и релевантный поиск History
-status: needs_verification
 depends_on:
   - S023
   - S024

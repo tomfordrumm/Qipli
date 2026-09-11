@@ -19,7 +19,8 @@ off-by-default periodic update check.
 
 ## Privacy
 
-Qipli keeps 30 days of clipboard history on the current Mac, including copied
+Qipli keeps 30 days of clipboard history on the current Mac. Favorites remain until
+you remove them. History includes copied
 text, standard RTF/HTML formatting, URLs, filenames, file references, and managed
 images. It has no account, telemetry, cloud sync, or automatic secret filtering. Copied passwords or API
 keys can enter local history. Qipli uses the network only for a manual update
@@ -31,10 +32,9 @@ Source code and license: https://github.com/tomfordrumm/Qipli
 
 ## Changes
 
-- Faster History search, especially in larger collections.
-- Lighter History browsing: cards load compact display data while full clipboard content remains available for search and paste.
-- Lower repeated disk work when managing stored images and formatted text.
-- Bounded capture queues and a thumbnail cache that releases images under memory pressure.
-- Removed unused compatibility code and moved test helpers out of the app.
+- Mark History items as favorites and browse or search them in a dedicated filter.
+- Keep favorite items and their stored content beyond automatic History expiry.
+- Open and use History from password fields, with improved keyboard and search focus.
+- Return to the first History item whenever the panel is opened.
 
 Existing History is migrated automatically, preserving clipboard content and formatting.

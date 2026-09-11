@@ -1,7 +1,6 @@
 ---
 id: S006
 title: Последовательная вставка и прогресс
-status: done
 depends_on:
   - S001
   - S005
@@ -94,7 +93,7 @@ covers:
 - [x] Все acceptance criteria выполнены.
 - [x] Автоматические и ручные проверки пройдены.
 - [x] Приложение собирается без новой регрессии.
-- [x] `STATE.md` и frontmatter синхронно обновлены.
+- [x] `STATE.md` обновлён.
 - [x] Новые значимые решения записаны в `DECISIONS.md`.
 - [x] Implementation report заполнен.
 

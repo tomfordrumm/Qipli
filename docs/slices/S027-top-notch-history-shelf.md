@@ -1,7 +1,6 @@
 ---
 id: S027
 title: Top Notch History shelf
-status: done
 depends_on:
   - S016
   - S024
@@ -51,7 +50,8 @@ covers:
 
 ## Системные и UI-контракты
 
-- Target application и presentation session фиксируются до активации Qipli. Panel становится key только по явному History action, потому что Search должен принять ввод.
+- Target application и presentation session фиксируются до показа History. Nonactivating panel становится key по явному History action, чтобы Search принял ввод независимо от `NSApp.isActive`; внешний target может сохранять active status.
+- Каждый явный show выбирает первый элемент и сбрасывает native clip origin к началу до reveal animation, включая повторное открытие с неизменными snapshot/selection. Обычные snapshot/thumbnail updates не меняют ручную прокрутку; paste-failure reopen сохраняет retry context.
 - Screen выбирается по user target window, затем по mouse screen, main/first screen как bounded fallback. Геометрия использует `safeAreaInsets`, auxiliary top areas и `visibleFrame`; physical notch dimensions не зашиваются.
 - На camera-housing display анимация начинается из geometry физической челки и раскрывается вниз и в стороны. Состояние `hidden` не рисует Qipli surface или hit area: после обратного схлопывания panel вызывает `orderOut`, и на экране остаётся только физический вырез. На notchless display панель центрирована у верхней границы доступной рабочей области и не перекрывает menu bar.
 - `NSCollectionView` переиспользует item views. Data source получает только bounded descriptors; exact payload materialized только после single paste reservation.

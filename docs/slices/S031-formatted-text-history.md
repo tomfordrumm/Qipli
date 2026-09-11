@@ -1,7 +1,6 @@
 ---
 id: S031
 title: Форматированный текст в History
-status: needs_verification
 depends_on:
   - S023
   - S026

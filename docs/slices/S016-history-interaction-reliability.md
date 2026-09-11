@@ -1,7 +1,6 @@
 ---
 id: S016
 title: Надёжная навигация и закрытие History
-status: done
 depends_on:
   - S003
 covers:

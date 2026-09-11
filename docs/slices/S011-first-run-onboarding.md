@@ -1,7 +1,6 @@
 ---
 id: S011
 title: Опциональный first-run onboarding
-status: done
 depends_on:
   - S010
 covers:
@@ -102,7 +101,7 @@ covers:
 - [x] Все acceptance criteria выполнены.
 - [x] Автоматические и ручные проверки пройдены.
 - [x] Приложение собирается без новой регрессии.
-- [x] `STATE.md` и frontmatter синхронно обновлены.
+- [x] `STATE.md` обновлён.
 - [x] Реализация следует D-019 и D-021; новых значимых решений не потребовалось.
 - [x] Implementation report заполнен.
 

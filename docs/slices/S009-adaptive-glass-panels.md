@@ -1,7 +1,6 @@
 ---
 id: S009
 title: Адаптивные стеклянные панели
-status: done
 depends_on:
   - S001
   - S003
@@ -106,7 +105,7 @@ History, Paste Stack и Permission выглядят как единая нати
 - [x] Все acceptance criteria выполнены.
 - [x] Автоматические и ручные проверки пройдены или явно приняты пользователем как verification deviation.
 - [x] Приложение собирается без новой регрессии.
-- [x] `STATE.md` и frontmatter синхронно обновлены.
+- [x] `STATE.md` обновлён.
 - [x] Новые значимые решения записаны в `DECISIONS.md` (D-016); новых архитектурных решений в финальной verification нет.
 - [x] Implementation report заполнен.
 

@@ -3,6 +3,25 @@ import XCTest
 @testable import Qipli
 
 final class TopNotchHistoryShelfTests: XCTestCase {
+    @MainActor
+    func testPresentationResetsNativeScrollEvenWithUnchangedSnapshot() {
+        let collectionView = NSCollectionView(frame: NSRect(x: 0, y: 0, width: 3_000, height: 180))
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 180))
+        scrollView.documentView = collectionView
+        let bridge = TopNotchHistoryInteractionBridge()
+        bridge.attach(collectionView: collectionView)
+
+        for offset in [600.0, 1_200.0] {
+            scrollView.contentView.scroll(to: NSPoint(x: offset, y: 0))
+            bridge.applySnapshot(entryIDs: [], selectedEntryID: nil)
+            // Ordinary snapshot/thumbnail updates must preserve manual scrolling.
+            XCTAssertEqual(scrollView.contentView.bounds.origin.x, offset, accuracy: 0.1)
+
+            bridge.resetViewportToStart()
+            XCTAssertEqual(scrollView.contentView.bounds.origin.x, 0, accuracy: 0.1)
+        }
+    }
+
     func testDisconnectedPreferredDisplayIsRejectedBeforePlacement() {
         XCTAssertNil(
             TopNotchDisplaySelection.resolvedPreferredDisplayID(
@@ -162,12 +181,14 @@ final class TopNotchHistoryShelfTests: XCTestCase {
             id: UUID(),
             text: String(repeating: "x", count: 500),
             activityAt: Date(),
-            representations: [HistoryRepresentationDescriptor(kind: .text, typeIdentifier: "public.utf8-plain-text")]
+            representations: [HistoryRepresentationDescriptor(kind: .text, typeIdentifier: "public.utf8-plain-text")],
+            isFavorite: true
         )
 
         let descriptor = TopNotchHistoryCardDescriptor.make(entry: entry)
 
         XCTAssertEqual(descriptor.kind, .text)
+        XCTAssertTrue(descriptor.isFavorite)
         XCTAssertEqual(descriptor.detail.count, HistoryPreview.maximumCharacters + 1)
         XCTAssertTrue(descriptor.detail.hasSuffix("…"))
     }
@@ -302,6 +323,42 @@ final class TopNotchHistoryShelfTests: XCTestCase {
                 visibleEntryIDs: [firstID, secondID]
             ).reloadData
         )
+    }
+
+    func testCollectionReconcilerUpdatesFavoriteCardWithoutReloadingAllCards() {
+        let id = UUID()
+        let base = TopNotchHistoryCardDescriptor(
+            id: id,
+            isFavorite: false,
+            kind: .text,
+            title: "Text",
+            detail: "favorite fixture",
+            accessibilityLabel: "Text: favorite fixture"
+        )
+        let favorite = TopNotchHistoryCardDescriptor(
+            id: id,
+            isFavorite: true,
+            kind: .text,
+            title: "Text",
+            detail: "favorite fixture",
+            accessibilityLabel: "Text: favorite fixture"
+        )
+
+        let plan = TopNotchHistoryCollectionReconciler.plan(
+            force: false,
+            lastRevision: 1,
+            lastIDs: [id],
+            snapshotRevision: 2,
+            ids: [id],
+            thumbnailUpdateRevisionsByEntryID: [:],
+            lastThumbnailUpdateRevisionsByEntryID: [:],
+            visibleEntryIDs: [id],
+            lastCards: [base],
+            cards: [favorite]
+        )
+
+        XCTAssertFalse(plan.reloadData)
+        XCTAssertEqual(plan.cardEntryIDs, [id])
     }
 
     func testCollectionSelectionReconcilerIsNoOpForAlreadyAppliedSelection() {

@@ -120,6 +120,9 @@ private final class SystemHistoryPasteTarget: HistoryPasteTarget {
 
     func activate() -> Bool {
         guard !application.isTerminated else { return false }
+        // Nonactivating History can own keyboard focus while the captured app
+        // remains active. Closing the panel releases that focus before dispatch.
+        if application.isActive { return true }
         NSApp.yieldActivation(to: application)
         return application.activate(from: .current, options: [])
     }
