@@ -2,7 +2,7 @@
 
 Этот файл сохранён из прежнего `docs/STATE.md` 2026-09-08. Он содержит исторические snapshots и журнал переходов. Текущие статусы находятся только в [`STATE.md`](STATE.md).
 
-Последняя историческая актуализация: 2026-09-07
+Последняя историческая актуализация: 2026-09-15
 
 Этот файл не является источником текущих статусов.
 
@@ -268,3 +268,4 @@ S026 завершён: HistoryStore `33/33`, полный SwiftPM `222/222`, mig
 | 2026-09-03 | Добавлен S031 `ready` для formatted-text History; D-039 принят. | Пользователь подтвердил default rich paste, exact `⇧Enter` plain paste и сохранение plain-only occurrence при rich overflow. Документация фиксирует raw allowlisted RTF/HTML, managed bounded storage, unchanged `⌘⇧V`/Paste Stack и source/target manual matrix; product code не менялся. |
 | 2026-09-03 | S031 реализован и переведён в `needs_verification`. | Добавлены canonical plain + allowlisted raw RTF/HTML capture, opaque managed storage с integrity/limits/lifecycle, default rich paste, exact `⇧Enter` plain paste, per-item fallback, mixed typed routing и plain-only overflow fallback. Focused S031 storage/paste/input checks: 30/30 без failures; отдельный reader contract test пропущен в headless-среде без named pasteboards. Full SwiftPM собрал 242 tests, но host `insufficientDiskSpace`, unavailable named pasteboards и inaccessible Xcode SwiftPM cache оставили unrelated/manual gates открытыми. |
 | 2026-09-03 | Пользователь подтвердил ручные проверки S031. | Manual source/target, relaunch, deletion/Clear All и active Stack checks считаются принятыми. Статус остаётся `needs_verification` до clean Xcode/release verification, недоступной в текущем окружении. |
+| 2026-09-15 | S033 переведён в `done`. | Пользователь подтвердил полную ручную установленную matrix и сообщил, что использует compact Paste Stack несколько дней. Hover/collapse без задержки приняты. Свежий полный SwiftPM suite: 255 tests, 0 failures, 5 skipped; focused S033: 29/29. |

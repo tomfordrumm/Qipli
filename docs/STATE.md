@@ -1,10 +1,15 @@
 # Qipli — текущее состояние проекта
 
-Последняя актуализация: 2026-09-11
+Последняя актуализация: 2026-09-15
 
 Источник operational-статусов: этот файл. Исторические переходы и прежние verification snapshots находятся в [`STATE-HISTORY.md`](STATE-HISTORY.md).
 
 ## Текущее положение
+
+### Qipli Dev identity
+
+Статус: `needs_verification`. D-045 реализован: Debug `Qipli Dev.app` / `com.qipli.app.dev`, Apple Development, отдельные настройки, общий History store/assets и отключённый Sparkle. Подписанный universal `build-for-testing` прошёл; существующие `SecureUpdaterSettingsTests` 3/3; Release settings сохраняют `Qipli.app` / `com.qipli.app`. Strict codesign verification прошёл на копии в `/private/tmp/qipli-dev-identity-check/Qipli Dev.app` без Finder xattrs: Documents file provider повторно добавляет недопустимый FinderInfo к build test bundle. Проверка Accessibility остаётся за пользователем: обычный Cmd+R из Xcode, выдать Dev доступ, пересобрать и проверить сохранение доступа обеих версий. Версии запускать по очереди.
+
 
 - Основная ветка работы: `release/1.0.10`, версия `1.0.10`, build `11`. Release notes подготовлены; следующий delivery gate — push ветки, pull request в защищённый `main`, unsigned CI, merge и protected release workflow.
 - Последняя опубликованная версия по GitHub Releases — `v1.0.9` от 2026-09-07; наличие публикации перепроверено 2026-09-11, бинарные artifacts в этой проверке не проверялись. Публикация DMG/ZIP, appcast и реальный Sparkle update для `v1.0.10` ещё не выполнены.
@@ -13,6 +18,12 @@
 - S028 остаётся в backlog по D-038. S029 возвращён в активный план по D-042; M12 описывает избранное в Top Notch.
 - S014 имеет статус `needs_verification`: публичный `v1.0.8` подтверждён, остаётся operational immutable-rerun proof и clean-machine macOS 14 install/launch.
 - S008 остаётся `blocked` до закрытия release verification matrix, связанной с S014.
+
+## Новая запланированная работа
+
+S033 реализован и принят по D-043: Stack начинает в compact presentation с bounded side previews, pending/status/direction indicators, раскрытием без задержки, explicit accessibility expansion и geometry-aware hit testing. Synthetic geometry, focused/full SwiftPM suites, unsigned universal Xcode Debug build и ручная установленная matrix подтверждены пользователем. После S033 запланирован S034: rich text/images, typed paste и session ownership по D-044. Предыдущий release snapshot ниже не перепроверялся этой задачей.
+
+S035 добавлен как план вырезания файлов с индикацией в компактном окне. Предложен Finder-only сценарий ⌘X → ⌘V; scope и platform probe остаются открыты по D-046. Реализация не начата, приоритет относительно S034 не назначен.
 
 ## Текущая работа
 
@@ -82,8 +93,13 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 | S030 | Paste Stack в Top Notch | `done` | S007, S012, S021, S027 |
 | S031 | Форматированный текст в History | `needs_verification` | installed Sparkle update с сохранением History |
 | S032 | Полировка карточек и релевантный поиск History | `needs_verification` | installed-app visual/search/accessibility matrix |
+| S033 | Компактный Paste Stack по центру | `done` | S030; automated checks и ручная установленная matrix подтверждены пользователем |
+| S034 | Rich text и изображения в Paste Stack | `planned` | S033, S024, S031; signed-update gate S031 сохраняется перед delivery |
+| S035 | Вырезание файлов с индикацией в чёлке | `planned` | S033, S025; подтверждение scope и Finder platform probe D-046 |
 
 ## Блокеры и recheck points
+
+- S033: закрыт после пользовательского подтверждения ручной установленной matrix. Release signing/update gates ведутся отдельно и не блокируют этот срез.
 
 - S014/S008: нужен operational immutable rerun опубликованного release tag и clean-machine macOS 14 verification.
 - S031: implementation, automated checks, manual acceptance и signed public release подтверждены; остаётся реальный installed Sparkle update smoke.
@@ -93,6 +109,10 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 - Ограничение BL-006, отключение дисплея во время Top Notch reveal, принято и не блокирует S030.
 
 ## Последняя проверка
+
+- 2026-09-15: пользователь подтвердил полную ручную приёмку S033 и несколько дней использования compact Paste Stack. Hover/collapse работают без задержки; runtime, display и accessibility gates считаются закрытыми как user-reported acceptance. Свежий полный SwiftPM suite: 255 tests, 0 failures, 5 skipped; focused S033: 29/29.
+
+- 2026-09-14: S033 implementation: compact/expanded Stack presentation, bounded camera-band geometry, bounded hit regions, hover/accessibility lifecycle и screen-parameter repositioning. Subagent review findings по ширине regions, collapse re-entry, interaction hold и stale geometry timers исправлены; финальный review actionable findings не выявил. Focused `TopNotchHistoryShelfTests`: 29 tests, 0 failures; full SwiftPM: 255 tests, 0 failures, 5 skipped; unsigned universal Xcode Debug build passed. Реальный installed-app MacBook/menu-band/accessibility matrix на тот момент ещё не выполнялся.
 
 - 2026-09-11: release candidate `1.0.10` / build `11`: 248 SwiftPM tests, 0 failures; universal unsigned Release build; version и runtime linking для arm64/x86_64; release-contract tests 13/13, version-validator tests 8/8, CI contract, public-readiness audit и `git diff --check` прошли. Signing, notarization и installed Sparkle update этим прогоном не проверялись.
 
@@ -107,6 +127,9 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 - 2026-09-04: `v1.0.8` signed/notarized public release независимо проверен; installed update остаётся отдельным gate S031.
 
 ## Следующее действие
+
+S033 закрыт. Следующий срез по зависимости — S034; отдельные release gates S014/S008, S031 и S032 остаются в общем порядке ниже.
+
 
 1. Проверить сброс History к первому элементу после прокрутки и повторного открытия; отдельно проверить custom shortcut/reset и обычное text field.
 2. Выполнить S032 installed-app visual/search/accessibility matrix, включая card reuse, selection-only update, URL-first search и exact `⇧Backspace`.

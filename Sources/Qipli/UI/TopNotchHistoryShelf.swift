@@ -35,6 +35,152 @@ enum TopNotchPresentationStateMachine {
     }
 }
 
+enum PasteStackPresentationState: Equatable {
+    case hidden
+    case compact
+    case expanding
+    case expanded
+    case collapsing
+    case dismissing
+}
+
+enum PasteStackPresentationEvent: Equatable {
+    case show
+    case expand
+    case expansionFinished
+    case collapse
+    case collapseFinished
+    case dismiss
+    case dismissalFinished
+}
+
+enum PasteStackPresentationStateMachine {
+    static func transition(
+        _ state: PasteStackPresentationState,
+        event: PasteStackPresentationEvent
+    ) -> PasteStackPresentationState {
+        switch (state, event) {
+        case (.hidden, .show), (.dismissing, .show):
+            .compact
+        case (.compact, .expand), (.collapsing, .expand):
+            .expanding
+        case (.expanding, .expansionFinished):
+            .expanded
+        case (.expanded, .collapse), (.expanding, .collapse):
+            .collapsing
+        case (.collapsing, .collapseFinished):
+            .compact
+        case (.compact, .dismiss), (.expanding, .dismiss), (.expanded, .dismiss), (.collapsing, .dismiss):
+            .dismissing
+        case (.dismissing, .dismissalFinished):
+            .hidden
+        default:
+            state
+        }
+    }
+}
+
+/// The bounded window and visible hit regions used by compact Paste Stack.
+/// All rectangles are in global screen coordinates until converted by the
+/// `local...` accessors below.
+struct PasteStackCompactGeometry: Equatable {
+    let panelFrame: NSRect
+    let leftContentRect: NSRect
+    let rightContentRect: NSRect
+    let isNotched: Bool
+
+    var localLeftContentRect: CGRect {
+        leftContentRect.offsetBy(dx: -panelFrame.minX, dy: -panelFrame.minY)
+    }
+
+    var localRightContentRect: CGRect {
+        rightContentRect.offsetBy(dx: -panelFrame.minX, dy: -panelFrame.minY)
+    }
+
+    var localInteractiveRegions: [CGRect] {
+        [CGRect(origin: .zero, size: panelFrame.size)]
+    }
+
+    static func make(
+        screenFrame: NSRect,
+        visibleFrame: NSRect,
+        safeAreaInsets: NSEdgeInsets,
+        auxiliaryTopLeftArea: NSRect? = nil,
+        auxiliaryTopRightArea: NSRect? = nil
+    ) -> Self {
+        let isNotched: Bool = {
+            guard safeAreaInsets.top > 0,
+                  let auxiliaryTopLeftArea,
+                  let auxiliaryTopRightArea
+            else { return false }
+            return auxiliaryTopRightArea.minX > auxiliaryTopLeftArea.maxX
+        }()
+        let menuHeight = max(0, screenFrame.maxY - visibleFrame.maxY)
+        let bandHeight = min(max(1, screenFrame.height), safeAreaInsets.top > 0 ? safeAreaInsets.top : max(24, menuHeight))
+        let horizontalPadding: CGFloat = 10
+        let verticalPadding: CGFloat = 4
+        let top = screenFrame.maxY
+
+        if isNotched, let leftArea = auxiliaryTopLeftArea, let rightArea = auxiliaryTopRightArea {
+            let halfWidth = max(screenFrame.midX - leftArea.maxX, rightArea.minX - screenFrame.midX) + 64
+            let width = min(screenFrame.width, halfWidth * 2)
+            let frame = NSRect(x: screenFrame.midX - width / 2, y: top - bandHeight, width: width, height: bandHeight)
+            let content = inset(frame, horizontal: horizontalPadding, vertical: verticalPadding)
+            return Self(
+                panelFrame: frame,
+                leftContentRect: NSRect(x: content.minX, y: content.minY, width: max(0, leftArea.maxX - 8 - content.minX), height: content.height),
+                rightContentRect: NSRect(x: rightArea.minX + 8, y: content.minY, width: max(0, content.maxX - rightArea.minX - 8), height: content.height),
+                isNotched: true
+            )
+        }
+
+        let width = min(max(180, visibleFrame.width), 200)
+        let panelX = min(
+            max(screenFrame.midX - width / 2, screenFrame.minX),
+            max(screenFrame.minX, screenFrame.maxX - width)
+        )
+        let panelFrame = NSRect(
+            x: panelX,
+            y: top - bandHeight,
+            width: min(width, screenFrame.width),
+            height: bandHeight
+        )
+        let contentRect = inset(
+            panelFrame,
+            horizontal: horizontalPadding,
+            vertical: verticalPadding
+        )
+        let gap: CGFloat = min(12, max(6, contentRect.width * 0.04))
+        let leftWidth = max(1, contentRect.width * 0.58 - gap / 2)
+        let leftContentRect = NSRect(
+            x: contentRect.minX,
+            y: contentRect.minY,
+            width: min(leftWidth, contentRect.width),
+            height: contentRect.height
+        )
+        let rightContentRect = NSRect(
+            x: min(contentRect.maxX - max(1, contentRect.width - leftWidth - gap), contentRect.maxX),
+            y: contentRect.minY,
+            width: max(1, contentRect.width - leftWidth - gap),
+            height: contentRect.height
+        )
+        return Self(
+            panelFrame: panelFrame,
+            leftContentRect: leftContentRect,
+            rightContentRect: rightContentRect,
+            isNotched: isNotched
+        )
+    }
+
+    private static func inset(_ rect: NSRect, horizontal: CGFloat, vertical: CGFloat) -> NSRect {
+        guard !rect.isEmpty else { return .zero }
+        return rect.insetBy(
+            dx: min(horizontal, rect.width / 2),
+            dy: min(vertical, rect.height / 2)
+        )
+    }
+}
+
 enum TopNotchHistoryGeometry {
     static let defaultPanelSize = NSSize(width: 1_080, height: 276)
     static let minimumPanelSize = NSSize(width: 560, height: 220)
@@ -138,10 +284,16 @@ final class TopNotchHistorySurfaceView: NSView {
     private let shapeMask = CAShapeLayer()
     private weak var presentationContentView: NSView?
     private var maskTarget: MaskTarget = .expanded
+    private var interactiveRegions: [CGRect]?
+    private var trackingAreasStorage: [NSTrackingArea] = []
+
+    var onPointerEntered: (() -> Void)?
+    var onPointerExited: (() -> Void)?
 
     private enum MaskTarget {
         case expanded
         case compact(CGRect)
+        case compactRegions([CGRect])
     }
 
     override var isFlipped: Bool { true }
@@ -179,6 +331,45 @@ final class TopNotchHistorySurfaceView: NSView {
         presentationContentView?.alphaValue = 0
     }
 
+    func prepareForExpandedPresentation(preservingContentAlpha: Bool = false) {
+        shapeMask.removeAllAnimations()
+        maskTarget = .expanded
+        updateMaskForCurrentLayout()
+        let presentationAlpha: CGFloat
+        if preservingContentAlpha,
+           let opacity = presentationContentView?.layer?.presentation()?.opacity {
+            presentationAlpha = CGFloat(opacity)
+        } else if preservingContentAlpha {
+            presentationAlpha = presentationContentView?.alphaValue ?? 1
+        } else {
+            presentationAlpha = 0
+        }
+        presentationContentView?.layer?.removeAllAnimations()
+        presentationContentView?.alphaValue = presentationAlpha
+    }
+
+    func showCompactSurface(regions: [CGRect]) {
+        shapeMask.removeAllAnimations()
+        maskTarget = .compactRegions(regions)
+        updateMaskForCurrentLayout()
+        presentationContentView?.layer?.removeAllAnimations()
+        presentationContentView?.alphaValue = 1
+    }
+
+    func animateStackReveal(from rect: CGRect, duration: TimeInterval, reversing: Bool) {
+        if !reversing {
+            shapeMask.removeAllAnimations()
+            maskTarget = .compactRegions([rect])
+            updateMaskForCurrentLayout()
+            presentationContentView?.alphaValue = 0
+        }
+        animateMask(to: .expanded, duration: duration, startsFromPresentation: reversing)
+    }
+
+    func animateStackCollapse(to rect: CGRect, duration: TimeInterval) {
+        animateMask(to: .compactRegions([rect]), duration: duration, startsFromPresentation: true)
+    }
+
     func animateReveal(duration: TimeInterval) {
         // `prepareForReveal` updates the model layer before the panel is ordered
         // onscreen. Its presentation layer can still contain the previous
@@ -191,6 +382,14 @@ final class TopNotchHistorySurfaceView: NSView {
         animateMask(to: .compact(compactRect), duration: duration, startsFromPresentation: true)
     }
 
+    func animateDismiss(toCompactRegions regions: [CGRect], duration: TimeInterval) {
+        // Fade content while the window changes to its compact frame, then
+        // install the compact mask at the endpoint.
+        maskTarget = .compactRegions(regions)
+        updateMaskForCurrentLayout()
+        animateContentAlpha(to: 0, duration: duration)
+    }
+
     func restoreExpandedPresentation() {
         shapeMask.removeAllAnimations()
         maskTarget = .expanded
@@ -200,6 +399,41 @@ final class TopNotchHistorySurfaceView: NSView {
 
     func animateContentAlpha(to alpha: CGFloat) {
         presentationContentView?.animator().alphaValue = alpha
+    }
+
+    func animateContentAlpha(to alpha: CGFloat, duration: TimeInterval) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            presentationContentView?.animator().alphaValue = alpha
+        }
+    }
+
+    func setInteractiveRegions(_ regions: [CGRect]?) {
+        interactiveRegions = regions
+        rebuildTrackingAreas()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        rebuildTrackingAreas()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let interactiveRegions,
+           !interactiveRegions.contains(where: { $0.contains(point) }) {
+            return nil
+        }
+        return super.hitTest(point)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        onPointerEntered?()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onPointerExited?()
     }
 
     private func animateMask(
@@ -257,17 +491,35 @@ final class TopNotchHistorySurfaceView: NSView {
             Self.surfacePath(in: bounds)
         case let .compact(rect):
             Self.surfacePath(in: rect.intersection(bounds))
+        case let .compactRegions(regions):
+            Self.compactSurfacePath(for: regions.map { $0.intersection(bounds) })
         }
     }
 
-    static func surfacePath(in bounds: CGRect) -> CGPath {
+    private func rebuildTrackingAreas() {
+        trackingAreasStorage.forEach(removeTrackingArea)
+        trackingAreasStorage.removeAll(keepingCapacity: true)
+        guard let interactiveRegions else { return }
+        for rect in interactiveRegions where !rect.isEmpty {
+            let trackingArea = NSTrackingArea(
+                rect: rect,
+                options: [.mouseEnteredAndExited, .activeAlways],
+                owner: self,
+                userInfo: nil
+            )
+            addTrackingArea(trackingArea)
+            trackingAreasStorage.append(trackingArea)
+        }
+    }
+
+    static func surfacePath(in bounds: CGRect, topCornerRadius: CGFloat = TopNotchHistoryGeometry.topCornerRadius, bottomCornerRadius: CGFloat = TopNotchHistoryGeometry.bottomCornerRadius) -> CGPath {
         let topRadius = min(
-            TopNotchHistoryGeometry.topCornerRadius,
+            topCornerRadius,
             bounds.width / 4,
             bounds.height
         )
         let bottomRadius = min(
-            TopNotchHistoryGeometry.bottomCornerRadius,
+            bottomCornerRadius,
             max(0, (bounds.width - topRadius * 2) / 2),
             max(0, bounds.height - topRadius)
         )
@@ -301,6 +553,14 @@ final class TopNotchHistorySurfaceView: NSView {
         )
         path.addLine(to: CGPoint(x: bounds.minX, y: bounds.minY))
         path.closeSubpath()
+        return path
+    }
+
+    static func compactSurfacePath(for regions: [CGRect]) -> CGPath {
+        let path = CGMutablePath()
+        for region in regions where !region.isEmpty {
+            path.addPath(surfacePath(in: region, topCornerRadius: 8, bottomCornerRadius: 10))
+        }
         return path
     }
 }
