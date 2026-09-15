@@ -66,6 +66,173 @@ final class TopNotchHistoryShelfTests: XCTestCase {
         XCTAssertEqual(frame.midX, 2_576, accuracy: 0.001)
     }
 
+    func testCompactCameraGeometryUsesContinuousBandWithCameraSafeContent() {
+        let screenFrame = NSRect(x: 0, y: 0, width: 1_512, height: 982)
+        let left = NSRect(x: 0, y: 945, width: 586, height: 37)
+        let right = NSRect(x: 926, y: 945, width: 586, height: 37)
+        let geometry = PasteStackCompactGeometry.make(
+            screenFrame: screenFrame,
+            visibleFrame: NSRect(x: 0, y: 0, width: 1_512, height: 950),
+            safeAreaInsets: NSEdgeInsets(top: 37, left: 0, bottom: 0, right: 0),
+            auxiliaryTopLeftArea: left,
+            auxiliaryTopRightArea: right
+        )
+
+        XCTAssertTrue(geometry.isNotched)
+        XCTAssertLessThanOrEqual(geometry.leftContentRect.maxX, left.maxX - 8)
+        XCTAssertGreaterThanOrEqual(geometry.rightContentRect.minX, right.minX + 8)
+        XCTAssertEqual(geometry.panelFrame.maxY, screenFrame.maxY, accuracy: 0.001)
+        XCTAssertEqual(geometry.panelFrame.height, 37, accuracy: 0.001)
+        XCTAssertEqual(geometry.panelFrame.width, 468, accuracy: 0.001)
+        XCTAssertEqual(geometry.panelFrame.midX, screenFrame.midX, accuracy: 0.001)
+        XCTAssertTrue(geometry.panelFrame.contains(geometry.leftContentRect))
+        XCTAssertTrue(geometry.panelFrame.contains(geometry.rightContentRect))
+        let localPanelBounds = NSRect(origin: .zero, size: geometry.panelFrame.size)
+        XCTAssertTrue(geometry.localInteractiveRegions.allSatisfy {
+            localPanelBounds.contains($0)
+        })
+        XCTAssertEqual(geometry.localInteractiveRegions, [localPanelBounds])
+    }
+
+    func testCompactNotchlessGeometryUsesCenteredSingleBand() {
+        let geometry = PasteStackCompactGeometry.make(
+            screenFrame: NSRect(x: 100, y: 40, width: 1_000, height: 800),
+            visibleFrame: NSRect(x: 100, y: 40, width: 1_000, height: 760),
+            safeAreaInsets: NSEdgeInsets()
+        )
+
+        XCTAssertFalse(geometry.isNotched)
+        XCTAssertEqual(geometry.panelFrame.midX, 600, accuracy: 0.001)
+        XCTAssertEqual(geometry.panelFrame.maxY, 840, accuracy: 0.001)
+        XCTAssertEqual(geometry.localInteractiveRegions, [CGRect(origin: .zero, size: geometry.panelFrame.size)])
+        XCTAssertTrue(geometry.panelFrame.contains(geometry.leftContentRect))
+        XCTAssertTrue(geometry.panelFrame.contains(geometry.rightContentRect))
+    }
+
+    @MainActor
+    func testCompactPointerReentryReversesCollapseWithoutReturningToCompact() {
+        let model = PasteStackPresentationModel()
+        var preservesCurrentAlpha = false
+        model.onIntent = { intent in
+            if case let .expand(_, preservesCurrentAlpha: preserves) = intent {
+                preservesCurrentAlpha = preserves
+            }
+        }
+        let geometry = PasteStackCompactGeometry.make(
+            screenFrame: NSRect(x: 0, y: 0, width: 1_000, height: 800),
+            visibleFrame: NSRect(x: 0, y: 0, width: 1_000, height: 760),
+            safeAreaInsets: NSEdgeInsets()
+        )
+        model.beginSession(geometry: geometry)
+        model.requestExpand(source: .click)
+        let expansionToken = model.generation
+        model.finishExpansion(token: expansionToken)
+        model.requestCollapse()
+        XCTAssertEqual(model.state, .collapsing)
+
+        model.pointerEntered()
+
+        XCTAssertEqual(model.state, .expanding)
+        XCTAssertNotEqual(model.generation, expansionToken)
+        XCTAssertTrue(preservesCurrentAlpha)
+    }
+
+    @MainActor
+    func testGeometryChangeReconcilesEveryActivePresentationTransition() {
+        let model = PasteStackPresentationModel()
+        let firstGeometry = PasteStackCompactGeometry.make(
+            screenFrame: NSRect(x: 0, y: 0, width: 1_000, height: 800),
+            visibleFrame: NSRect(x: 0, y: 0, width: 1_000, height: 760),
+            safeAreaInsets: NSEdgeInsets()
+        )
+        let secondGeometry = PasteStackCompactGeometry.make(
+            screenFrame: NSRect(x: 1_000, y: 0, width: 1_000, height: 800),
+            visibleFrame: NSRect(x: 1_000, y: 0, width: 1_000, height: 760),
+            safeAreaInsets: NSEdgeInsets()
+        )
+        let thirdGeometry = PasteStackCompactGeometry.make(
+            screenFrame: NSRect(x: -1_000, y: 0, width: 1_000, height: 800),
+            visibleFrame: NSRect(x: -1_000, y: 0, width: 1_000, height: 760),
+            safeAreaInsets: NSEdgeInsets()
+        )
+        let fourthGeometry = PasteStackCompactGeometry.make(
+            screenFrame: NSRect(x: 2_000, y: 0, width: 1_000, height: 800),
+            visibleFrame: NSRect(x: 2_000, y: 0, width: 1_000, height: 760),
+            safeAreaInsets: NSEdgeInsets()
+        )
+        model.beginSession(geometry: firstGeometry)
+
+        model.requestExpand(source: .click)
+        let staleExpansionToken = model.generation
+        model.updateGeometry(secondGeometry)
+        XCTAssertEqual(model.state, .expanding)
+        XCTAssertNotEqual(model.generation, staleExpansionToken)
+        model.finishExpansion(token: model.generation)
+        XCTAssertEqual(model.state, .expanded)
+
+        model.requestCollapse()
+        let staleCollapseToken = model.generation
+        model.updateGeometry(thirdGeometry)
+        XCTAssertEqual(model.state, .compact)
+        XCTAssertNotEqual(model.generation, staleCollapseToken)
+        model.finishCollapse(token: staleCollapseToken)
+        XCTAssertEqual(model.state, .compact)
+
+        model.requestDismissal()
+        let staleDismissalToken = model.generation
+        model.updateGeometry(fourthGeometry)
+        XCTAssertEqual(model.state, .dismissing)
+        XCTAssertNotEqual(model.generation, staleDismissalToken)
+        model.finishDismissal(token: model.generation)
+        XCTAssertEqual(model.state, .hidden)
+    }
+
+    @MainActor
+    func testCompactGeometryChangeCancelsPendingHoverAndRequiresFreshEntry() async {
+        let model = PasteStackPresentationModel()
+        let initialGeometry = PasteStackCompactGeometry.make(
+            screenFrame: NSRect(x: 0, y: 0, width: 1_000, height: 800),
+            visibleFrame: NSRect(x: 0, y: 0, width: 1_000, height: 760),
+            safeAreaInsets: NSEdgeInsets()
+        )
+        let changedGeometry = PasteStackCompactGeometry.make(
+            screenFrame: NSRect(x: 1_000, y: 0, width: 1_000, height: 800),
+            visibleFrame: NSRect(x: 1_000, y: 0, width: 1_000, height: 760),
+            safeAreaInsets: NSEdgeInsets()
+        )
+        model.beginSession(geometry: initialGeometry)
+        model.pointerEntered()
+        model.updateGeometry(changedGeometry)
+
+        try? await Task.sleep(nanoseconds: 350_000_000)
+
+        XCTAssertEqual(model.state, .compact)
+        model.pointerEntered()
+        XCTAssertEqual(model.state, .compact)
+    }
+
+    @MainActor
+    func testMouseInteractionHoldPreventsCollapseUntilRelease() {
+        let model = PasteStackPresentationModel()
+        let geometry = PasteStackCompactGeometry.make(
+            screenFrame: NSRect(x: 0, y: 0, width: 1_000, height: 800),
+            visibleFrame: NSRect(x: 0, y: 0, width: 1_000, height: 760),
+            safeAreaInsets: NSEdgeInsets()
+        )
+        model.beginSession(geometry: geometry)
+        model.requestExpand(source: .click)
+        let expansionToken = model.generation
+        model.finishExpansion(token: expansionToken)
+        model.beginInteractionHold()
+        model.pointerExited()
+        model.requestCollapse()
+        XCTAssertEqual(model.state, .expanded)
+
+        model.endInteractionHold()
+
+        XCTAssertEqual(model.state, .expanded)
+    }
+
     func testNotchlessPlacementAnchorsToPhysicalScreenTop() {
         let frame = TopNotchHistoryGeometry.frame(
             screenFrame: NSRect(x: 100, y: 40, width: 1_000, height: 800),
@@ -174,6 +341,35 @@ final class TopNotchHistoryShelfTests: XCTestCase {
         XCTAssertEqual(state, .dismissing)
         state = TopNotchPresentationStateMachine.transition(state, event: .show)
         XCTAssertEqual(state, .appearing)
+    }
+
+    @MainActor
+    func testPasteStackPresentationKeepsAccessibilityExpansionUntilExplicitCollapse() {
+        let geometry = PasteStackCompactGeometry.make(
+            screenFrame: NSRect(x: 0, y: 0, width: 1_512, height: 982),
+            visibleFrame: NSRect(x: 0, y: 0, width: 1_512, height: 950),
+            safeAreaInsets: NSEdgeInsets(top: 37, left: 0, bottom: 0, right: 0),
+            auxiliaryTopLeftArea: NSRect(x: 0, y: 945, width: 586, height: 37),
+            auxiliaryTopRightArea: NSRect(x: 926, y: 945, width: 586, height: 37)
+        )
+        let model = PasteStackPresentationModel()
+        model.beginSession(geometry: geometry)
+        XCTAssertEqual(model.state, .compact)
+
+        model.requestExpand(source: .accessibility)
+        let expansionToken = model.generation
+        XCTAssertEqual(model.state, .expanding)
+        model.finishExpansion(token: expansionToken)
+        XCTAssertEqual(model.state, .expanded)
+
+        model.pointerExited()
+        model.requestCollapse()
+        XCTAssertEqual(model.state, .expanded)
+
+        model.requestExplicitCollapse()
+        XCTAssertEqual(model.state, .collapsing)
+        model.finishCollapse(token: model.generation)
+        XCTAssertEqual(model.state, .compact)
     }
 
     func testCardDescriptorUsesBoundedTypeAwareMetadata() {
