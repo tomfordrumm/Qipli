@@ -240,6 +240,9 @@ final class PasteStackPresentationModel: ObservableObject {
 struct PasteStackPanelView: View {
     @ObservedObject var sessionController: StackSessionController
     @ObservedObject var presentationModel: PasteStackPresentationModel
+    @ObservedObject var historyViewModel: HistoryViewModel
+    let thumbnailData: (UUID) -> Data?
+    let requestThumbnail: (UUID) -> Void
     let expand: () -> Void
     let collapse: () -> Void
     let close: () -> Void
@@ -307,6 +310,7 @@ struct PasteStackPanelView: View {
 
     private var compactPreviews: some View {
         let previews = Array(sessionController.occurrences.suffix(3))
+        let thumbnailRevisions = historyViewModel.thumbnailUpdateRevisionsByEntryID
         return GeometryReader { proxy in
             let side = max(1, min(proxy.size.height - 6, proxy.size.width - 8))
             ZStack(alignment: .topLeading) {
@@ -323,15 +327,11 @@ struct PasteStackPanelView: View {
                             .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.white.opacity(0.35), lineWidth: 0.5))
                             .frame(width: side, height: side)
                             .overlay(alignment: .topLeading) {
-                                Text(compactPreview(for: occurrence.text))
-                                    .font(.system(size: 8, weight: .medium))
-                                    .foregroundStyle(.white)
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.leading)
-                                    .allowsTightening(true)
-                                    .padding(3)
-                                    .frame(width: side, height: side, alignment: .topLeading)
-                                    .clipped()
+                                compactPreview(
+                                    for: occurrence,
+                                    side: side,
+                                    thumbnailRevision: thumbnailRevisions[occurrence.payloadHandle.historyEntryID] ?? 0
+                                )
                             }
                             .offset(x: depth * 3, y: depth * 3)
                     }
@@ -341,7 +341,7 @@ struct PasteStackPanelView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(previews.isEmpty ? "Paste Stack is empty" : "Recent Paste Stack items")
-        .accessibilityValue(previews.map { compactPreview(for: $0.text) }.joined(separator: ", "))
+        .accessibilityValue(previews.map { compactPreviewText(for: $0) }.joined(separator: ", "))
     }
 
     private var compactStatus: some View {
@@ -385,6 +385,47 @@ struct PasteStackPanelView: View {
         let preview = StackPreview.text(for: text)
         guard preview.count > 32 else { return preview }
         return String(preview.prefix(31)) + "…"
+    }
+
+    @ViewBuilder
+    private func compactPreview(for occurrence: StackOccurrence, side: CGFloat, thumbnailRevision: Int) -> some View {
+        if occurrence.payloadHandle.kind == .image {
+            if occurrence.state == .unavailable {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(.yellow)
+                    .frame(width: side, height: side)
+            } else if let data = thumbnailData(occurrence.payloadHandle.historyEntryID),
+                      let image = NSImage(data: data) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: side, height: side)
+                    .clipped()
+                    .id(thumbnailRevision)
+            } else {
+                Image(systemName: "photo")
+                    .foregroundStyle(.secondary)
+                    .frame(width: side, height: side)
+                    .id(thumbnailRevision)
+                    .onAppear { requestThumbnail(occurrence.payloadHandle.historyEntryID) }
+            }
+        } else {
+            Text(compactPreview(for: occurrence.text))
+                .font(.system(size: 8, weight: .medium))
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .allowsTightening(true)
+                .padding(3)
+                .frame(width: side, height: side, alignment: .topLeading)
+                .clipped()
+        }
+    }
+
+    private func compactPreviewText(for occurrence: StackOccurrence) -> String {
+        occurrence.payloadHandle.kind == .image
+            ? occurrence.payloadHandle.displayName
+            : compactPreview(for: occurrence.text)
     }
 
     private var header: some View {
@@ -453,8 +494,10 @@ struct PasteStackPanelView: View {
             message
         } else if sessionController.hasCaptureError {
             "Qipli could not save the last copied text. Copy it again to retry."
+        } else if let captureNotice = sessionController.captureNotice {
+            captureNotice
         } else if sessionController.hasNonTextCaptureNotice {
-            "Non-text item saved to History. Paste Stack currently accepts text only."
+            "This item was saved to History, but it is not supported in Paste Stack."
         } else {
             nil
         }
@@ -484,6 +527,7 @@ struct PasteStackPanelView: View {
         let isNext = !sessionController.hasReactivationPriority
             && sessionController.nextOccurrenceID == occurrence.id
         let isUsed = occurrence.state == .used
+        let isUnavailable = occurrence.state == .unavailable
         let isPriorityNext = isNext || isReactivationPriority
         let accessibleMoves = controlState.accessibilityMoveDirections(position: index)
 
@@ -505,6 +549,10 @@ struct PasteStackPanelView: View {
                     ProgressView()
                         .controlSize(.small)
                         .accessibilityLabel("Preparing paste")
+                } else if isUnavailable {
+                    Label("Unavailable", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.yellow)
                 } else if isUsed {
                     Label("Used", systemImage: "checkmark.circle.fill")
                         .font(.caption)
@@ -512,9 +560,7 @@ struct PasteStackPanelView: View {
                 }
             }
 
-            Text(StackPreview.text(for: occurrence.text))
-                .font(.system(size: 14, weight: .medium))
-                .lineLimit(3)
+            occurrencePreview(occurrence)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
             HStack(spacing: 4) {
@@ -574,6 +620,54 @@ struct PasteStackPanelView: View {
                 Button(PasteStackPanelAccessibility.moveActionLabel(direction: .down)) {
                     execute(.moveOccurrence(occurrence.id, by: 1))
                 }
+            }
+        }
+        .onAppear {
+            if occurrence.payloadHandle.kind == .image,
+               occurrence.state != .unavailable,
+               thumbnailData(occurrence.payloadHandle.historyEntryID) == nil {
+                requestThumbnail(occurrence.payloadHandle.historyEntryID)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func occurrencePreview(_ occurrence: StackOccurrence) -> some View {
+        let thumbnailRevision = historyViewModel.thumbnailUpdateRevisionsByEntryID[occurrence.payloadHandle.historyEntryID] ?? 0
+        if occurrence.state == .unavailable {
+            VStack(alignment: .leading, spacing: 4) {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(.yellow)
+                Text("Unavailable")
+                    .font(.system(size: 14, weight: .medium))
+                Text("Cancel and collect it again.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } else if occurrence.payloadHandle.kind == .image {
+            if let data = thumbnailData(occurrence.payloadHandle.historyEntryID),
+               let image = NSImage(data: data) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .id(thumbnailRevision)
+                    .accessibilityLabel(occurrence.payloadHandle.displayName)
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: 28))
+                    .foregroundStyle(.secondary)
+                    .id(thumbnailRevision)
+                    .accessibilityLabel("Image preview unavailable")
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(occurrence.payloadHandle.displayName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(StackPreview.text(for: occurrence.text))
+                    .font(.system(size: 14, weight: .medium))
+                    .lineLimit(3)
             }
         }
     }

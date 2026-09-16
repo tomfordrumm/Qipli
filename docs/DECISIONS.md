@@ -425,3 +425,20 @@
 - Решение: вернуть S029 из BL-005 в активный план независимо от S028. History/Favorites переключаются в существующей панели; Search ограничивается выбранным режимом. Favorite является marker существующей occurrence, сохраняется после relaunch и защищает owned payload от expiry. Toggle не меняет activityAt.
 - Уточнения планирования: History включает favorites; режим сбрасывается на History при новом открытии. Ручные Delete/Clear All сохраняют смысл и включают favorites, UI сообщает это явно. Существующие media quotas остаются общими, favorite не даёт quota exemption. Эти детали сохраняют текущие data/delete contracts и не добавляют пользовательских разделов.
 - Последствия: D-037 заменён; D-038 сохраняется для Top Notch и отложенного S028, но больше не откладывает S029. Нужны migration, изменения всех read/expiry predicates, asset lifecycle и query identity. Категории, переименование, сохранённые стеки, password vault и image-as-file не входят в это решение. Implementation и verification ещё не выполнены.
+
+## D-043: Единый компактный Paste Stack по центру
+
+- Статус: `accepted`
+- Дата: 2026-09-14
+- Уточнение пользователя после просмотра реализации: заменить две боковые области одним центральным блоком. Панель начинается от верхнего края и заканчивается на нижней границе camera housing или строки меню.
+- Решение: единая поверхность адаптивного размера от верхнего края экрана на всю высоту чёлки или строки меню; на notchless display у верхнего края. Квадратные карточки стопкой слева вне физического выреза, общее число скопированных элементов справа. Окно и hit region ограничены блоком.
+- Hover/click раскрывают прежнюю полную панель. Session/input/persistence и ordinary Cmd+V вне Stack не меняются. Пользователь подтвердил ручную приёмку на устройстве 2026-09-15; mutable status среза ведётся в `STATE.md`.
+
+## D-044: Rich text и изображения в Stack после компактной presentation
+
+- Статус: `accepted`
+- Дата: 2026-09-14
+- Источник: пользователь выбрал «Оба: окно, затем rich text и картинки» при подготовке документации.
+- Решение: S034 расширяет Stack existing text/RTF/HTML и inline-image payloads после S033. Используются existing History storage/materializer/writer, один copy остаётся одной occurrence. File/video, mixed image+reference и arbitrary/private types не входят в scope. S031 text-only Stack restriction заменяется только для этой новой поставки.
+- Уточнения планирования: owned payload удерживается session lease, expiry не ломает активную серию, bytes входят в существующие quotas. Explicit Delete отзывает exact payload/preview и оставляет unavailable позицию, Clear All отменяет Stack перед очисткой. UI сообщает эти последствия. При paste нет молчаливой потери форматирования или пропуска картинки; новый plain-paste shortcut не добавляется. Это конкретизация хранения/удаления при планировании, а не отдельное пользовательское подтверждение каждой детали.
+- Последствия: потребуются async materialization в Stack executor, ownership/revocation contracts и tests гонок с delete/cancel. Rich/image bytes не копируются в UI и не создают второй неограниченный store. Процессный lease не сохраняет Stack после relaunch. Реализация, ручная matrix и signed update остаются непроверенными.

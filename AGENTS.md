@@ -78,3 +78,5 @@
 
 Сначала добавляйте раздел в существующий документ. `docs/STATE.md` остаётся коротким operational snapshot, а не changelog или audit log. Исторические переходы и подробные старые evidence выносите в `docs/STATE-HISTORY.md` или документ соответствующего домена. Выносите отдельный файл только для самостоятельного домена с собственным жизненным циклом. После выноса оставляйте одну точку истины, исправляйте ссылки и карту документов.
 <!-- END EASY PRD WORKFLOW -->
+- `docs/slices/S033-compact-notch-paste-stack.md` — единый центральный compact Paste Stack, раскрытие без задержки и проверка menu-band placement.
+- `docs/slices/S034-rich-image-paste-stack.md` — rich text/images в Stack, typed paste, previews и session ownership.

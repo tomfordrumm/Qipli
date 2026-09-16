@@ -17,6 +17,78 @@ final class HistoryStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testStackCollectionKeepsRichTextAndMultipleImagesAsTypedPayloadHandles() async throws {
+        let store = try makeStore()
+        defer { store.close() }
+        let history = HistoryViewModel(service: HistoryService(store: store))
+        let controller = StackSessionController()
+        XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: 10))
+        let coordinator = StackCollectionCaptureCoordinator(
+            historyViewModel: history,
+            stackSessionController: controller
+        )
+        let context = controller.captureContext
+        let thumbnailLoaded = expectation(description: "stack thumbnail loaded")
+        let thumbnailObservation = history.$thumbnailUpdateRevisionsByEntryID.sink { revisions in
+            if !revisions.isEmpty {
+                thumbnailLoaded.fulfill()
+            }
+        }
+
+        coordinator.enqueueExternalRichText(
+            [HistoryRichTextCaptureItem(
+                order: 0,
+                canonicalText: "rich stack fixture",
+                representations: [
+                    HistoryRichTextCaptureRepresentation(typeIdentifier: "public.rtf", data: Data("rtf".utf8)),
+                    HistoryRichTextCaptureRepresentation(typeIdentifier: "public.html", data: Data("html".utf8))
+                ]
+            )],
+            canonicalText: "rich stack fixture",
+            observedChangeCount: 11,
+            stackCaptureContext: context
+        )
+        let imageData = try makeImageData(width: 2, height: 2, format: .png)
+        coordinator.enqueueExternalImage(
+            [
+                ManagedImageCaptureItem(order: 0, representations: [
+                    ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: imageData)
+                ]),
+                ManagedImageCaptureItem(order: 1, representations: [
+                    ManagedImageCaptureRepresentation(typeIdentifier: "public.png", data: imageData)
+                ])
+            ],
+            observedChangeCount: 12,
+            stackCaptureContext: context
+        )
+        await coordinator.drainPendingCaptures()
+        await fulfillment(of: [thumbnailLoaded], timeout: 2)
+        thumbnailObservation.cancel()
+
+        XCTAssertEqual(controller.occurrences.map(\.payloadHandle.kind), [.richText, .image])
+        XCTAssertEqual(controller.occurrences.map(\.payloadHandle.itemCount), [1, 2])
+        XCTAssertEqual(controller.occurrences.map(\.text), ["rich stack fixture", ""])
+        XCTAssertTrue(controller.occurrences.allSatisfy { $0.payloadHandle.historyEntryID == $0.historyEntryID })
+        XCTAssertNotNil(history.thumbnailData(for: controller.occurrences[1].historyEntryID))
+    }
+
+    func testActiveStackPayloadLeaseProtectsAnExpiredHistoryEntryUntilReleased() throws {
+        let store = try makeStore()
+        defer { store.close() }
+        let entry = try store.create(text: "lease fixture", activityAt: Date(timeIntervalSinceNow: -10))
+        let lease = try XCTUnwrap(store.acquireStackPayloadLease(occurrenceID: entry.id, sessionID: UUID()))
+
+        XCTAssertTrue(store.isStackPayloadLeaseValid(lease))
+        _ = try store.fetchCurrent(since: Date())
+        XCTAssertNotNil(try store.fetchEntry(id: entry.id))
+
+        store.releaseStackPayloadLease(lease)
+        XCTAssertFalse(store.isStackPayloadLeaseValid(lease))
+        _ = try store.fetchCurrent(since: Date())
+        XCTAssertNil(try store.fetchEntry(id: entry.id))
+    }
+
+    @MainActor
     func testMemoryPressureReleasesThumbnailCacheAndAllowsItToRefill() async throws {
         let store = try makeStore()
         defer { store.close() }

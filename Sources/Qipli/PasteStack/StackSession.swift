@@ -7,6 +7,51 @@ enum StackOccurrenceState: Equatable, Sendable {
     case pending
     case processing
     case used
+    case unavailable
+}
+
+enum StackPayloadKind: String, Equatable, Sendable {
+    case text
+    case richText
+    case image
+}
+
+/// An immutable, payload-free pointer used by the Stack session. Rich text and
+/// image bytes stay in the History stores until a reservation is produced.
+struct StackPayloadHandle: Equatable, Sendable {
+    let historyEntryID: UUID
+    let kind: StackPayloadKind
+    let itemCount: Int
+
+    init(historyEntryID: UUID, kind: StackPayloadKind, itemCount: Int = 1) {
+        self.historyEntryID = historyEntryID
+        self.kind = kind
+        self.itemCount = max(1, itemCount)
+    }
+
+    init(entry: HistoryEntry) {
+        let kind: StackPayloadKind
+        let itemCount: Int
+        if entry.isImageEntry {
+            kind = .image
+            itemCount = max(1, entry.managedImageItems.count)
+        } else if entry.hasRichText {
+            kind = .richText
+            itemCount = 1
+        } else {
+            kind = .text
+            itemCount = 1
+        }
+        self.init(historyEntryID: entry.id, kind: kind, itemCount: itemCount)
+    }
+
+    var displayName: String {
+        switch kind {
+        case .text: "Text"
+        case .richText: "Rich text"
+        case .image: itemCount == 1 ? "Image" : "\(itemCount) images"
+        }
+    }
 }
 
 /// One in-memory reference to a successfully persisted clipboard occurrence.
@@ -15,6 +60,7 @@ struct StackOccurrence: Identifiable, Equatable, Sendable {
     let id: UUID
     let historyEntryID: UUID
     let text: String
+    let payloadHandle: StackPayloadHandle
     /// The contiguous base visible order for this session.
     let position: Int
     let state: StackOccurrenceState
@@ -24,11 +70,13 @@ struct StackOccurrence: Identifiable, Equatable, Sendable {
         historyEntryID: UUID,
         text: String,
         position: Int,
+        payloadHandle: StackPayloadHandle? = nil,
         state: StackOccurrenceState = .pending
     ) {
         self.id = id
         self.historyEntryID = historyEntryID
         self.text = text
+        self.payloadHandle = payloadHandle ?? StackPayloadHandle(historyEntryID: historyEntryID, kind: .text)
         self.position = position
         self.state = state
     }
@@ -80,7 +128,7 @@ enum StackNextOccurrenceResolver {
                 if occurrence.id == reactivationPriorityID, occurrence.state == .used {
                     return index
                 }
-                if pendingFallback == nil, occurrence.state == .pending {
+                if pendingFallback == nil, isPasteCandidate(occurrence.state) {
                     pendingFallback = index
                     if reactivationPriorityID == nil { return index }
                 }
@@ -92,13 +140,17 @@ enum StackNextOccurrenceResolver {
                 if occurrence.id == reactivationPriorityID, occurrence.state == .used {
                     return index
                 }
-                if pendingFallback == nil, occurrence.state == .pending {
+                if pendingFallback == nil, isPasteCandidate(occurrence.state) {
                     pendingFallback = index
                     if reactivationPriorityID == nil { return index }
                 }
             }
         }
         return pendingFallback
+    }
+
+    private static func isPasteCandidate(_ state: StackOccurrenceState) -> Bool {
+        state == .pending || state == .unavailable
     }
 }
 
@@ -108,6 +160,19 @@ struct StackPasteReservation: Equatable, Sendable {
     let sessionID: UUID
     let occurrence: StackOccurrence
     let origin: StackPasteReservationOrigin
+    let pasteboardChangeCount: Int?
+
+    init(
+        sessionID: UUID,
+        occurrence: StackOccurrence,
+        origin: StackPasteReservationOrigin,
+        pasteboardChangeCount: Int? = nil
+    ) {
+        self.sessionID = sessionID
+        self.occurrence = occurrence
+        self.origin = origin
+        self.pasteboardChangeCount = pasteboardChangeCount
+    }
 }
 
 /// In-memory Stack state machine. Its base order and traversal direction are
@@ -120,6 +185,8 @@ final class StackSession {
     private(set) var traversalHasStarted = false
     private(set) var reservedOccurrenceID: UUID?
     private(set) var reservedOccurrenceOrigin: StackPasteReservationOrigin?
+    private(set) var reservedOccurrencePreviousState: StackOccurrenceState?
+    private(set) var reservedPasteboardChangeCount: Int?
     /// At most one already-used occurrence can take precedence over traversal.
     /// It intentionally survives a failed retry and is cleared only after its
     /// tagged paste command dispatch completes.
@@ -128,6 +195,8 @@ final class StackSession {
     /// updated only after Qipli successfully dispatches tagged Command-V.
     private(set) var lastSuccessfullyDispatchedOccurrenceID: UUID?
     private let onNextTraversalVisit: (() -> Void)?
+    private var payloadLeases: [UUID: HistoryStackPayloadLease] = [:]
+    private var pendingDeletionHistoryEntryIDs = Set<UUID>()
 
     var nextOccurrence: StackOccurrence? {
         guard let index = nextOccurrenceIndex else { return nil }
@@ -151,14 +220,21 @@ final class StackSession {
     }
 
     @discardableResult
-    func append(historyEntry: HistoryEntry) -> StackOccurrence {
+    func append(
+        historyEntry: HistoryEntry,
+        payloadLease: HistoryStackPayloadLease? = nil
+    ) -> StackOccurrence {
         let occurrence = StackOccurrence(
             id: UUID(),
             historyEntryID: historyEntry.id,
             text: historyEntry.text,
-            position: occurrences.count
+            position: occurrences.count,
+            payloadHandle: StackPayloadHandle(entry: historyEntry)
         )
         occurrences.append(occurrence)
+        if let payloadLease {
+            payloadLeases[occurrence.id] = payloadLease
+        }
         occurrencesRevision &+= 1
         return occurrence
     }
@@ -166,7 +242,7 @@ final class StackSession {
     /// Atomically selects either the one-shot reactivation priority or the
     /// traversal next occurrence, then locks traversal. The caller must either
     /// complete or release this reservation.
-    func reserveNextOccurrenceForPaste() -> StackOccurrence? {
+    func reserveNextOccurrenceForPaste(pasteboardChangeCount: Int? = nil) -> StackOccurrence? {
         guard reservedOccurrenceID == nil, let index = nextOccurrenceIndex else { return nil }
         let nextOccurrence = occurrences[index]
         traversalHasStarted = true
@@ -174,6 +250,8 @@ final class StackSession {
         reservedOccurrenceOrigin = nextOccurrence.id == reactivationPriorityID
             ? .reactivation
             : .traversal
+        reservedOccurrencePreviousState = nextOccurrence.state
+        reservedPasteboardChangeCount = pasteboardChangeCount
         occurrences[index] = replacingState(of: nextOccurrence, with: .processing)
         occurrencesRevision &+= 1
         return occurrences[index]
@@ -185,6 +263,8 @@ final class StackSession {
         updateOccurrence(id: id, state: .used)
         reservedOccurrenceID = nil
         self.reservedOccurrenceOrigin = nil
+        reservedOccurrencePreviousState = nil
+        reservedPasteboardChangeCount = nil
         if reservedOccurrenceOrigin == .reactivation, reactivationPriorityID == id {
             reactivationPriorityID = nil
         }
@@ -195,9 +275,11 @@ final class StackSession {
     @discardableResult
     func releaseReservation(id: UUID) -> Bool {
         guard reservedOccurrenceID == id, let reservedOccurrenceOrigin else { return false }
-        updateOccurrence(id: id, state: reservedOccurrenceOrigin == .reactivation ? .used : .pending)
+        updateOccurrence(id: id, state: reservedOccurrencePreviousState ?? (reservedOccurrenceOrigin == .reactivation ? .used : .pending))
         reservedOccurrenceID = nil
         self.reservedOccurrenceOrigin = nil
+        reservedOccurrencePreviousState = nil
+        reservedPasteboardChangeCount = nil
         return true
     }
 
@@ -216,7 +298,9 @@ final class StackSession {
     /// pending traversal cursor. Repeating the same request is safe.
     @discardableResult
     func reactivateOccurrence(id: UUID) -> Bool {
-        guard occurrence(id: id)?.state == .used
+        guard let occurrence = occurrence(id: id),
+              occurrence.state == .used,
+              !pendingDeletionHistoryEntryIDs.contains(occurrence.historyEntryID)
         else { return false }
         reactivationPriorityID = id
         return true
@@ -233,6 +317,58 @@ final class StackSession {
               reactivateOccurrence(id: lastSuccessfullyDispatchedOccurrenceID)
         else { return .consume }
         return .consumeAndReactivate
+    }
+
+    func payloadLease(for occurrenceID: UUID) -> HistoryStackPayloadLease? {
+        payloadLeases[occurrenceID]
+    }
+
+    func takePayloadLeases() -> [HistoryStackPayloadLease] {
+        let leases = Array(payloadLeases.values)
+        payloadLeases.removeAll()
+        return leases
+    }
+
+    @discardableResult
+    func prepareHistoryDeletion(for historyEntryID: UUID) -> Bool {
+        guard occurrences.contains(where: { $0.historyEntryID == historyEntryID }) else { return false }
+        if let reservedOccurrence,
+           reservedOccurrence.historyEntryID == historyEntryID {
+            _ = releaseReservation(id: reservedOccurrence.id)
+        }
+        pendingDeletionHistoryEntryIDs.insert(historyEntryID)
+        return true
+    }
+
+    func cancelHistoryDeletion(for historyEntryID: UUID) {
+        pendingDeletionHistoryEntryIDs.remove(historyEntryID)
+    }
+
+    func finalizeHistoryDeletion(for historyEntryID: UUID) -> [HistoryStackPayloadLease] {
+        pendingDeletionHistoryEntryIDs.remove(historyEntryID)
+        var revokedLeases: [HistoryStackPayloadLease] = []
+        var revokedOccurrenceIDs = Set<UUID>()
+        for index in occurrences.indices where occurrences[index].historyEntryID == historyEntryID {
+            let occurrenceID = occurrences[index].id
+            revokedOccurrenceIDs.insert(occurrenceID)
+            if reservedOccurrenceID == occurrenceID {
+                reservedOccurrenceID = nil
+                reservedOccurrenceOrigin = nil
+                reservedOccurrencePreviousState = nil
+                reservedPasteboardChangeCount = nil
+            }
+            if let lease = payloadLeases.removeValue(forKey: occurrenceID) {
+                revokedLeases.append(lease)
+            }
+            occurrences[index] = replacingState(of: occurrences[index], with: .unavailable)
+        }
+        if let priorityID = self.reactivationPriorityID, revokedOccurrenceIDs.contains(priorityID) {
+            self.reactivationPriorityID = nil
+        }
+        if !revokedOccurrenceIDs.isEmpty {
+            occurrencesRevision &+= 1
+        }
+        return revokedLeases
     }
 
     /// Replaces the base order atomically. Exact occurrence IDs, rather than
@@ -253,6 +389,7 @@ final class StackSession {
                 historyEntryID: occurrence.historyEntryID,
                 text: occurrence.text,
                 position: position,
+                payloadHandle: occurrence.payloadHandle,
                 state: occurrence.state
             )
         }
@@ -304,13 +441,16 @@ final class StackSession {
             historyEntryID: occurrence.historyEntryID,
             text: occurrence.text,
             position: occurrence.position,
+            payloadHandle: occurrence.payloadHandle,
             state: state
         )
     }
 }
 
-enum StackPasteFailure: Equatable {
+enum StackPasteFailure: Error, Equatable {
     case accessibilityRequired
+    case payloadUnavailable
+    case pasteboardChanged
     case pasteboardWriteFailed
     case commandDispatchFailed
     case inputUnavailable
@@ -319,6 +459,10 @@ enum StackPasteFailure: Equatable {
         switch self {
         case .accessibilityRequired:
             "Accessibility access is required before Qipli can send the next stack item. Restore access and try again."
+        case .payloadUnavailable:
+            "This Paste Stack item is no longer available. Cancel the stack and collect it again."
+        case .pasteboardChanged:
+            "The clipboard changed while Qipli prepared this item. Nothing was pasted; try again."
         case .pasteboardWriteFailed:
             "Qipli could not prepare the system clipboard. Try the next stack item again."
         case .commandDispatchFailed:
@@ -336,6 +480,7 @@ final class StackSessionController: ObservableObject {
     private(set) var traversalHasStarted = false
     @Published private(set) var hasCaptureError = false
     @Published private(set) var hasNonTextCaptureNotice = false
+    @Published private(set) var captureNotice: String?
     @Published private(set) var nonTextCaptureFailureMessage: String?
     @Published private(set) var hasCopyCommandDispatchFailure = false
     @Published private(set) var pasteFailure: StackPasteFailure?
@@ -344,6 +489,7 @@ final class StackSessionController: ObservableObject {
 
     private(set) var session: StackSession?
     private let onNextTraversalVisit: (() -> Void)?
+    private let releasePayloadLeases: ([HistoryStackPayloadLease]) -> Void
     private var publishedSessionID: UUID?
     private var publishedOccurrencesRevision: UInt64 = 0
 
@@ -367,15 +513,20 @@ final class StackSessionController: ObservableObject {
         return StackPasteReservation(
             sessionID: session.captureContext.sessionID,
             occurrence: occurrence,
-            origin: origin
+            origin: origin,
+            pasteboardChangeCount: session.reservedPasteboardChangeCount
         )
     }
     /// Snapshot this on the pasteboard-observation turn before deferred work.
     /// It prevents older observations from entering a later session.
     var captureContext: StackCaptureContext? { session?.captureContext }
 
-    init(onNextTraversalVisit: (() -> Void)? = nil) {
+    init(
+        onNextTraversalVisit: (() -> Void)? = nil,
+        releasePayloadLeases: @escaping ([HistoryStackPayloadLease]) -> Void = { _ in }
+    ) {
         self.onNextTraversalVisit = onNextTraversalVisit
+        self.releasePayloadLeases = releasePayloadLeases
     }
 
     /// Returns false for a repeated start, preserving the existing session intact.
@@ -389,6 +540,7 @@ final class StackSessionController: ObservableObject {
         publishSessionState()
         setCaptureError(false)
         setNonTextCaptureNotice(false)
+        setCaptureNotice(nil)
         setNonTextCaptureFailureMessage(nil)
         setCopyCommandDispatchFailure(false)
         setPasteFailure(nil)
@@ -396,25 +548,42 @@ final class StackSessionController: ObservableObject {
     }
 
     /// A caller may append only after HistoryService has persisted the entry.
+    @discardableResult
     func appendPersistedHistoryEntry(
         _ entry: HistoryEntry,
         observedChangeCount: Int,
-        for captureContext: StackCaptureContext?
-    ) {
+        for captureContext: StackCaptureContext?,
+        payloadLease: HistoryStackPayloadLease? = nil
+    ) -> Bool {
         guard let captureContext,
               let session,
               session.captureContext == captureContext,
               observedChangeCount > captureContext.captureAfterChangeCount
-        else { return }
-        _ = session.append(historyEntry: entry)
+        else { return false }
+        _ = session.append(historyEntry: entry, payloadLease: payloadLease)
         publishSessionState()
         setCaptureError(false)
         setNonTextCaptureNotice(false)
+        setCaptureNotice(nil)
         setNonTextCaptureFailureMessage(nil)
+        return true
     }
 
-    /// Media is durable History content, but the first typed Stack remains
-    /// text-only. This notice must not mutate the active stack session.
+    func recordCaptureNotice(
+        _ message: String?,
+        observedChangeCount: Int,
+        for captureContext: StackCaptureContext?
+    ) {
+        guard let captureContext,
+              session?.captureContext == captureContext,
+              observedChangeCount > captureContext.captureAfterChangeCount
+        else { return }
+        setCaptureNotice(message)
+    }
+
+    /// Media is durable History content, but unsupported reference/mixed
+    /// captures remain History-only. This notice must not mutate the active
+    /// stack session.
     func recordNonTextCapture(
         observedChangeCount: Int,
         for captureContext: StackCaptureContext?
@@ -450,6 +619,23 @@ final class StackSessionController: ObservableObject {
               observedChangeCount > captureContext.captureAfterChangeCount
         else { return }
         setCaptureError(true)
+    }
+
+    @discardableResult
+    func prepareHistoryDeletion(for historyEntryID: UUID) -> Bool {
+        guard let session, session.prepareHistoryDeletion(for: historyEntryID) else { return false }
+        publishSessionState()
+        return true
+    }
+
+    func cancelHistoryDeletion(for historyEntryID: UUID) {
+        session?.cancelHistoryDeletion(for: historyEntryID)
+    }
+
+    func finalizeHistoryDeletion(for historyEntryID: UUID) {
+        let leases = session?.finalizeHistoryDeletion(for: historyEntryID) ?? []
+        releasePayloadLeases(leases)
+        publishSessionState()
     }
 
     func recordCopyCommandDispatchFailure() {
@@ -488,9 +674,13 @@ final class StackSessionController: ObservableObject {
     /// private domain state; the deferred executor publishes the processing
     /// UI state after the current event-loop turn.
     func acceptNextPasteInput() -> StackPasteInputDisposition {
+        acceptNextPasteInput(pasteboardChangeCount: nil)
+    }
+
+    func acceptNextPasteInput(pasteboardChangeCount: Int?) -> StackPasteInputDisposition {
         guard let session else { return .passThrough }
         guard session.reservedOccurrenceID == nil else { return .consume }
-        guard session.reserveNextOccurrenceForPaste() != nil else { return .passThrough }
+        guard session.reserveNextOccurrenceForPaste(pasteboardChangeCount: pasteboardChangeCount) != nil else { return .passThrough }
         return .consumeAndDispatch
     }
 
@@ -525,6 +715,15 @@ final class StackSessionController: ObservableObject {
     func isPasteReservationCurrent(_ reservation: StackPasteReservation) -> Bool {
         guard session?.captureContext.sessionID == reservation.sessionID else { return false }
         return session?.isReservationCurrent(reservation.occurrence.id) ?? false
+    }
+
+    func isReservedOccurrenceUnavailable(_ reservation: StackPasteReservation) -> Bool {
+        guard isPasteReservationCurrent(reservation) else { return false }
+        return session?.reservedOccurrencePreviousState == .unavailable
+    }
+
+    func payloadLease(for occurrenceID: UUID) -> HistoryStackPayloadLease? {
+        session?.payloadLease(for: occurrenceID)
     }
 
     func completePasteReservation(_ reservation: StackPasteReservation) -> Bool {
@@ -564,10 +763,13 @@ final class StackSessionController: ObservableObject {
     }
 
     func cancel() {
+        let leases = session?.takePayloadLeases() ?? []
         session = nil
+        releasePayloadLeases(leases)
         publishSessionState()
         setCaptureError(false)
         setNonTextCaptureNotice(false)
+        setCaptureNotice(nil)
         setNonTextCaptureFailureMessage(nil)
         setCopyCommandDispatchFailure(false)
         setPasteFailure(nil)
@@ -616,6 +818,11 @@ final class StackSessionController: ObservableObject {
     private func setNonTextCaptureFailureMessage(_ newValue: String?) {
         guard nonTextCaptureFailureMessage != newValue else { return }
         nonTextCaptureFailureMessage = newValue
+    }
+
+    private func setCaptureNotice(_ newValue: String?) {
+        guard captureNotice != newValue else { return }
+        captureNotice = newValue
     }
 
     private func setCopyCommandDispatchFailure(_ newValue: Bool) {

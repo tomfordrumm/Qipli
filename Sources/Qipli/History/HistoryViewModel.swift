@@ -27,6 +27,7 @@ final class HistoryViewModel: ObservableObject {
     var thumbnailDataByEntryID: [UUID: Data] { thumbnailCache.values }
     @Published private(set) var thumbnailUpdateRevisionsByEntryID: [UUID: Int] = [:]
     @Published private(set) var captureNotice: String?
+    @Published private(set) var deletionNotice: String?
     @Published private(set) var favoriteFailure: HistoryFavoriteFailure?
     private(set) var visibleSnapshotRevision = 0
     private var thumbnailCache = HistoryThumbnailCache(byteLimit: HistoryImageStoragePolicy.production.thumbnailCacheBytes)
@@ -36,6 +37,7 @@ final class HistoryViewModel: ObservableObject {
     private var thumbnailUpdateRevision = 0
 
     private let service: SerializedHistoryService
+    private let hasStackPayloadLeases: Bool
     private let searchDebounceNanoseconds: UInt64
     private let now: () -> Date
     /// Only bounded descriptors for requested pages cross onto the main actor.
@@ -50,12 +52,21 @@ final class HistoryViewModel: ObservableObject {
     private var pageTask: Task<Void, Never>?
     private var pageTaskToken: UUID?
 
+    /// Stack uses these hooks to invalidate in-flight payload work before the
+    /// asynchronous History delete begins, then to commit or roll back the UI
+    /// state when storage returns.
+    var onHistoryEntryDeletionWillStart: ((UUID) -> Bool)?
+    var onHistoryEntryDeleted: ((UUID) -> Void)?
+    var onHistoryEntryDeletionFailed: ((UUID) -> Void)?
+    var onClearAllWillStart: (() -> Void)?
+
     init(
         service: HistoryService,
         searchDebounceNanoseconds: UInt64 = 100_000_000,
         now: @escaping () -> Date = Date.init
     ) {
         self.service = SerializedHistoryService(service: service)
+        hasStackPayloadLeases = service.supportsStackPayloadLeases
         self.searchDebounceNanoseconds = searchDebounceNanoseconds
         self.now = now
         let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
@@ -272,6 +283,23 @@ final class HistoryViewModel: ObservableObject {
         captureNotice = message
     }
 
+    var supportsStackPayloadLeases: Bool { hasStackPayloadLeases }
+
+    func acquireStackPayloadLease(
+        occurrenceID: UUID,
+        sessionID: UUID
+    ) async -> HistoryStackPayloadLease? {
+        try? await service.acquireStackPayloadLease(occurrenceID: occurrenceID, sessionID: sessionID)
+    }
+
+    func releaseStackPayloadLease(_ lease: HistoryStackPayloadLease) {
+        Task { await service.releaseStackPayloadLease(lease) }
+    }
+
+    func isStackPayloadLeaseValid(_ lease: HistoryStackPayloadLease) async -> Bool {
+        await service.isStackPayloadLeaseValid(lease)
+    }
+
     func clearPasteFailure() {
         pasteFailure = nil
     }
@@ -385,7 +413,7 @@ final class HistoryViewModel: ObservableObject {
     /// safely reference the durable History occurrence rather than creating a
     /// separate in-memory-only value.
     @discardableResult
-    func recordExternalCapture(_ capture: HistoryCapture) async -> HistoryEntry? {
+    func recordExternalCaptureResult(_ capture: HistoryCapture) async -> HistoryCaptureResult? {
         pagingGeneration &+= 1
         do {
             guard let result = try await service.capture(capture) else { return nil }
@@ -393,7 +421,7 @@ final class HistoryViewModel: ObservableObject {
             let entry = result.entry
             if mode == .favorites {
                 schedulePagedSearch(selectFirstResult: true, debounce: false)
-                return entry
+                return result
             }
             let descriptor = Self.descriptor(from: entry)
             loadedDescriptors.removeAll { $0.id == entry.id }
@@ -413,7 +441,7 @@ final class HistoryViewModel: ObservableObject {
             } else {
                 schedulePagedSearch(selectFirstResult: true, debounce: false)
             }
-            return entry
+            return result
         } catch {
             captureNotice = (error as? LocalizedError)?.errorDescription ?? capture.failureMessage
             if case .text = capture {
@@ -424,8 +452,22 @@ final class HistoryViewModel: ObservableObject {
         }
     }
 
+    @discardableResult
+    func recordExternalCapture(_ capture: HistoryCapture) async -> HistoryEntry? {
+        await recordExternalCaptureResult(capture)?.entry
+    }
+
     func requestThumbnail(for entry: HistoryEntry) {
         requestThumbnail(forEntryID: entry.id, isImage: entry.isImageEntry)
+    }
+
+    /// Starts thumbnail work for an image that is already owned by an active
+    /// Paste Stack. Stack presentation can be compact before the History list
+    /// has rendered the new descriptor, so this path may retain an unlisted
+    /// bounded thumbnail in the shared cache.
+    func requestStackThumbnail(for entry: HistoryEntry) {
+        guard entry.isImageEntry else { return }
+        requestThumbnail(forEntryID: entry.id, isImage: true, allowUnlisted: true)
     }
 
     func requestThumbnail(forEntryID entryID: UUID) {
@@ -435,7 +477,7 @@ final class HistoryViewModel: ObservableObject {
         requestThumbnail(forEntryID: entryID, isImage: isImage)
     }
 
-    private func requestThumbnail(forEntryID entryID: UUID, isImage: Bool) {
+    private func requestThumbnail(forEntryID entryID: UUID, isImage: Bool, allowUnlisted: Bool = false) {
         guard isImage,
               thumbnailCache.value(for: entryID) == nil,
               thumbnailTasks[entryID] == nil
@@ -451,7 +493,7 @@ final class HistoryViewModel: ObservableObject {
             do {
                 guard let data = try await self.service.thumbnailData(id: entryID), !Task.isCancelled else { return }
                 guard generation == self.thumbnailGeneration,
-                      self.loadedDescriptors.contains(where: { $0.id == entryID })
+                      (allowUnlisted || self.loadedDescriptors.contains(where: { $0.id == entryID }))
                 else { return }
                 let evictedIDs = self.thumbnailCache.insert(data, for: entryID)
                 self.thumbnailUpdateRevision &+= 1
@@ -471,8 +513,14 @@ final class HistoryViewModel: ObservableObject {
         let previousDescriptors = visibleDescriptors
         let deletedIndex = previousDescriptors.firstIndex { $0.id == id }
         let selectedBeforeDelete = selectedEntryID
+        let affectsActiveStack = onHistoryEntryDeletionWillStart?(id) == true
+        if affectsActiveStack {
+            deletionNotice = "This item is in the active Paste Stack. Deleting it will leave an unavailable Stack card."
+        }
         do {
             try await service.delete(id: id)
+            onHistoryEntryDeleted?(id)
+            deletionNotice = nil
             removeThumbnail(for: id)
             loadedDescriptors.removeAll { $0.id == id }
 
@@ -503,6 +551,8 @@ final class HistoryViewModel: ObservableObject {
                 selectedEntryID = visibleDescriptors.first?.id
             }
         } catch {
+            onHistoryEntryDeletionFailed?(id)
+            deletionNotice = nil
             cancelSearch()
             state = .error
             selectedEntryID = nil
@@ -516,6 +566,8 @@ final class HistoryViewModel: ObservableObject {
     @discardableResult
     func clearAll() async -> Bool {
         pagingGeneration &+= 1
+        onClearAllWillStart?()
+        deletionNotice = nil
         do {
             try await service.clearAll()
             invalidateThumbnailTasks()
