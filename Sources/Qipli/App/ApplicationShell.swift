@@ -84,8 +84,17 @@ final class ApplicationShell: NSObject {
         }
         let historyClock = SystemHistoryClock()
         let historyService = HistoryService(store: store, clock: historyClock)
+        let historyPersistence = SerializedHistoryService(service: historyService)
         historyViewModel = HistoryViewModel(service: historyService, now: { historyClock.now })
-        stackSessionController = StackSessionController()
+        stackSessionController = StackSessionController(
+            releasePayloadLeases: { leases in
+                Task { @MainActor in
+                    for lease in leases {
+                        await historyPersistence.releaseStackPayloadLease(lease)
+                    }
+                }
+            }
+        )
         stackCaptureCoordinator = StackCollectionCaptureCoordinator(
             historyViewModel: historyViewModel,
             stackSessionController: stackSessionController
@@ -126,7 +135,6 @@ final class ApplicationShell: NSObject {
         let commandDispatcher = pasteCommandDispatcher
             ?? (resolvedInputAdapter as? TaggedPasteCommandDispatching)
             ?? UnavailablePasteCommandDispatcher()
-        let historyPasteService = SerializedHistoryService(service: historyService)
         let pasteExecutor = HistoryPasteExecutor(
             permissionService: permissionService,
             pasteboardWriter: SystemHistoryPasteboardWriter(),
@@ -134,9 +142,9 @@ final class ApplicationShell: NSObject {
                 pasteboardMonitor?.registerSelfWrite(changeCount: changeCount)
             },
             commandDispatcher: commandDispatcher,
-            payloadProvider: { [historyPasteService] entry async throws in
+            payloadProvider: { entry async throws in
                 if entry.isTypedEntry {
-                    return try await historyPasteService.pastePayload(id: entry.id)
+                    return try await historyPersistence.pastePayload(id: entry.id)
                 }
                 return HistoryPastePayload(items: [HistoryPasteboardItemPayload(representations: [
                     HistoryPasteboardRepresentationPayload(typeIdentifier: "public.utf8-plain-text", data: Data(entry.text.utf8))
@@ -153,6 +161,18 @@ final class ApplicationShell: NSObject {
             }
         )
         panels = panelController
+        historyViewModel.onHistoryEntryDeletionWillStart = { [weak stackSessionController] id in
+            stackSessionController?.prepareHistoryDeletion(for: id) ?? false
+        }
+        historyViewModel.onHistoryEntryDeleted = { [weak stackSessionController] id in
+            stackSessionController?.finalizeHistoryDeletion(for: id)
+        }
+        historyViewModel.onHistoryEntryDeletionFailed = { [weak stackSessionController] id in
+            stackSessionController?.cancelHistoryDeletion(for: id)
+        }
+        historyViewModel.onClearAllWillStart = { [weak panelController] in
+            panelController?.cancelPasteStack()
+        }
         stackSequentialPasteExecutor = StackSequentialPasteExecutor(
             permissionService: permissionService,
             pasteboardWriter: SystemHistoryPasteboardWriter(),
@@ -161,6 +181,13 @@ final class ApplicationShell: NSObject {
             },
             commandDispatcher: commandDispatcher,
             sessionController: stackSessionController,
+            payloadProvider: { handle in
+                try await historyPersistence.pastePayload(id: handle.historyEntryID)
+            },
+            leaseValidator: { lease in
+                await historyPersistence.isStackPayloadLeaseValid(lease)
+            },
+            currentPasteboardChangeCount: { monitor.currentChangeCount },
             finishPresentation: { panelController.finishPasteStackAfterCompletion() }
         )
         let resolvedCopyCommandDispatcher = copyCommandDispatcher
@@ -244,7 +271,9 @@ final class ApplicationShell: NSObject {
             stackSessionController?.isActive ?? false
         }
         inputCoordinator.stackPasteInterception = { [weak stackSessionController] in
-            stackSessionController?.acceptNextPasteInput() ?? .passThrough
+            stackSessionController?.acceptNextPasteInput(
+                pasteboardChangeCount: monitor.currentChangeCount
+            ) ?? .passThrough
         }
         inputCoordinator.reactivationPreviousInterception = { [weak stackSessionController] in
             stackSessionController?.acceptReactivatePreviousInput() ?? .passThrough

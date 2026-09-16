@@ -55,6 +55,21 @@ protocol TypedHistoryStoring: AnyObject {
     func thumbnailData(id: UUID) throws -> Data?
 }
 
+/// Process-local ownership for a History occurrence used by an active Paste
+/// Stack session. The token carries no payload bytes and is never persisted.
+struct HistoryStackPayloadLease: Equatable, Sendable {
+    let id: UUID
+    let occurrenceID: UUID
+    let sessionID: UUID
+}
+
+protocol HistoryStackPayloadLeaseStoring: AnyObject {
+    func acquireStackPayloadLease(occurrenceID: UUID, sessionID: UUID) throws -> HistoryStackPayloadLease?
+    func releaseStackPayloadLease(_ lease: HistoryStackPayloadLease)
+    func revokeStackPayloadLeases(for occurrenceID: UUID)
+    func isStackPayloadLeaseValid(_ lease: HistoryStackPayloadLease) -> Bool
+}
+
 
 enum HistoryStoreError: LocalizedError, Equatable {
     case unavailable
@@ -71,7 +86,7 @@ enum HistoryStoreError: LocalizedError, Equatable {
 }
 
 /// A local-only SQLite store. No managed objects cross this boundary.
-final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryFavoriteStoring, TypedHistoryStoring, RichTextHistoryStoring {
+final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryFavoriteStoring, TypedHistoryStoring, RichTextHistoryStoring, HistoryStackPayloadLeaseStoring {
     private enum ImageManifestRecord {
         case absent
         case valid(ManagedImageAssetManifest)
@@ -91,6 +106,8 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryF
     private let richTextStore: HistoryRichTextAssetStoring
     private var container: NSPersistentContainer
     private var context: NSManagedObjectContext!
+    private let activeStackLeaseLock = NSLock()
+    private var activeStackLeases: [UUID: Set<UUID>] = [:]
 
     convenience init() throws {
         let applicationSupport = try FileManager.default.url(
@@ -679,6 +696,45 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryF
         return try imageStore.makeThumbnail(for: manifest)
     }
 
+    func acquireStackPayloadLease(occurrenceID: UUID, sessionID: UUID) throws -> HistoryStackPayloadLease? {
+        let exists = try contextSync { context in
+            let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
+            request.fetchLimit = 1
+            request.predicate = NSPredicate(format: "id == %@", occurrenceID as CVarArg)
+            return try context.count(for: request) > 0
+        }
+        guard exists else { return nil }
+        let lease = HistoryStackPayloadLease(id: UUID(), occurrenceID: occurrenceID, sessionID: sessionID)
+        _ = withActiveStackLeaseLock {
+            activeStackLeases[occurrenceID, default: []].insert(lease.id)
+        }
+        return lease
+    }
+
+    func releaseStackPayloadLease(_ lease: HistoryStackPayloadLease) {
+        withActiveStackLeaseLock {
+            guard var leases = activeStackLeases[lease.occurrenceID] else { return }
+            leases.remove(lease.id)
+            if leases.isEmpty {
+                activeStackLeases[lease.occurrenceID] = nil
+            } else {
+                activeStackLeases[lease.occurrenceID] = leases
+            }
+        }
+    }
+
+    func revokeStackPayloadLeases(for occurrenceID: UUID) {
+        withActiveStackLeaseLock {
+            activeStackLeases[occurrenceID] = nil
+        }
+    }
+
+    func isStackPayloadLeaseValid(_ lease: HistoryStackPayloadLease) -> Bool {
+        withActiveStackLeaseLock {
+            activeStackLeases[lease.occurrenceID]?.contains(lease.id) == true
+        }
+    }
+
     func createRichText(
         text: String,
         items: [HistoryRichTextCaptureItem],
@@ -811,6 +867,7 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryF
             case .absent: break
             }
             try removePendingImageEntry(id: id)
+            revokeStackPayloadLeases(for: id)
             return
         }
         try contextSync { context in
@@ -823,10 +880,14 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryF
                 try context.save()
             }
         }
+        revokeStackPayloadLeases(for: id)
     }
 
     /// Destroys Qipli-managed SQLite data and recreates an empty store. It never touches NSPasteboard.
     func clearAll() throws {
+        withActiveStackLeaseLock {
+            activeStackLeases.removeAll()
+        }
         try markAllAssetDeletionsPending()
         try imageStore.removeAllOwnedAssets()
         try contextSync { context in
@@ -919,10 +980,25 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryF
         return try result.get()
     }
 
+    private func withActiveStackLeaseLock<T>(_ body: () -> T) -> T {
+        activeStackLeaseLock.lock()
+        defer { activeStackLeaseLock.unlock() }
+        return body()
+    }
+
     private func removeExpired(before cutoff: Date, in context: NSManagedObjectContext) throws {
         try cleanupPendingImageDeletions(in: context)
+        let leasedIDs = withActiveStackLeaseLock { Array(activeStackLeases.keys) }
+        let unleasedPredicate = leasedIDs.isEmpty
+            ? NSPredicate(value: true)
+            : NSPredicate(format: "NOT (id IN %@)", leasedIDs)
         let manifestRequest = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
-        manifestRequest.predicate = NSPredicate(format: "capturedAt <= %@ AND (isFavorite == nil OR isFavorite == NO) AND (managedImageManifest != nil OR richTextManifest != nil)", cutoff as NSDate)
+        manifestRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            NSPredicate(format: "capturedAt <= %@", cutoff as NSDate),
+            NSPredicate(format: "isFavorite == nil OR isFavorite == NO"),
+            NSPredicate(format: "managedImageManifest != nil OR richTextManifest != nil"),
+            unleasedPredicate
+        ])
         let expiredObjects = try context.fetch(manifestRequest)
         for object in expiredObjects where Self.manifest(from: object) != nil || Self.richTextManifest(from: object) != nil {
             object.setValue(true, forKey: "managedImageDeletionPending")
@@ -943,7 +1019,11 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryF
             }
         }
         let request = NSFetchRequest<NSFetchRequestResult>(entityName: Self.entityName)
-        request.predicate = NSPredicate(format: "capturedAt <= %@ AND (isFavorite == nil OR isFavorite == NO)", cutoff as NSDate)
+        request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            NSPredicate(format: "capturedAt <= %@", cutoff as NSDate),
+            NSPredicate(format: "isFavorite == nil OR isFavorite == NO"),
+            unleasedPredicate
+        ])
         let deleteRequest = NSBatchDeleteRequest(fetchRequest: request)
         deleteRequest.resultType = .resultTypeObjectIDs
         guard let result = try context.execute(deleteRequest) as? NSBatchDeleteResult,

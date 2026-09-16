@@ -30,6 +30,7 @@ final class HistoryService {
     private let favoriteStore: HistoryFavoriteStoring?
     private let typedStore: TypedHistoryStoring?
     private let richTextStore: RichTextHistoryStoring?
+    private let stackLeaseStore: HistoryStackPayloadLeaseStoring?
     private let clock: HistoryClock
 
     init(store: HistoryStoring, clock: HistoryClock = SystemHistoryClock()) {
@@ -37,6 +38,7 @@ final class HistoryService {
         favoriteStore = store as? HistoryFavoriteStoring
         typedStore = store as? TypedHistoryStoring
         richTextStore = store as? RichTextHistoryStoring
+        stackLeaseStore = store as? HistoryStackPayloadLeaseStoring
         self.clock = clock
     }
 
@@ -153,6 +155,24 @@ final class HistoryService {
         try typedStore?.thumbnailData(id: id)
     }
 
+    var supportsStackPayloadLeases: Bool { stackLeaseStore != nil }
+
+    func acquireStackPayloadLease(occurrenceID: UUID, sessionID: UUID) throws -> HistoryStackPayloadLease? {
+        try stackLeaseStore?.acquireStackPayloadLease(occurrenceID: occurrenceID, sessionID: sessionID)
+    }
+
+    func releaseStackPayloadLease(_ lease: HistoryStackPayloadLease) {
+        stackLeaseStore?.releaseStackPayloadLease(lease)
+    }
+
+    func revokeStackPayloadLeases(for occurrenceID: UUID) {
+        stackLeaseStore?.revokeStackPayloadLeases(for: occurrenceID)
+    }
+
+    func isStackPayloadLeaseValid(_ lease: HistoryStackPayloadLease) -> Bool {
+        stackLeaseStore?.isStackPayloadLeaseValid(lease) ?? true
+    }
+
     @discardableResult
     func markUsed(id: UUID) throws -> Date {
         let activityAt = clock.now
@@ -227,6 +247,22 @@ actor SerializedHistoryService {
 
     func thumbnailData(id: UUID) throws -> Data? {
         try service.thumbnailData(id: id)
+    }
+
+    func acquireStackPayloadLease(occurrenceID: UUID, sessionID: UUID) throws -> HistoryStackPayloadLease? {
+        try service.acquireStackPayloadLease(occurrenceID: occurrenceID, sessionID: sessionID)
+    }
+
+    func releaseStackPayloadLease(_ lease: HistoryStackPayloadLease) {
+        service.releaseStackPayloadLease(lease)
+    }
+
+    func isStackPayloadLeaseValid(_ lease: HistoryStackPayloadLease) -> Bool {
+        service.isStackPayloadLeaseValid(lease)
+    }
+
+    func revokeStackPayloadLeases(for occurrenceID: UUID) {
+        service.revokeStackPayloadLeases(for: occurrenceID)
     }
 
     func markUsed(id: UUID) throws -> Date {

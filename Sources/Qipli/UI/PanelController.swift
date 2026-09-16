@@ -131,6 +131,9 @@ final class PanelController {
             PasteStackPanelView(
                 sessionController: self.stackSessionController,
                 presentationModel: self.stackPresentation,
+                historyViewModel: self.historyViewModel,
+                thumbnailData: self.historyViewModel.thumbnailData(for:),
+                requestThumbnail: self.historyViewModel.requestThumbnail(forEntryID:),
                 expand: { [weak self] in
                     self?.stackPresentation.requestExpand(source: .click)
                 },

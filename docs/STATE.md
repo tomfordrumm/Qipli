@@ -1,6 +1,6 @@
 # Qipli — текущее состояние проекта
 
-Последняя актуализация: 2026-09-15
+Последняя актуализация: 2026-09-16
 
 Источник operational-статусов: этот файл. Исторические переходы и прежние verification snapshots находятся в [`STATE-HISTORY.md`](STATE-HISTORY.md).
 
@@ -21,7 +21,7 @@
 
 ## Новая запланированная работа
 
-S033 реализован и принят по D-043: Stack начинает в compact presentation с bounded side previews, pending/status/direction indicators, раскрытием без задержки, explicit accessibility expansion и geometry-aware hit testing. Synthetic geometry, focused/full SwiftPM suites, unsigned universal Xcode Debug build и ручная установленная matrix подтверждены пользователем. После S033 запланирован S034: rich text/images, typed paste и session ownership по D-044. Предыдущий release snapshot ниже не перепроверялся этой задачей.
+S033 реализован и принят по D-043: Stack начинает в compact presentation с bounded side previews, pending/status/direction indicators, раскрытием без задержки, explicit accessibility expansion и geometry-aware hit testing. Synthetic geometry, focused/full SwiftPM suites, unsigned universal Xcode Debug build и ручная установленная matrix подтверждены пользователем. S034 реализован и закрыт пользователем 2026-09-16 по D-044: typed capture/paste для rich text и images, session leases, revocation/unavailable states и bounded previews. Установленная source/target matrix, Accessibility/VoiceOver и signed-update gate остаются delivery gates и не меняют статус закрытого implementation slice. Предыдущий release snapshot ниже не перепроверялся этой задачей.
 
 S035 добавлен как план вырезания файлов с индикацией в компактном окне. Предложен Finder-only сценарий ⌘X → ⌘V; scope и platform probe остаются открыты по D-046. Реализация не начата, приоритет относительно S034 не назначен.
 
@@ -94,13 +94,14 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 | S031 | Форматированный текст в History | `needs_verification` | installed Sparkle update с сохранением History |
 | S032 | Полировка карточек и релевантный поиск History | `needs_verification` | installed-app visual/search/accessibility matrix |
 | S033 | Компактный Paste Stack по центру | `done` | S030; automated checks и ручная установленная matrix подтверждены пользователем |
-| S034 | Rich text и изображения в Paste Stack | `planned` | S033, S024, S031; signed-update gate S031 сохраняется перед delivery |
+| S034 | Rich text и изображения в Paste Stack | `done` | implementation и пользовательский smoke закрыты; installed-app matrix и signed-update gate S031 остаются delivery gates |
 | S035 | Вырезание файлов с индикацией в чёлке | `planned` | S033, S025; подтверждение scope и Finder platform probe D-046 |
 
 ## Блокеры и recheck points
 
 - S033: закрыт после пользовательского подтверждения ручной установленной matrix. Release signing/update gates ведутся отдельно и не блокируют этот срез.
 
+- S034: implementation, focused/full tests, builds и пользовательский smoke закрыты; installed source/target, Accessibility/VoiceOver, rapid-interaction и signed-update checks остаются delivery gates.
 - S014/S008: нужен operational immutable rerun опубликованного release tag и clean-machine macOS 14 verification.
 - S031: implementation, automated checks, manual acceptance и signed public release подтверждены; остаётся реальный installed Sparkle update smoke.
 - S032: implementation, focused/full automated checks, universal builds и signed public `v1.0.8` подтверждены; остаётся visual/search/accessibility matrix в установленном приложении.
@@ -109,6 +110,10 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 - Ограничение BL-006, отключение дисплея во время Top Notch reveal, принято и не блокирует S030.
 
 ## Последняя проверка
+
+- 2026-09-15: S034 implementation: History-first typed capture/paste для text/rich text/images, session leases, expiry protection, Delete/Clear All revocation и unavailable cards. Пользовательский smoke выявил placeholder в compact image preview до раскрытия панели; исправлено eager thumbnail request после Stack capture и реактивным обновлением compact view по thumbnail revision. Focused thumbnail regression test и S034 tests `4/4`; полный SwiftPM: `259` tests, `0` failures, `5` skipped; development-signed universal Debug и unsigned universal Debug/Release builds; version contract и embedded Sparkle runtime linking прошли. Installed-app rerun именно после thumbnail fix, остальная source/target matrix, Accessibility/VoiceOver, rapid-interaction и signed Sparkle update gates остаются открыты.
+
+- 2026-09-16: пользователь подтвердил считать S034 завершённым. Delivery gates из предыдущей проверки сохранены отдельно и не переобозначены как пройденные.
 
 - 2026-09-15: пользователь подтвердил полную ручную приёмку S033 и несколько дней использования compact Paste Stack. Hover/collapse работают без задержки; runtime, display и accessibility gates считаются закрытыми как user-reported acceptance. Свежий полный SwiftPM suite: 255 tests, 0 failures, 5 skipped; focused S033: 29/29.
 
@@ -128,7 +133,7 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 
 ## Следующее действие
 
-S033 закрыт. Следующий срез по зависимости — S034; отдельные release gates S014/S008, S031 и S032 остаются в общем порядке ниже.
+S034 закрыт по пользовательскому smoke acceptance и автоматическим проверкам. Его installed-app и signed-update проверки остаются delivery gates; отдельные release gates S014/S008, S031 и S032 остаются в общем порядке ниже.
 
 
 1. Проверить сброс History к первому элементу после прокрутки и повторного открытия; отдельно проверить custom shortcut/reset и обычное text field.

@@ -109,7 +109,7 @@ final class StackCollectionCaptureCoordinator {
             return
         }
 
-        guard let entry = await historyViewModel.recordExternalCapture(capture) else {
+        guard let result = await historyViewModel.recordExternalCaptureResult(capture) else {
             if capture.stackText != nil {
                 stackSessionController.recordCaptureFailure(
                     observedChangeCount: observedChangeCount,
@@ -125,17 +125,60 @@ final class StackCollectionCaptureCoordinator {
             return
         }
 
-        if capture.stackText != nil {
-            stackSessionController.appendPersistedHistoryEntry(
-                entry,
-                observedChangeCount: observedChangeCount,
-                for: stackCaptureContext
-            )
-        } else {
+        guard Self.isStackSupported(capture) else {
             stackSessionController.recordNonTextCapture(
                 observedChangeCount: observedChangeCount,
                 for: stackCaptureContext
             )
+            return
+        }
+
+        guard let stackCaptureContext else { return }
+
+        let lease: HistoryStackPayloadLease?
+        if historyViewModel.supportsStackPayloadLeases {
+            guard let acquiredLease = await historyViewModel.acquireStackPayloadLease(
+                occurrenceID: result.entry.id,
+                sessionID: stackCaptureContext.sessionID
+            ) else {
+                stackSessionController.recordNonTextCaptureFailure(
+                    message: "This copy was saved to History, but Paste Stack could not hold its payload.",
+                    observedChangeCount: observedChangeCount,
+                    for: stackCaptureContext
+                )
+                return
+            }
+            lease = acquiredLease
+        } else {
+            lease = nil
+        }
+
+        let appended = stackSessionController.appendPersistedHistoryEntry(
+            result.entry,
+            observedChangeCount: observedChangeCount,
+            for: stackCaptureContext,
+            payloadLease: lease
+        )
+        if !appended, let lease {
+            historyViewModel.releaseStackPayloadLease(lease)
+            return
+        }
+        if result.entry.isImageEntry {
+            historyViewModel.requestStackThumbnail(for: result.entry)
+        }
+        stackSessionController.recordCaptureNotice(
+            result.notice,
+            observedChangeCount: observedChangeCount,
+            for: stackCaptureContext
+        )
+    }
+
+    private static func isStackSupported(_ capture: HistoryCapture) -> Bool {
+        switch capture {
+        case .text, .richText, .images:
+            return true
+        case .references, .mixed:
+            return false
         }
     }
 }

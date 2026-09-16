@@ -791,6 +791,12 @@ struct TopNotchHistoryShelfView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if let notice = viewModel.deletionNotice {
+                    Label(notice, systemImage: "exclamationmark.triangle")
+                        .font(.caption2)
+                        .foregroundStyle(.yellow)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 content
                 footer
             }

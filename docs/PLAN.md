@@ -2,7 +2,7 @@
 
 Текущие operational-статусы и gates находятся в [`STATE.md`](STATE.md). Этот файл фиксирует порядок поставки, зависимости, coverage и ожидаемый результат срезов.
 
-Дата: 2026-09-08
+Дата: 2026-09-14
 
 Источник оперативных статусов: [`STATE.md`](STATE.md)
 
@@ -113,6 +113,14 @@
 
 Результат: звезда над Search фильтрует избранные карточки; marker на карточке сохраняется после перезапуска и защищает occurrence и owned assets от автоматической очистки. Категории и отдельное окно не входят в поставку. Требуются migration, retention/search regression checks и installed update verification.
 
+## Milestone M13 — Компактный Paste Stack
+
+33. [S033 — Компактный Paste Stack по центру](slices/S033-compact-notch-paste-stack.md) — зависит от S030. Runtime probe, compact/expanded lifecycle и installed-app acceptance завершены. Форматы содержимого не меняются.
+
+## Milestone M14 — Rich text и изображения в Paste Stack
+
+34. [S034 — Rich text и изображения в Paste Stack](slices/S034-rich-image-paste-stack.md) — после S033, использует S024/S031. Включает capture, typed paste, previews, session leases и явное удаление. Открытый signed-update gate S031 сохраняется перед delivery.
+
 ## Граф зависимостей
 
 ```text
@@ -129,6 +137,8 @@ S018 + S019 + S020 -> S023 -> S024 -> S025
 S014 + S015 + S024 + S025 -> S026
 S016 + S024 -> S027
 S007 + S012 + S021 + S027 -> S030
+S030 -> S033
+S033 + S024 + S031 -> S034
 S023 + S026 + S027 -> S031
 S023 + S024 + S025 + S027 -> S032
 S023 + S024 + S025 + S027 -> S029
@@ -232,3 +242,9 @@ S023 + S024 + S025 + S027 -> S029
 - Значимое отклонение от продукта или архитектуры сначала записывается в [`DECISIONS.md`](DECISIONS.md).
 - Срез нельзя пометить `done`, пока заполнен не только чек-лист, но и Implementation report.
 - Новая функция MVP или первого публичного релиза должна получить `FR/BR/NFR` ID и покрытие срезом; функция «на потом» не должна незаметно попадать в acceptance criteria.
+| FR-045–FR-046 | S033 |
+| BR-034 | S033 |
+| NFR-033 | S033 |
+| FR-047–FR-048 | S034 |
+| BR-035–BR-036 | S034 |
+| NFR-034 | S034 |

@@ -1093,6 +1093,112 @@ final class StackSessionControllerTests: XCTestCase {
         XCTAssertEqual(controller.nextOccurrence?.id, firstID)
     }
 
+    func testTypedStackPasteMaterializesRichPayloadAndMarksOnlyAfterDispatch() async {
+        let controller = StackSessionController()
+        XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: 10))
+        let context = controller.captureContext
+        let entry = HistoryEntry(
+            id: UUID(),
+            text: "rich stack fixture",
+            activityAt: .now,
+            representations: [
+                HistoryRepresentationDescriptor(kind: .text, typeIdentifier: "public.utf8-plain-text"),
+                HistoryRepresentationDescriptor(kind: .text, typeIdentifier: "public.rtf")
+            ],
+            hasRichText: true
+        )
+        let payload = HistoryPastePayload(items: [
+            HistoryPasteboardItemPayload(representations: [
+                HistoryPasteboardRepresentationPayload(typeIdentifier: "public.rtf", data: Data("rich payload".utf8)),
+                HistoryPasteboardRepresentationPayload(typeIdentifier: "public.utf8-plain-text", data: Data("rich stack fixture".utf8))
+            ])
+        ])
+        let lease = HistoryStackPayloadLease(
+            id: UUID(),
+            occurrenceID: entry.id,
+            sessionID: context!.sessionID
+        )
+        controller.appendPersistedHistoryEntry(entry, observedChangeCount: 11, for: context, payloadLease: lease)
+
+        let writer = StackTypedPasteboardWriter(changeCount: 20)
+        let dispatcher = StackPasteDispatcher(results: [true])
+        let executor = StackSequentialPasteExecutor(
+            permissionService: StackPastePermission(state: .granted),
+            pasteboardWriter: writer,
+            registerSelfWrite: { _ in },
+            commandDispatcher: dispatcher,
+            sessionController: controller,
+            payloadProvider: { handle in
+                XCTAssertEqual(handle.historyEntryID, entry.id)
+                XCTAssertEqual(handle.kind, .richText)
+                return payload
+            },
+            leaseValidator: { receivedLease in
+                XCTAssertEqual(receivedLease, lease)
+                return true
+            },
+            currentPasteboardChangeCount: { writer.changeCount },
+            scheduleProduction: { $0() },
+            scheduleAutoFinish: { _ in },
+            finishPresentation: {}
+        )
+
+        XCTAssertEqual(controller.acceptNextPasteInput(pasteboardChangeCount: 20), .consumeAndDispatch)
+        executor.executeReservedPaste()
+        await Task.yield()
+
+        XCTAssertEqual(writer.payloads, [payload])
+        XCTAssertEqual(dispatcher.dispatchCount, 1)
+        XCTAssertEqual(controller.occurrences.first?.state, .used)
+    }
+
+    func testDeletedStackPayloadStaysVisibleAndCannotBeSilentlySkipped() async {
+        var releasedLeases: [[HistoryStackPayloadLease]] = []
+        let controller = StackSessionController(releasePayloadLeases: { releasedLeases.append($0) })
+        XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: 10))
+        let context = controller.captureContext
+        let entry = HistoryEntry(
+            id: UUID(),
+            text: "image stack fixture",
+            activityAt: .now,
+            representations: [HistoryRepresentationDescriptor(kind: .inlineImage, typeIdentifier: "public.png")],
+            managedImageItems: [
+                ManagedImageAssetItemManifest(order: 0, representations: []),
+                ManagedImageAssetItemManifest(order: 1, representations: [])
+            ]
+        )
+        let lease = HistoryStackPayloadLease(id: UUID(), occurrenceID: entry.id, sessionID: context!.sessionID)
+        controller.appendPersistedHistoryEntry(entry, observedChangeCount: 11, for: context, payloadLease: lease)
+
+        XCTAssertTrue(controller.prepareHistoryDeletion(for: entry.id))
+        XCTAssertFalse(controller.reactivateOccurrence(id: controller.occurrences[0].id))
+        controller.finalizeHistoryDeletion(for: entry.id)
+
+        XCTAssertEqual(controller.occurrences.first?.state, .unavailable)
+        XCTAssertEqual(releasedLeases, [[lease]])
+        XCTAssertEqual(controller.acceptNextPasteInput(pasteboardChangeCount: 0), .consumeAndDispatch)
+
+        let writer = StackTypedPasteboardWriter(changeCount: 0)
+        let dispatcher = StackPasteDispatcher(results: [true])
+        let executor = StackSequentialPasteExecutor(
+            permissionService: StackPastePermission(state: .granted),
+            pasteboardWriter: writer,
+            registerSelfWrite: { _ in },
+            commandDispatcher: dispatcher,
+            sessionController: controller,
+            payloadProvider: { _ in XCTFail("Unavailable payload must not be materialized"); return nil },
+            currentPasteboardChangeCount: { writer.changeCount },
+            scheduleProduction: { $0() },
+            finishPresentation: {}
+        )
+        executor.executeReservedPaste()
+        await Task.yield()
+
+        XCTAssertEqual(controller.pasteFailure, .payloadUnavailable)
+        XCTAssertEqual(controller.occurrences.first?.state, .unavailable)
+        XCTAssertEqual(dispatcher.dispatchCount, 0)
+    }
+
     private func makeEntry(_ text: String) -> HistoryEntry {
         HistoryEntry(id: UUID(), text: text, activityAt: .now)
     }
@@ -1233,6 +1339,26 @@ private final class StackPasteboardWriter: HistoryPasteboardWriting {
         let count = pasteboard.changeCount
         returnedChangeCounts.append(count)
         return count
+    }
+}
+
+private final class StackTypedPasteboardWriter: HistoryPasteboardWriting, TypedHistoryPasteboardWriting {
+    var changeCount: Int
+    private(set) var payloads: [HistoryPastePayload] = []
+
+    init(changeCount: Int) {
+        self.changeCount = changeCount
+    }
+
+    func write(text: String) throws -> Int {
+        changeCount += 1
+        return changeCount
+    }
+
+    func write(payload: HistoryPastePayload) throws -> Int {
+        payloads.append(payload)
+        changeCount += 1
+        return changeCount
     }
 }
 
