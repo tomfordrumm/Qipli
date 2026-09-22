@@ -172,7 +172,11 @@ struct PerformanceProbe {
 
 // Test stores implement the same bounded paging protocol as production. This
 // small in-memory adapter belongs only to tests, never the shipped application.
-extension HistoryStoring {
+protocol TextTestHistoryStoring: HistoryStoring {
+    func fetchCurrent(since cutoff: Date) throws -> [HistoryEntry]
+}
+
+extension TextTestHistoryStoring {
     func fetchPage(since cutoff: Date, after cursor: HistoryPageCursor?, limit: Int) throws -> HistoryPage {
         try testPage(since: cutoff, after: cursor, limit: limit, query: nil)
     }
@@ -185,7 +189,6 @@ extension HistoryStoring {
         try fetchCurrent(since: .distantPast).first { $0.id == id }
     }
 
-    func fetchOccurrence(id: UUID) throws -> HistoryOccurrence? { nil }
 
     private func testPage(since cutoff: Date, after cursor: HistoryPageCursor?, limit: Int, query: String?) throws -> HistoryPage {
         let entries = try fetchCurrent(since: cutoff).filter { $0.isTypedEntry || HistoryTextPolicy.shouldCapture($0.text) }
@@ -209,4 +212,63 @@ extension HistoryStoring {
             HistoryPageCursor(activityAt: $0.activityAt, id: $0.id, searchRank: $0.searchRank)
         }, hasMore: ranked.count > limit)
     }
+}
+
+@MainActor
+extension HistoryViewModel {
+    convenience init(service: HistoryService, searchDebounceNanoseconds: UInt64 = 100_000_000, now: @escaping () -> Date = Date.init) {
+        self.init(service: SerializedHistoryService(service: service), searchDebounceNanoseconds: searchDebounceNanoseconds, now: now)
+    }
+}
+
+extension HistoryStoring {
+    // Assertions traverse the production paging and exact-entry lookup paths.
+    func fetchCurrent(since cutoff: Date, favoritesOnly: Bool = false) throws -> [HistoryEntry] {
+        var result: [HistoryEntry] = []
+        var cursor: HistoryPageCursor?
+        repeat {
+            let page = try fetchPage(since: cutoff, after: cursor, limit: 500, favoritesOnly: favoritesOnly)
+            result += try page.descriptors.compactMap { try fetchEntry(id: $0.id) }
+            guard page.hasMore, let next = page.nextCursor, next != cursor else { break }
+            cursor = next
+        } while true
+        return result
+    }
+}
+
+extension HistoryService {
+    func entries(mode: HistoryFilterMode = .history) throws -> [HistoryEntry] {
+        var result: [HistoryEntry] = []
+        var cursor: HistoryPageCursor?
+        repeat {
+            let page = try page(after: cursor, mode: mode)
+            result += try page.descriptors.compactMap { try entry(id: $0.id) }
+            guard page.hasMore, let next = page.nextCursor, next != cursor else { break }
+            cursor = next
+        } while true
+        return result
+    }
+}
+
+extension TextTestHistoryStoring {
+    func fetchPage(since cutoff: Date, after cursor: HistoryPageCursor?, limit: Int, favoritesOnly: Bool) throws -> HistoryPage {
+        try fetchPage(since: cutoff, after: cursor, limit: limit)
+    }
+    func searchPage(query: String, since cutoff: Date, after cursor: HistoryPageCursor?, limit: Int, favoritesOnly: Bool) throws -> HistoryPage {
+        try searchPage(query: query, since: cutoff, after: cursor, limit: limit)
+    }
+    func setFavorite(id: UUID, isFavorite: Bool) throws { throw HistoryStoreError.unavailable }
+    func createImage(items: [ManagedImageCaptureItem], activityAt: Date) throws -> HistoryEntry { throw HistoryStoreError.unavailable }
+    func createReference(items: [HistoryReferenceCaptureItem], activityAt: Date) throws -> HistoryEntry { throw HistoryStoreError.unavailable }
+    func createImageAndReference(imageItems: [ManagedImageCaptureItem], referenceItems: [HistoryReferenceCaptureItem], activityAt: Date) throws -> HistoryEntry { throw HistoryStoreError.unavailable }
+    func createRichText(text: String, items: [HistoryRichTextCaptureItem], activityAt: Date) throws -> HistoryRichTextCaptureResult { throw HistoryStoreError.unavailable }
+    func pastePayload(id: UUID) throws -> HistoryPastePayload? { nil }
+    func thumbnailData(id: UUID) throws -> Data? { nil }
+    func acquireStackPayloadLease(occurrenceID: UUID, sessionID: UUID) throws -> HistoryStackPayloadLease? {
+        guard try fetchEntry(id: occurrenceID) != nil else { return nil }
+        return HistoryStackPayloadLease(id: UUID(), occurrenceID: occurrenceID, sessionID: sessionID)
+    }
+    func releaseStackPayloadLease(_ lease: HistoryStackPayloadLease) {}
+    func revokeStackPayloadLeases(for occurrenceID: UUID) {}
+    func isStackPayloadLeaseValid(_ lease: HistoryStackPayloadLease) -> Bool { (try? fetchEntry(id: lease.occurrenceID)) != nil }
 }

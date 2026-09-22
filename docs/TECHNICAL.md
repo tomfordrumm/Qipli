@@ -133,6 +133,8 @@ Sparkle updater ──> public HTTPS appcast ──> EdDSA-verified ZIP ──> 
 
 ### HistoryService
 
+- По D-048 ApplicationShell создаёт один `SerializedHistoryService`, разделяемый HistoryViewModel и paste/lease consumers. Required `HistoryStoring` включает все capabilities; lazy retry wrapper передаёт leases без runtime casts. Full-history helper существует только в Tests и использует production paging/lookup.
+
 - является единственной точкой записи, поиска, удаления и retention cleanup;
 - выполняет persistent-store work через последовательную background execution boundary; main actor получает display descriptors, а exact `HistoryEntry` только после capture или для выбранной вставки;
 - до S023 хранит актуальный text snapshot; после S023 выдаёт bounded `HistoryOccurrenceDescriptor` pages и не держит полный retention window в UI memory;
@@ -146,7 +148,7 @@ Sparkle updater ──> public HTTPS appcast ──> EdDSA-verified ZIP ──> 
 
 ### Typed payload и managed asset storage
 
-- `HistoryOccurrence` владеет ordered clipboard items; каждый item хранит только поддерживаемые representations и один derived display/search descriptor;
+- Persisted occurrence владеет ordered clipboard items; каждый item хранит только поддерживаемые representations и один derived display/search descriptor;
 - text и малая metadata остаются в Core Data. Inline image bytes записываются в Qipli-managed Application Support directory по opaque occurrence/item ID без clipboard text, filename или URL в имени;
 - capture image идёт через temporary file, capacity validation и atomic move. Core Data commit публикуется только после durable asset placement; ошибка откатывает metadata и удаляет temporary data;
 - file/video item хранит URL bookmark/reference и snapshot metadata, но не копирует source bytes. Resolution выполняется только для paste или явной локальной metadata refresh; stale bookmark обновляется после успешного resolution;
@@ -315,9 +317,9 @@ Domain property называется `activityAt`, но SQLite/Core Data attribu
 
 S023 выполняет lightweight migration каждой legacy row в typed occurrence с одним text item, сохраняя UUID, exact text и legacy `capturedAt` activity value. Миграция не переписывает `PROJECT_BRIEF.md` и не меняет 30-day retention semantics.
 
-### HistoryOccurrence и payload items — target typed schema
+### Occurrence и payload items — логическая typed schema
 
-`HistoryOccurrence` является единицей списка, поиска, activity promotion, retention и delete. Она может содержать несколько ordered payload items, потому что Finder и другие приложения записывают несколько объектов одним pasteboard change.
+Persisted occurrence является единицей списка, поиска, activity promotion, retention и delete. Она может содержать несколько ordered payload items, потому что Finder и другие приложения записывают несколько объектов одним pasteboard change.
 
 | Данные occurrence | Назначение |
 |---|---|
@@ -329,7 +331,7 @@ S023 выполняет lightweight migration каждой legacy row в typed o
 | `itemCount` | число ordered pasteboard items |
 | `managedByteCount` | сумма owned payload bytes для capacity/cleanup; referenced source size не считается owned storage |
 
-`HistoryPayloadItem` принадлежит одной occurrence и имеет стабильный UUID plus contiguous `position`. `HistoryRepresentation` принадлежит item и хранит UTType identifier, storage kind, byte count и representation-specific value:
+Payload item внутри manifest принадлежит одной occurrence и имеет стабильный UUID plus contiguous `position`. `HistoryRepresentation` принадлежит item и хранит UTType identifier, storage kind, byte count и representation-specific value:
 
 - `inlineText`: exact string или URL metadata в Core Data;
 - `managedAsset`: opaque relative path, expected byte count и integrity metadata для Qipli-owned image;

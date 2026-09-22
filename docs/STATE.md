@@ -29,6 +29,13 @@ S036 реализован по D-047: до пяти последних запи�
 
 ## Текущая работа
 
+### Упрощение кода по D-048
+
+Локальная реализация проверена: обязательные History capabilities и lease forwarding, единый storage actor, общий Stack write/validation path, удаление неиспользуемых APIs, общий first-page loader с сохранением selection и stale-result guard, shared panel mechanics и разделение PlaceholderViews на именованные UI файлы. SwiftPM: 286 tests, 0 failures, 5 sandbox skips; отдельный запуск PasteboardMonitorTests вне sandbox: 23/23, без skips. Unsigned universal Debug Xcode build и `git diff --check` прошли. Independent review: найденный selection regression исправлен и покрыт тестом, оставшихся actionable findings нет. Net production Swift: −361 строк.
+
+Следующая проверка: установленная подписанная Dev сборка, History search/selection → paste в исходное приложение, plain/rich/image Stack с Cancel/Delete/Reactivate, Finder Cut compact panel и multi-display placement. Эти interactive gates не подтверждены автоматическими тестами. Commit/push/release не выполнялись.
+
+
 ### Избранное в Top Notch
 
 S029 реализован по D-042: header/card stars, search внутри режима, migration и защита от automatic expiry для favorite occurrences и owned assets. SwiftPM и universal Release Xcode build пройдены; установленная accessibility/display matrix и signed-update сохранение favorite остаются отдельными gates.

@@ -87,7 +87,7 @@ final class ApplicationShell: NSObject {
         let historyClock = SystemHistoryClock()
         let historyService = HistoryService(store: store, clock: historyClock)
         let historyPersistence = SerializedHistoryService(service: historyService)
-        historyViewModel = HistoryViewModel(service: historyService, now: { historyClock.now })
+        historyViewModel = HistoryViewModel(service: historyPersistence, now: { historyClock.now })
         stackSessionController = StackSessionController(
             releasePayloadLeases: { leases in
                 Task { @MainActor in

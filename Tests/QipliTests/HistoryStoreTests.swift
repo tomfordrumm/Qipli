@@ -88,6 +88,27 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertNil(try store.fetchEntry(id: entry.id))
     }
 
+    func testRetryingStorePreservesLeaseProtectionReleaseAndRevocation() throws {
+        let underlying = try makeStore()
+        defer { underlying.close() }
+        let store = RetryingHistoryStore { underlying }
+        let service = HistoryService(store: store)
+        let entry = try store.create(text: "retry lease fixture", activityAt: Date(timeIntervalSinceNow: -10))
+        let lease = try XCTUnwrap(service.acquireStackPayloadLease(occurrenceID: entry.id, sessionID: UUID()))
+        XCTAssertTrue(service.isStackPayloadLeaseValid(lease))
+        _ = try store.fetchPage(since: Date(), after: nil, limit: 5)
+        XCTAssertNotNil(try service.entry(id: entry.id))
+        service.releaseStackPayloadLease(lease)
+        XCTAssertFalse(service.isStackPayloadLeaseValid(lease))
+        _ = try store.fetchPage(since: Date(), after: nil, limit: 5)
+        XCTAssertNil(try service.entry(id: entry.id))
+
+        let second = try store.create(text: "revocation fixture", activityAt: Date())
+        let revoked = try XCTUnwrap(service.acquireStackPayloadLease(occurrenceID: second.id, sessionID: UUID()))
+        service.revokeStackPayloadLeases(for: second.id)
+        XCTAssertFalse(service.isStackPayloadLeaseValid(revoked))
+    }
+
     @MainActor
     func testMemoryPressureReleasesThumbnailCacheAndAllowsItToRefill() async throws {
         let store = try makeStore()
@@ -452,8 +473,6 @@ final class HistoryStoreTests: XCTestCase {
 
         XCTAssertEqual(try service.entries().map(\.id), [entry.id])
         XCTAssertEqual(entry.representations.map(\.kind), [.inlineImage, .fileReference])
-        let occurrence = try XCTUnwrap(service.occurrence(id: entry.id))
-        XCTAssertEqual(occurrence.items.flatMap(\.representations).map(\.kind), [.inlineImage, .fileReference])
         let payload = try XCTUnwrap(service.pastePayload(id: entry.id))
         XCTAssertEqual(payload.items.count, 1)
         XCTAssertEqual(payload.items[0].representations.map(\.typeIdentifier), ["public.png", "public.file-url"])
@@ -641,9 +660,6 @@ final class HistoryStoreTests: XCTestCase {
 
         XCTAssertEqual(entry.representations.map(\.kind), [.fileReference, .videoReference])
         XCTAssertEqual(entry.referenceMetadata.map(\.displayName), ["notes.txt", "clip.mov"])
-        let occurrence = try XCTUnwrap(store.fetchOccurrence(id: entry.id))
-        XCTAssertEqual(occurrence.items.map(\.order), [2, 4])
-        XCTAssertEqual(occurrence.items.map { $0.representations.first?.kind }, [.fileReference, .videoReference])
 
         let payload = try XCTUnwrap(service.pastePayload(id: entry.id))
         XCTAssertEqual(payload.items.count, 2)
@@ -1008,11 +1024,11 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertTrue(orderedPlan.contains("USING COVERING INDEX") || orderedPlan.contains("USING INDEX"), orderedPlan)
         XCTAssertFalse(orderedPlan.contains("USE TEMP B-TREE"), orderedPlan)
 
-        let occurrence = try XCTUnwrap(upgradedDomainStore.fetchOccurrence(id: id))
-        XCTAssertEqual(occurrence.id, id)
-        XCTAssertEqual(occurrence.items.count, 1)
-        XCTAssertEqual(occurrence.items[0].order, 0)
-        XCTAssertEqual(occurrence.items[0].representations[0].kind, .text)
+        let entry = try XCTUnwrap(upgradedDomainStore.fetchEntry(id: id))
+        XCTAssertEqual(entry.id, id)
+        XCTAssertEqual(entry.representations.map(\.kind), [.text])
+        XCTAssertEqual(entry.text, "legacy occurrence")
+        XCTAssertNil(try upgradedDomainStore.pastePayload(id: id), "Plain text is pasted directly from the exact entry")
         upgradedDomainStore.close()
     }
 

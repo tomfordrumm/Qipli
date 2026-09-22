@@ -274,45 +274,7 @@ struct HistoryCaptureResult: Equatable, Sendable {
     let notice: String?
 }
 
-struct HistoryPayloadItem: Identifiable, Equatable, Sendable {
-    let id: UUID
-    let order: Int
-    let representations: [HistoryRepresentationDescriptor]
 
-    init(
-        id: UUID = UUID(),
-        order: Int,
-        representations: [HistoryRepresentationDescriptor]
-    ) {
-        self.id = id
-        self.order = order
-        self.representations = representations
-    }
-}
-
-/// A durable typed occurrence. Payload bytes and bookmark data are deliberately
-/// absent from this value until an explicit selected-paste read path.
-struct HistoryOccurrence: Identifiable, Equatable, Sendable {
-    let id: UUID
-    let items: [HistoryPayloadItem]
-    let activityAt: Date
-    let managedImages: [HistoryManagedImageRepresentation]
-    let referenceMetadata: [HistoryReferenceMetadata]
-
-    init(
-        id: UUID,
-        items: [HistoryPayloadItem],
-        activityAt: Date,
-        managedImages: [HistoryManagedImageRepresentation] = [],
-        referenceMetadata: [HistoryReferenceMetadata] = []
-    ) {
-        self.id = id
-        self.items = items
-        self.activityAt = activityAt
-        self.managedImages = managedImages
-        self.referenceMetadata = referenceMetadata
-    }
-}
 
 /// The bounded value sent to the main actor for list/search rendering.
 struct HistoryOccurrenceDescriptor: Identifiable, Equatable, Sendable {

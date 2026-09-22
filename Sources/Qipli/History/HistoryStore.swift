@@ -1,8 +1,7 @@
 import CoreData
 import Foundation
 
-protocol HistoryStoring: AnyObject, HistoryPagingStoring {
-    func fetchCurrent(since cutoff: Date) throws -> [HistoryEntry]
+protocol HistoryStoring: AnyObject, HistoryPagingStoring, HistoryFavoriteStoring, TypedHistoryStoring, RichTextHistoryStoring, HistoryStackPayloadLeaseStoring {
     func create(text: String, activityAt: Date) throws -> HistoryEntry
     func markUsed(id: UUID, activityAt: Date) throws
     func delete(id: UUID) throws
@@ -18,15 +17,10 @@ protocol HistoryPagingStoring: AnyObject {
         limit: Int
     ) throws -> HistoryPage
     func fetchEntry(id: UUID) throws -> HistoryEntry?
-    func fetchOccurrence(id: UUID) throws -> HistoryOccurrence?
 }
 
-/// Optional capability kept separate from the legacy store protocol so small
-/// test/demonstration stores can continue to exercise the text History path.
-/// The production Core Data store implements the filtered queries directly,
-/// rather than loading the full retention window just to find favorites.
+/// Filtered queries are required by the application storage contract.
 protocol HistoryFavoriteStoring: AnyObject {
-    func fetchCurrent(since cutoff: Date, favoritesOnly: Bool) throws -> [HistoryEntry]
     func fetchPage(
         since cutoff: Date,
         after cursor: HistoryPageCursor?,
@@ -86,7 +80,7 @@ enum HistoryStoreError: LocalizedError, Equatable {
 }
 
 /// A local-only SQLite store. No managed objects cross this boundary.
-final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryFavoriteStoring, TypedHistoryStoring, RichTextHistoryStoring, HistoryStackPayloadLeaseStoring {
+final class CoreDataHistoryStore: HistoryStoring {
     private enum ImageManifestRecord {
         case absent
         case valid(ManagedImageAssetManifest)
@@ -147,23 +141,6 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryF
         try loadStore()
     }
 
-    func fetchCurrent(since cutoff: Date) throws -> [HistoryEntry] {
-        try fetchCurrent(since: cutoff, favoritesOnly: false)
-    }
-
-    func fetchCurrent(since cutoff: Date, favoritesOnly: Bool) throws -> [HistoryEntry] {
-        try contextSync { context in
-            try self.removeExpired(before: cutoff, in: context)
-            let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
-            request.predicate = Self.eligibilityPredicate(cutoff: cutoff, favoritesOnly: favoritesOnly)
-            request.sortDescriptors = [
-                NSSortDescriptor(key: "capturedAt", ascending: false),
-                NSSortDescriptor(key: "id", ascending: false),
-            ]
-            return try context.fetch(request).compactMap(Self.entry(from:))
-        }
-    }
-
     func fetchPage(since cutoff: Date, after cursor: HistoryPageCursor?, limit: Int) throws -> HistoryPage {
         try fetchPage(since: cutoff, after: cursor, limit: limit, favoritesOnly: false)
     }
@@ -205,120 +182,6 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryF
             request.fetchLimit = 1
             request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
             return try context.fetch(request).compactMap(Self.entry(from:)).first
-        }
-    }
-
-    func fetchOccurrence(id: UUID) throws -> HistoryOccurrence? {
-        try contextSync { context in
-            let request = NSFetchRequest<NSManagedObject>(entityName: Self.entityName)
-            request.fetchLimit = 1
-            request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
-            guard let object = try context.fetch(request).first,
-                  let entry = Self.entry(from: object)
-            else { return nil }
-            if let richManifest = Self.richTextManifest(from: object) {
-                return HistoryOccurrence(
-                    id: entry.id,
-                    items: richManifest.items.sorted { $0.order < $1.order }.map { item in
-                        HistoryPayloadItem(
-                            id: item.id,
-                            order: item.order,
-                            representations: [
-                                HistoryRepresentationDescriptor(
-                                    kind: .text,
-                                    typeIdentifier: "public.utf8-plain-text"
-                                )
-                            ] + item.representations.map {
-                                HistoryRepresentationDescriptor(kind: .text, typeIdentifier: $0.typeIdentifier)
-                            }
-                        )
-                    },
-                    activityAt: entry.activityAt
-                )
-            }
-            let imageManifest = Self.manifest(from: object)
-            let referenceManifest = Self.referenceManifest(from: object)
-            if let imageManifest, let referenceManifest {
-                let imageItemsByOrder = Dictionary(grouping: imageManifest.items, by: \.order)
-                let referenceItemsByOrder = Dictionary(grouping: referenceManifest.items, by: \.order)
-                let orders = Set(imageItemsByOrder.keys).union(referenceItemsByOrder.keys).sorted()
-                return HistoryOccurrence(
-                    id: entry.id,
-                    items: orders.flatMap { order in
-                        imageItemsByOrder[order, default: []].map { item in
-                            HistoryPayloadItem(
-                                id: item.id,
-                                order: item.order,
-                                representations: item.representations.map {
-                                    HistoryRepresentationDescriptor(kind: .inlineImage, typeIdentifier: $0.typeIdentifier)
-                                }
-                            )
-                        } + referenceItemsByOrder[order, default: []].map { item in
-                            HistoryPayloadItem(
-                                id: item.id,
-                                order: item.order,
-                                representations: [HistoryRepresentationDescriptor(
-                                    kind: item.kind,
-                                    typeIdentifier: item.typeIdentifier
-                                )]
-                            )
-                        }
-                    },
-                    activityAt: entry.activityAt,
-                    managedImages: imageManifest.representations,
-                    referenceMetadata: referenceManifest.items.map(\.metadata)
-                )
-            }
-            if let manifest = imageManifest {
-                return HistoryOccurrence(
-                    id: entry.id,
-                    items: manifest.items.map { item in
-                        HistoryPayloadItem(
-                            id: item.id,
-                            order: item.order,
-                            representations: item.representations.map {
-                                HistoryRepresentationDescriptor(kind: .inlineImage, typeIdentifier: $0.typeIdentifier)
-                            }
-                        )
-                    },
-                    activityAt: entry.activityAt,
-                    managedImages: manifest.representations
-                )
-            }
-            if let manifest = referenceManifest {
-                return HistoryOccurrence(
-                    id: entry.id,
-                    items: manifest.items.map { item in
-                        HistoryPayloadItem(
-                            id: item.id,
-                            order: item.order,
-                            representations: [HistoryRepresentationDescriptor(
-                                kind: item.kind,
-                                typeIdentifier: item.typeIdentifier
-                            )]
-                        )
-                    },
-                    activityAt: entry.activityAt,
-                    referenceMetadata: manifest.items.map(\.metadata)
-                )
-            }
-            let kind = HistoryRepresentationKind(
-                rawValue: object.value(forKey: "itemKind") as? String ?? HistoryRepresentationKind.text.rawValue
-            ) ?? .text
-            let typeIdentifier = object.value(forKey: "itemTypeIdentifier") as? String ?? "public.utf8-plain-text"
-            return HistoryOccurrence(
-                id: entry.id,
-                items: [HistoryPayloadItem(
-                    id: entry.id,
-                    order: object.value(forKey: "itemOrder") as? Int ?? 0,
-                    representations: [HistoryRepresentationDescriptor(
-                        kind: kind,
-                        typeIdentifier: typeIdentifier
-                    )]
-                )],
-                activityAt: entry.activityAt,
-                managedImages: entry.managedImages
-            )
         }
     }
 
@@ -1632,20 +1495,12 @@ final class CoreDataHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryF
 }
 
 /// Delays opening the default store until it is needed, so a transient launch-time failure can be retried.
-final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryFavoriteStoring, TypedHistoryStoring, RichTextHistoryStoring {
+final class RetryingHistoryStore: HistoryStoring {
     private let makeStore: () throws -> HistoryStoring
     private var loadedStore: HistoryStoring?
 
     init(makeStore: @escaping () throws -> HistoryStoring) {
         self.makeStore = makeStore
-    }
-
-    func fetchCurrent(since cutoff: Date) throws -> [HistoryEntry] {
-        try store().fetchCurrent(since: cutoff)
-    }
-
-    func fetchCurrent(since cutoff: Date, favoritesOnly: Bool) throws -> [HistoryEntry] {
-        try favoriteStore().fetchCurrent(since: cutoff, favoritesOnly: favoritesOnly)
     }
 
     func create(text: String, activityAt: Date) throws -> HistoryEntry {
@@ -1665,7 +1520,7 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryF
     }
 
     func setFavorite(id: UUID, isFavorite: Bool) throws {
-        try favoriteStore().setFavorite(id: id, isFavorite: isFavorite)
+        try store().setFavorite(id: id, isFavorite: isFavorite)
     }
 
     func fetchPage(since cutoff: Date, after cursor: HistoryPageCursor?, limit: Int) throws -> HistoryPage {
@@ -1678,7 +1533,7 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryF
         limit: Int,
         favoritesOnly: Bool
     ) throws -> HistoryPage {
-        try favoriteStore().fetchPage(since: cutoff, after: cursor, limit: limit, favoritesOnly: favoritesOnly)
+        try store().fetchPage(since: cutoff, after: cursor, limit: limit, favoritesOnly: favoritesOnly)
     }
 
     func searchPage(
@@ -1697,7 +1552,7 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryF
         limit: Int,
         favoritesOnly: Bool
     ) throws -> HistoryPage {
-        try favoriteStore().searchPage(
+        try store().searchPage(
             query: query,
             since: cutoff,
             after: cursor,
@@ -1710,16 +1565,12 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryF
         try store().fetchEntry(id: id)
     }
 
-    func fetchOccurrence(id: UUID) throws -> HistoryOccurrence? {
-        try store().fetchOccurrence(id: id)
-    }
-
     func createImage(items: [ManagedImageCaptureItem], activityAt: Date) throws -> HistoryEntry {
-        try typedStore().createImage(items: items, activityAt: activityAt)
+        try store().createImage(items: items, activityAt: activityAt)
     }
 
     func createReference(items: [HistoryReferenceCaptureItem], activityAt: Date) throws -> HistoryEntry {
-        try typedStore().createReference(items: items, activityAt: activityAt)
+        try store().createReference(items: items, activityAt: activityAt)
     }
 
     func createImageAndReference(
@@ -1727,7 +1578,7 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryF
         referenceItems: [HistoryReferenceCaptureItem],
         activityAt: Date
     ) throws -> HistoryEntry {
-        try typedStore().createImageAndReference(
+        try store().createImageAndReference(
             imageItems: imageItems,
             referenceItems: referenceItems,
             activityAt: activityAt
@@ -1739,18 +1590,31 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryF
         items: [HistoryRichTextCaptureItem],
         activityAt: Date
     ) throws -> HistoryRichTextCaptureResult {
-        guard let store = try store() as? RichTextHistoryStoring else {
-            throw HistoryStoreError.unavailable
-        }
-        return try store.createRichText(text: text, items: items, activityAt: activityAt)
+        return try store().createRichText(text: text, items: items, activityAt: activityAt)
     }
 
     func pastePayload(id: UUID) throws -> HistoryPastePayload? {
-        try typedStore().pastePayload(id: id)
+        try store().pastePayload(id: id)
     }
 
     func thumbnailData(id: UUID) throws -> Data? {
-        try typedStore().thumbnailData(id: id)
+        try store().thumbnailData(id: id)
+    }
+
+    func acquireStackPayloadLease(occurrenceID: UUID, sessionID: UUID) throws -> HistoryStackPayloadLease? {
+        try store().acquireStackPayloadLease(occurrenceID: occurrenceID, sessionID: sessionID)
+    }
+
+    func releaseStackPayloadLease(_ lease: HistoryStackPayloadLease) {
+        loadedStore?.releaseStackPayloadLease(lease)
+    }
+
+    func revokeStackPayloadLeases(for occurrenceID: UUID) {
+        loadedStore?.revokeStackPayloadLeases(for: occurrenceID)
+    }
+
+    func isStackPayloadLeaseValid(_ lease: HistoryStackPayloadLease) -> Bool {
+        loadedStore?.isStackPayloadLeaseValid(lease) ?? false
     }
 
     private func store() throws -> HistoryStoring {
@@ -1760,17 +1624,4 @@ final class RetryingHistoryStore: HistoryStoring, HistoryPagingStoring, HistoryF
         return store
     }
 
-    private func typedStore() throws -> TypedHistoryStoring {
-        guard let typedStore = try store() as? TypedHistoryStoring else {
-            throw HistoryStoreError.unavailable
-        }
-        return typedStore
-    }
-
-    private func favoriteStore() throws -> HistoryFavoriteStoring {
-        guard let favoriteStore = try store() as? HistoryFavoriteStoring else {
-            throw HistoryStoreError.unavailable
-        }
-        return favoriteStore
-    }
 }

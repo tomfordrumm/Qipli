@@ -472,3 +472,12 @@
 - Решение: S036 добавляет прямой доступ к пяти первым occurrences общей History. Пункт History и последующие команды сохраняются; используется существующая typed History paste.
 - Уточнения планирования: activity order общей History без зависимости от Search/Favorites; bounded локальные подписи; нет placeholders до пяти. При active Stack предложено отключать recent actions с объяснением, сохраняя текущую границу BR-028. Эти детали не выдаются за отдельные ответы пользователя.
 - Последствия: нужны независимая bounded projection, захват исходного target при открытии native menu и общий paste transaction guard. Новые permissions, storage schema и input interception не требуются. Focus/handoff и typed target acceptance проверяются при реализации S036.
+
+## D-048: Явный History storage contract и общий execution owner
+
+- Статус: `accepted`
+- Дата: 2026-09-22
+- Источник: пользователь подтвердил предложенное ревью упрощение кода без удаления функций.
+- Решение: `HistoryStoring` требует paging, favorites, typed/rich payloads и Stack leases. `RetryingHistoryStore` сохраняет lazy retry и передаёт все эти операции. ApplicationShell создаёт один `SerializedHistoryService` для History UI, capture, payload reads и lease operations.
+- Причина: optional capability casts скрывали отсутствие lease forwarding в production wrapper; два actor wrappers над одним service не задавали общего порядка операций.
+- Последствия: runtime fallback для неполных stores удалён, text-only fakes остаются в Tests. Неиспользуемые full-history/occurrence API удалены из приложения; тестовые чтения проходят через paging и exact-entry lookup. Схема данных, retention, permissions и release contract не меняются. Исправлено удержание Stack payload от expiry через default wrapper. Проверки cancellation/revocation/focus и clipboard correlation сохраняются.
