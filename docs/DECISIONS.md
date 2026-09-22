@@ -481,3 +481,12 @@
 - Решение: `HistoryStoring` требует paging, favorites, typed/rich payloads и Stack leases. `RetryingHistoryStore` сохраняет lazy retry и передаёт все эти операции. ApplicationShell создаёт один `SerializedHistoryService` для History UI, capture, payload reads и lease operations.
 - Причина: optional capability casts скрывали отсутствие lease forwarding в production wrapper; два actor wrappers над одним service не задавали общего порядка операций.
 - Последствия: runtime fallback для неполных stores удалён, text-only fakes остаются в Tests. Неиспользуемые full-history/occurrence API удалены из приложения; тестовые чтения проходят через paging и exact-entry lookup. Схема данных, retention, permissions и release contract не меняются. Исправлено удержание Stack payload от expiry через default wrapper. Проверки cancellation/revocation/focus и clipboard correlation сохраняются.
+
+## D-049: Единый порядок веток и публикации релизов
+
+- Статус: `accepted`
+- Дата: 2026-09-22
+- Источник: пользователь подтвердил предложенный порядок релиза и заменил префикс рабочих веток на `feature/`.
+- Контекст: подготовка версий использовала разные имена `codex/*` и `release/*`; AGENTS.md не задавал общий порядок и объём релизных команд.
+- Решение: закрепить правила веток и авторизации в [AGENTS.md](../AGENTS.md), операционные шаги в [RELEASING.md](RELEASING.md). Изменения доставляются через PR в `main`, затем отдельный PR подготовки версии; тег указывает на проверенный CI коммит `main`. Существующая `codex/release-1.0.11` является переходным исключением.
+- Последствия: релизная ветка больше не служит веткой разработки. Явный запрос публикации разрешает весь необходимый процесс без повторных вопросов, сохраняя protected approval и обязательные проверки. Workflow, signing, notarization и Sparkle не меняются. Имена веток пока контролируются инструкциями, а не автоматическим CI правилом.
