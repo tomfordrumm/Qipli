@@ -1036,6 +1036,7 @@ final class StackSessionControllerTests: XCTestCase {
             registerSelfWrite: monitor.registerSelfWrite,
             commandDispatcher: StackPasteDispatcher(results: [true]),
             sessionController: controller,
+            payloadProvider: { _ in nil },
             scheduleProduction: { $0() },
             finishPresentation: {}
         )
@@ -1063,6 +1064,7 @@ final class StackSessionControllerTests: XCTestCase {
             registerSelfWrite: monitor.registerSelfWrite,
             commandDispatcher: StackPasteDispatcher(results: [true, true]),
             sessionController: controller,
+            payloadProvider: { _ in nil },
             scheduleProduction: { $0() },
             scheduleAutoFinish: finish.schedule,
             finishPresentation: {}
@@ -1199,6 +1201,40 @@ final class StackSessionControllerTests: XCTestCase {
         XCTAssertEqual(dispatcher.dispatchCount, 0)
     }
 
+    func testCancellationDuringLeaseValidationCannotWriteTheClipboard() async {
+        let controller = StackSessionController()
+        XCTAssertTrue(controller.startIfNeeded(captureAfterChangeCount: 10))
+        let context = controller.captureContext!
+        let entry = makeEntry("cancelled lease fixture")
+        let lease = HistoryStackPayloadLease(id: UUID(), occurrenceID: entry.id, sessionID: context.sessionID)
+        controller.appendPersistedHistoryEntry(entry, observedChangeCount: 11, for: context, payloadLease: lease)
+        let writer = StackTypedPasteboardWriter(changeCount: 20)
+        let dispatcher = StackPasteDispatcher(results: [true])
+        let checked = expectation(description: "lease check cancelled session")
+        let executor = StackSequentialPasteExecutor(
+            permissionService: StackPastePermission(state: .granted),
+            pasteboardWriter: writer,
+            registerSelfWrite: { _ in XCTFail("Cancelled paste must not write") },
+            commandDispatcher: dispatcher,
+            sessionController: controller,
+            payloadProvider: { _ in XCTFail("Text requires no payload read"); return nil },
+            leaseValidator: { _ in
+                controller.cancel()
+                checked.fulfill()
+                return true
+            },
+            currentPasteboardChangeCount: { writer.changeCount },
+            scheduleProduction: { $0() },
+            finishPresentation: {}
+        )
+        XCTAssertEqual(controller.acceptNextPasteInput(pasteboardChangeCount: 20), .consumeAndDispatch)
+        executor.executeReservedPaste()
+        await fulfillment(of: [checked], timeout: 2)
+        XCTAssertEqual(writer.changeCount, 20)
+        XCTAssertEqual(dispatcher.dispatchCount, 0)
+        XCTAssertFalse(controller.isActive)
+    }
+
     private func makeEntry(_ text: String) -> HistoryEntry {
         HistoryEntry(id: UUID(), text: text, activityAt: .now)
     }
@@ -1241,6 +1277,7 @@ final class StackSessionControllerTests: XCTestCase {
             registerSelfWrite: { _ in },
             commandDispatcher: dispatcher,
             sessionController: controller,
+            payloadProvider: { _ in nil },
             scheduleProduction: productionSchedule,
             scheduleAutoFinish: finishScheduler.schedule,
             finishPresentation: finishPresentation
@@ -1248,7 +1285,7 @@ final class StackSessionControllerTests: XCTestCase {
     }
 }
 
-private final class StackTestHistoryStore: HistoryStoring {
+private final class StackTestHistoryStore: TextTestHistoryStoring {
     var entries: [HistoryEntry] = []
     var createdTexts: [String] = []
     var createError: Error?

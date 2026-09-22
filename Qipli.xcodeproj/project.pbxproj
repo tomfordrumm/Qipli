@@ -13,7 +13,7 @@
 		A00100000000000000000004 /* GlobalInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000004 /* GlobalInput.swift */; };
 		A00100000000000000000005 /* CGEventTapAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000005 /* CGEventTapAdapter.swift */; };
 		A00100000000000000000006 /* PanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000006 /* PanelController.swift */; };
-		A00100000000000000000007 /* PlaceholderViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000007 /* PlaceholderViews.swift */; };
+		A00100000000000000000007 /* PasteStackPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000007 /* PasteStackPanelView.swift */; };
 		A00100000000000000000008 /* InputCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000008 /* InputCoordinatorTests.swift */; };
 		A00100000000000000000009 /* EventTapRecoveryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000013 /* EventTapRecoveryPolicy.swift */; };
 		A00100000000000000000010 /* SyntheticEventMarker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000014 /* SyntheticEventMarker.swift */; };
@@ -54,6 +54,8 @@
 		A00100000000000000000050 /* HistoryRichTextAssetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000050 /* HistoryRichTextAssetStore.swift */; };
 		A00100000000000000000051 /* FinderCut.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000051 /* FinderCut.swift */; };
 		A00100000000000000000052 /* FinderCutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000052 /* FinderCutTests.swift */; };
+		A00100000000000000000090 /* PasteStackPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000090 /* PasteStackPresentation.swift */; };
+		A00100000000000000000091 /* FinderCutPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000091 /* FinderCutPanelView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -73,7 +75,7 @@
 		A00200000000000000000004 /* GlobalInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalInput.swift; sourceTree = "<group>"; };
 		A00200000000000000000005 /* CGEventTapAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CGEventTapAdapter.swift; sourceTree = "<group>"; };
 		A00200000000000000000006 /* PanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelController.swift; sourceTree = "<group>"; };
-		A00200000000000000000007 /* PlaceholderViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderViews.swift; sourceTree = "<group>"; };
+		A00200000000000000000007 /* PasteStackPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteStackPanelView.swift; sourceTree = "<group>"; };
 		A00200000000000000000008 /* InputCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputCoordinatorTests.swift; sourceTree = "<group>"; };
 		A00200000000000000000009 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A00200000000000000000010 /* Qipli.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Qipli.entitlements; sourceTree = "<group>"; };
@@ -118,6 +120,8 @@
 		A00200000000000000000050 /* HistoryRichTextAssetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryRichTextAssetStore.swift; sourceTree = "<group>"; };
 		A00200000000000000000051 /* FinderCut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderCut.swift; sourceTree = "<group>"; };
 		A00200000000000000000052 /* FinderCutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderCutTests.swift; sourceTree = "<group>"; };
+		A00200000000000000000090 /* PasteStackPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteStackPresentation.swift; sourceTree = "<group>"; };
+		A00200000000000000000091 /* FinderCutPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderCutPanelView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -193,7 +197,9 @@
 			isa = PBXGroup;
 			children = (
 				A00200000000000000000006 /* PanelController.swift */,
-				A00200000000000000000007 /* PlaceholderViews.swift */,
+				A00200000000000000000007 /* PasteStackPanelView.swift */,
+				A00200000000000000000091 /* FinderCutPanelView.swift */,
+				A00200000000000000000090 /* PasteStackPresentation.swift */,
 				A00200000000000000000029 /* PanelMaterialProvider.swift */,
 				A00200000000000000000047 /* TopNotchHistoryShelf.swift */,
 				A00200000000000000000034 /* SettingsWindowController.swift */,
@@ -427,7 +433,9 @@
 				A00100000000000000000024 /* StackSequentialPasteExecutor.swift in Sources */,
 				A00100000000000000000018 /* HistoryPasteExecutor.swift in Sources */,
 				A00100000000000000000006 /* PanelController.swift in Sources */,
-				A00100000000000000000007 /* PlaceholderViews.swift in Sources */,
+				A00100000000000000000007 /* PasteStackPanelView.swift in Sources */,
+				A00100000000000000000091 /* FinderCutPanelView.swift in Sources */,
+				A00100000000000000000090 /* PasteStackPresentation.swift in Sources */,
 				A00100000000000000000029 /* PanelMaterialProvider.swift in Sources */,
 				A00100000000000000000047 /* TopNotchHistoryShelf.swift in Sources */,
 				A00100000000000000000031 /* ShortcutPreferences.swift in Sources */,

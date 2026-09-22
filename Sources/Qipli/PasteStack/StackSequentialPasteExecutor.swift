@@ -10,7 +10,7 @@ final class StackSequentialPasteExecutor {
     private let registerSelfWrite: (Int) -> Void
     private let commandDispatcher: TaggedPasteCommandDispatching
     private let sessionController: StackSessionController
-    private let payloadProvider: ((StackPayloadHandle) async throws -> HistoryPastePayload?)?
+    private let payloadProvider: (StackPayloadHandle) async throws -> HistoryPastePayload?
     private let leaseValidator: (HistoryStackPayloadLease) async -> Bool
     private let currentPasteboardChangeCount: (() -> Int)?
     private let scheduleProduction: (@escaping () -> Void) -> Void
@@ -23,7 +23,7 @@ final class StackSequentialPasteExecutor {
         registerSelfWrite: @escaping (Int) -> Void,
         commandDispatcher: TaggedPasteCommandDispatching,
         sessionController: StackSessionController,
-        payloadProvider: ((StackPayloadHandle) async throws -> HistoryPastePayload?)? = nil,
+        payloadProvider: @escaping (StackPayloadHandle) async throws -> HistoryPastePayload?,
         leaseValidator: @escaping (HistoryStackPayloadLease) async -> Bool = { _ in true },
         currentPasteboardChangeCount: (() -> Int)? = nil,
         scheduleProduction: @escaping (@escaping () -> Void) -> Void = { action in
@@ -54,103 +54,80 @@ final class StackSequentialPasteExecutor {
         sessionController.publishReservedPasteState()
         scheduleProduction { [weak self] in
             guard let self else { return }
-            if self.payloadProvider == nil {
-                self.producePlainPaste(reservation)
-            } else {
-                Task { @MainActor [weak self] in
-                    await self?.produceTypedPaste(reservation)
-                }
-            }
+            self.producePaste(reservation)
         }
     }
 
-    private func producePlainPaste(_ reservation: StackPasteReservation) {
-        guard sessionController.isPasteReservationCurrent(reservation) else { return }
-        guard !sessionController.isReservedOccurrenceUnavailable(reservation) else {
-            sessionController.releasePasteReservation(reservation, failure: .payloadUnavailable)
+    private func producePaste(_ reservation: StackPasteReservation) {
+        guard validateReservation(reservation) else { return }
+        let lease = sessionController.payloadLease(for: reservation.occurrence.id)
+        let isText = reservation.occurrence.payloadHandle.kind == .text
+        // Text already belongs to the reservation. Without a lease there is
+        // no storage work to await, so it uses the same write boundary directly.
+        if isText && lease == nil {
+            writeAndDispatch(reservation, payload: nil)
             return
         }
-        guard permissionService.refresh() == .granted else {
-            sessionController.releasePasteReservation(reservation, failure: .accessibilityRequired)
-            return
-        }
-        guard pasteboardHasNotChanged(since: reservation.pasteboardChangeCount) else {
-            sessionController.releasePasteReservation(reservation, failure: .pasteboardChanged)
-            return
-        }
-        do {
-            let changeCount = try pasteboardWriter.write(text: reservation.occurrence.text)
-            registerSelfWrite(changeCount)
-            finishWriteAndDispatch(reservation, changeCount: changeCount)
-        } catch {
-            sessionController.releasePasteReservation(reservation, failure: .pasteboardWriteFailed)
-        }
-    }
-
-    private func produceTypedPaste(_ reservation: StackPasteReservation) async {
-        guard sessionController.isPasteReservationCurrent(reservation) else { return }
-        guard !sessionController.isReservedOccurrenceUnavailable(reservation) else {
-            sessionController.releasePasteReservation(reservation, failure: .payloadUnavailable)
-            return
-        }
-        guard permissionService.refresh() == .granted else {
-            sessionController.releasePasteReservation(reservation, failure: .accessibilityRequired)
-            return
-        }
-        guard pasteboardHasNotChanged(since: reservation.pasteboardChangeCount) else {
-            sessionController.releasePasteReservation(reservation, failure: .pasteboardChanged)
-            return
-        }
-        if let lease = sessionController.payloadLease(for: reservation.occurrence.id),
-           !(await leaseValidator(lease)) {
-            sessionController.releasePasteReservation(reservation, failure: .payloadUnavailable)
-            return
-        }
-
-        if reservation.occurrence.payloadHandle.kind == .text {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             do {
-                let changeCount = try pasteboardWriter.write(text: reservation.occurrence.text)
-                registerSelfWrite(changeCount)
-                finishWriteAndDispatch(reservation, changeCount: changeCount)
+                if let lease, !(await self.leaseValidator(lease)) {
+                    throw StackPasteFailure.payloadUnavailable
+                }
+                guard self.validateReservation(reservation) else { return }
+                let payload: HistoryPastePayload?
+                if isText {
+                    payload = nil
+                } else {
+                    guard let resolved = try await self.payloadProvider(reservation.occurrence.payloadHandle) else {
+                        throw StackPasteFailure.payloadUnavailable
+                    }
+                    payload = resolved
+                    if let lease, !(await self.leaseValidator(lease)) {
+                        throw StackPasteFailure.payloadUnavailable
+                    }
+                }
+                self.writeAndDispatch(reservation, payload: payload)
             } catch {
-                sessionController.releasePasteReservation(reservation, failure: .pasteboardWriteFailed)
+                self.sessionController.releasePasteReservation(reservation, failure: .payloadUnavailable)
             }
-            return
         }
+    }
 
-        let payload: HistoryPastePayload
+    /// Check again after every suspension, immediately before touching the
+    /// clipboard. Cancellation, deletion, permission and external copies can
+    /// change while storage is reading a payload or validating its lease.
+    private func validateReservation(_ reservation: StackPasteReservation) -> Bool {
+        guard sessionController.isPasteReservationCurrent(reservation) else { return false }
+        let failure: StackPasteFailure?
+        if sessionController.isReservedOccurrenceUnavailable(reservation) {
+            failure = .payloadUnavailable
+        } else if permissionService.refresh() != .granted {
+            failure = .accessibilityRequired
+        } else if !pasteboardHasNotChanged(since: reservation.pasteboardChangeCount) {
+            failure = .pasteboardChanged
+        } else {
+            failure = nil
+        }
+        if let failure {
+            sessionController.releasePasteReservation(reservation, failure: failure)
+            return false
+        }
+        return true
+    }
+
+    private func writeAndDispatch(_ reservation: StackPasteReservation, payload: HistoryPastePayload?) {
+        guard validateReservation(reservation) else { return }
         do {
-            guard let payloadProvider,
-                  let providedPayload = try await payloadProvider(reservation.occurrence.payloadHandle)
-            else {
-                throw StackPasteFailure.payloadUnavailable
+            let changeCount: Int
+            if let payload {
+                guard let writer = pasteboardWriter as? TypedHistoryPasteboardWriting else {
+                    throw HistoryPasteboardWriteError.unableToWriteText
+                }
+                changeCount = try writer.write(payload: payload)
+            } else {
+                changeCount = try pasteboardWriter.write(text: reservation.occurrence.text)
             }
-            payload = providedPayload
-        } catch {
-            sessionController.releasePasteReservation(reservation, failure: .payloadUnavailable)
-            return
-        }
-
-        guard sessionController.isPasteReservationCurrent(reservation),
-              pasteboardHasNotChanged(since: reservation.pasteboardChangeCount)
-        else {
-            if sessionController.isPasteReservationCurrent(reservation) {
-                sessionController.releasePasteReservation(reservation, failure: .pasteboardChanged)
-            }
-            return
-        }
-        if let lease = sessionController.payloadLease(for: reservation.occurrence.id),
-           !(await leaseValidator(lease)) {
-            sessionController.releasePasteReservation(reservation, failure: .payloadUnavailable)
-            return
-        }
-
-        guard let typedWriter = pasteboardWriter as? TypedHistoryPasteboardWriting else {
-            sessionController.releasePasteReservation(reservation, failure: .pasteboardWriteFailed)
-            return
-        }
-        do {
-            let changeCount = try typedWriter.write(payload: payload)
             registerSelfWrite(changeCount)
             finishWriteAndDispatch(reservation, changeCount: changeCount)
         } catch {

@@ -27,30 +27,11 @@ final class HistoryService {
     static let pageSize = 500
 
     private let store: HistoryStoring
-    private let favoriteStore: HistoryFavoriteStoring?
-    private let typedStore: TypedHistoryStoring?
-    private let richTextStore: RichTextHistoryStoring?
-    private let stackLeaseStore: HistoryStackPayloadLeaseStoring?
     private let clock: HistoryClock
 
     init(store: HistoryStoring, clock: HistoryClock = SystemHistoryClock()) {
         self.store = store
-        favoriteStore = store as? HistoryFavoriteStoring
-        typedStore = store as? TypedHistoryStoring
-        richTextStore = store as? RichTextHistoryStoring
-        stackLeaseStore = store as? HistoryStackPayloadLeaseStoring
         self.clock = clock
-    }
-
-    func entries(mode: HistoryFilterMode = .history) throws -> [HistoryEntry] {
-        let entries: [HistoryEntry] = if let favoriteStore {
-            try favoriteStore.fetchCurrent(since: retentionCutoff, favoritesOnly: mode.favoritesOnly)
-        } else if mode == .favorites {
-            []
-        } else {
-            try store.fetchCurrent(since: retentionCutoff)
-        }
-        return entries.filter(Self.isRenderable)
     }
 
     /// Reads only display metadata in small pages, independent of panel filters.
@@ -69,46 +50,15 @@ final class HistoryService {
     }
 
     func page(after cursor: HistoryPageCursor? = nil, mode: HistoryFilterMode = .history) throws -> HistoryPage {
-        if let favoriteStore {
-            return try favoriteStore.fetchPage(
-                since: retentionCutoff,
-                after: cursor,
-                limit: Self.pageSize,
-                favoritesOnly: mode.favoritesOnly
-            )
-        }
-        if mode == .favorites {
-            return HistoryPage(descriptors: [], nextCursor: nil, hasMore: false)
-        }
-        return try store.fetchPage(since: retentionCutoff, after: cursor, limit: Self.pageSize)
+        try store.fetchPage(since: retentionCutoff, after: cursor, limit: Self.pageSize, favoritesOnly: mode.favoritesOnly)
     }
 
-    func searchPage(
-        query: String,
-        after cursor: HistoryPageCursor? = nil,
-        mode: HistoryFilterMode = .history
-    ) throws -> HistoryPage {
-        if let favoriteStore {
-            return try favoriteStore.searchPage(
-                query: query,
-                since: retentionCutoff,
-                after: cursor,
-                limit: Self.pageSize,
-                favoritesOnly: mode.favoritesOnly
-            )
-        }
-        if mode == .favorites {
-            return HistoryPage(descriptors: [], nextCursor: nil, hasMore: false)
-        }
-        return try store.searchPage(query: query, since: retentionCutoff, after: cursor, limit: Self.pageSize)
+    func searchPage(query: String, after cursor: HistoryPageCursor? = nil, mode: HistoryFilterMode = .history) throws -> HistoryPage {
+        try store.searchPage(query: query, since: retentionCutoff, after: cursor, limit: Self.pageSize, favoritesOnly: mode.favoritesOnly)
     }
 
     func entry(id: UUID) throws -> HistoryEntry? {
         try store.fetchEntry(id: id)
-    }
-
-    func occurrence(id: UUID) throws -> HistoryOccurrence? {
-        try store.fetchOccurrence(id: id)
     }
 
     @discardableResult
@@ -121,38 +71,31 @@ final class HistoryService {
                 notice: nil
             )
         case let .richText(text, items):
-            guard HistoryTextPolicy.shouldCapture(text),
-                  let richTextStore
-            else { return nil }
-            let result = try richTextStore.createRichText(
+            guard HistoryTextPolicy.shouldCapture(text) else { return nil }
+            let result = try store.createRichText(
                 text: text,
                 items: items,
                 activityAt: clock.now
             )
             return HistoryCaptureResult(entry: result.entry, notice: result.notice)
         case let .images(items):
-            guard !items.isEmpty,
-                  let typedStore
-            else { return nil }
+            guard !items.isEmpty else { return nil }
             return HistoryCaptureResult(
-                entry: try typedStore.createImage(items: items, activityAt: clock.now),
+                entry: try store.createImage(items: items, activityAt: clock.now),
                 notice: nil
             )
         case let .references(items):
-            guard !items.isEmpty,
-                  let typedStore
-            else { return nil }
+            guard !items.isEmpty else { return nil }
             return HistoryCaptureResult(
-                entry: try typedStore.createReference(items: items, activityAt: clock.now),
+                entry: try store.createReference(items: items, activityAt: clock.now),
                 notice: nil
             )
         case let .mixed(images, references):
             guard !images.isEmpty,
-                  !references.isEmpty,
-                  let typedStore
+                  !references.isEmpty
             else { return nil }
             return HistoryCaptureResult(
-                entry: try typedStore.createImageAndReference(
+                entry: try store.createImageAndReference(
                     imageItems: images,
                     referenceItems: references,
                     activityAt: clock.now
@@ -163,29 +106,27 @@ final class HistoryService {
     }
 
     func pastePayload(id: UUID) throws -> HistoryPastePayload? {
-        try typedStore?.pastePayload(id: id)
+        try store.pastePayload(id: id)
     }
 
     func thumbnailData(id: UUID) throws -> Data? {
-        try typedStore?.thumbnailData(id: id)
+        try store.thumbnailData(id: id)
     }
 
-    var supportsStackPayloadLeases: Bool { stackLeaseStore != nil }
-
     func acquireStackPayloadLease(occurrenceID: UUID, sessionID: UUID) throws -> HistoryStackPayloadLease? {
-        try stackLeaseStore?.acquireStackPayloadLease(occurrenceID: occurrenceID, sessionID: sessionID)
+        try store.acquireStackPayloadLease(occurrenceID: occurrenceID, sessionID: sessionID)
     }
 
     func releaseStackPayloadLease(_ lease: HistoryStackPayloadLease) {
-        stackLeaseStore?.releaseStackPayloadLease(lease)
+        store.releaseStackPayloadLease(lease)
     }
 
     func revokeStackPayloadLeases(for occurrenceID: UUID) {
-        stackLeaseStore?.revokeStackPayloadLeases(for: occurrenceID)
+        store.revokeStackPayloadLeases(for: occurrenceID)
     }
 
     func isStackPayloadLeaseValid(_ lease: HistoryStackPayloadLease) -> Bool {
-        stackLeaseStore?.isStackPayloadLeaseValid(lease) ?? true
+        store.isStackPayloadLeaseValid(lease)
     }
 
     @discardableResult
@@ -204,16 +145,11 @@ final class HistoryService {
     }
 
     func setFavorite(id: UUID, isFavorite: Bool) throws {
-        guard let favoriteStore else { throw HistoryStoreError.unavailable }
-        try favoriteStore.setFavorite(id: id, isFavorite: isFavorite)
+        try store.setFavorite(id: id, isFavorite: isFavorite)
     }
 
     private var retentionCutoff: Date {
         clock.now.addingTimeInterval(-Self.retention)
-    }
-
-    private static func isRenderable(_ entry: HistoryEntry) -> Bool {
-        entry.isTypedEntry || HistoryTextPolicy.shouldCapture(entry.text)
     }
 
 }
@@ -226,11 +162,6 @@ actor SerializedHistoryService {
     init(service: HistoryService) {
         self.service = service
     }
-
-    func entries(mode: HistoryFilterMode = .history) throws -> [HistoryEntry] {
-        try service.entries(mode: mode)
-    }
-
 
     func recentDescriptors() throws -> [HistoryOccurrenceDescriptor] {
         try service.recentDescriptors()
@@ -250,10 +181,6 @@ actor SerializedHistoryService {
 
     func entry(id: UUID) throws -> HistoryEntry? {
         try service.entry(id: id)
-    }
-
-    func occurrence(id: UUID) throws -> HistoryOccurrence? {
-        try service.occurrence(id: id)
     }
 
     func capture(_ capture: HistoryCapture) throws -> HistoryCaptureResult? {

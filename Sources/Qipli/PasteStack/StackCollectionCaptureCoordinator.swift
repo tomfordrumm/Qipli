@@ -135,22 +135,16 @@ final class StackCollectionCaptureCoordinator {
 
         guard let stackCaptureContext else { return }
 
-        let lease: HistoryStackPayloadLease?
-        if historyViewModel.supportsStackPayloadLeases {
-            guard let acquiredLease = await historyViewModel.acquireStackPayloadLease(
-                occurrenceID: result.entry.id,
-                sessionID: stackCaptureContext.sessionID
-            ) else {
-                stackSessionController.recordNonTextCaptureFailure(
-                    message: "This copy was saved to History, but Paste Stack could not hold its payload.",
-                    observedChangeCount: observedChangeCount,
-                    for: stackCaptureContext
-                )
-                return
-            }
-            lease = acquiredLease
-        } else {
-            lease = nil
+        guard let lease = await historyViewModel.acquireStackPayloadLease(
+            occurrenceID: result.entry.id,
+            sessionID: stackCaptureContext.sessionID
+        ) else {
+            stackSessionController.recordNonTextCaptureFailure(
+                message: "This copy was saved to History, but Paste Stack could not hold its payload.",
+                observedChangeCount: observedChangeCount,
+                for: stackCaptureContext
+            )
+            return
         }
 
         let appended = stackSessionController.appendPersistedHistoryEntry(
@@ -159,7 +153,7 @@ final class StackCollectionCaptureCoordinator {
             for: stackCaptureContext,
             payloadLease: lease
         )
-        if !appended, let lease {
+        if !appended {
             historyViewModel.releaseStackPayloadLease(lease)
             return
         }

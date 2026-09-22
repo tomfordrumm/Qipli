@@ -162,7 +162,7 @@ final class PanelController {
             || stackPresentation.state == .dismissing
         if isNewPresentation {
             stackPresentation.beginSession(geometry: geometry)
-            configureCompactStackPanel(panel, geometry: geometry)
+            configureCompactPanel(panel, surface: stackSurface, geometry: geometry)
             panel.orderFrontRegardless()
         } else {
             stackPresentation.updateGeometry(geometry)
@@ -189,7 +189,7 @@ final class PanelController {
             || finderCutPresentation.state == .dismissing
         if isNewPresentation {
             finderCutPresentation.beginSession(geometry: geometry)
-            configureCompactFinderCutPanel(panel, geometry: geometry)
+            configureCompactPanel(panel, surface: finderCutSurface, geometry: geometry)
             panel.orderFrontRegardless()
         } else {
             finderCutPresentation.updateGeometry(geometry)
@@ -508,7 +508,7 @@ final class PanelController {
         }
     }
 
-    private func makeStackPanel<Content: View>(@ViewBuilder content: () -> Content) -> NSPanel {
+    private func makeCompactPanel<Content: View>(@ViewBuilder content: () -> Content) -> (TopNotchPasteStackPanel, TopNotchHistorySurfaceView?) {
         let configuration = PanelWindowConfiguration.make(for: .pasteStack)
         let panel = TopNotchPasteStackPanel(
             contentRect: configuration.contentRect,
@@ -528,7 +528,12 @@ final class PanelController {
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
         surface.layer?.cornerRadius = 0
         panel.hasShadow = false
-        stackSurface = surface as? TopNotchHistorySurfaceView
+        return (panel, surface as? TopNotchHistorySurfaceView)
+    }
+
+    private func makeStackPanel<Content: View>(@ViewBuilder content: () -> Content) -> NSPanel {
+        let (panel, surface) = makeCompactPanel(content: content)
+        stackSurface = surface
         stackSurface?.onPointerEntered = { [weak self] in
             self?.stackPresentation.pointerEntered()
         }
@@ -548,26 +553,8 @@ final class PanelController {
     }
 
     private func makeFinderCutPanel<Content: View>(@ViewBuilder content: () -> Content) -> NSPanel {
-        let configuration = PanelWindowConfiguration.make(for: .pasteStack)
-        let panel = TopNotchPasteStackPanel(
-            contentRect: configuration.contentRect,
-            styleMask: configuration.styleMask,
-            backing: .buffered,
-            defer: false
-        )
-        configuration.applyPresentation(to: panel)
-        let surface = materialProvider.install(
-            content: NSHostingView(rootView: content()),
-            in: panel,
-            opaqueBackground: .black,
-            opaqueSurface: TopNotchHistorySurfaceView()
-        )
-        configuration.applySurfacePresentation(to: surface)
-
-        panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
-        surface.layer?.cornerRadius = 0
-        panel.hasShadow = false
-        finderCutSurface = surface as? TopNotchHistorySurfaceView
+        let (panel, surface) = makeCompactPanel(content: content)
+        finderCutSurface = surface
         let panelDelegate = StackPanelDelegate(cancel: { [weak self] in
             self?.finderCutSessionController.cancel()
         })
@@ -603,59 +590,24 @@ final class PanelController {
     /// stored target against the current display list before moving an active
     /// Stack, otherwise a disconnected monitor can leave the panel off-screen.
     private func resolveStackTopNotchScreen(preferredScreen: NSScreen? = nil) -> NSScreen? {
-        let preferred = preferredScreen ?? stackTopNotchScreen
-        guard let preferred else {
-            let fallback = topNotchScreenProvider.currentScreen()
-            stackTopNotchScreen = fallback
-            return fallback
-        }
-
-        let currentScreens = NSScreen.screens
-        if let preferredDisplayID = TopNotchDisplaySelection.resolvedPreferredDisplayID(
-            preferredDisplayID: displayID(for: preferred),
-            availableDisplayIDs: currentScreens.compactMap(displayID(for:))
-        ),
-           let currentScreen = currentScreens.first(where: { displayID(for: $0) == preferredDisplayID }) {
-            stackTopNotchScreen = currentScreen
-            return currentScreen
-        }
-
-        if currentScreens.contains(where: { $0 === preferred }) {
-            stackTopNotchScreen = preferred
-            return preferred
-        }
-
-        let fallback = topNotchScreenProvider.currentScreen()
-        stackTopNotchScreen = fallback
-        return fallback
+        stackTopNotchScreen = connectedScreen(preferred: preferredScreen ?? stackTopNotchScreen)
+        return stackTopNotchScreen
     }
 
     private func resolveFinderCutScreen(preferredScreen: NSScreen? = nil) -> NSScreen? {
-        let preferred = preferredScreen ?? finderCutTopNotchScreen
-        guard let preferred else {
-            let fallback = topNotchScreenProvider.currentScreen()
-            finderCutTopNotchScreen = fallback
-            return fallback
-        }
+        finderCutTopNotchScreen = connectedScreen(preferred: preferredScreen ?? finderCutTopNotchScreen)
+        return finderCutTopNotchScreen
+    }
 
-        let currentScreens = NSScreen.screens
-        if let preferredDisplayID = TopNotchDisplaySelection.resolvedPreferredDisplayID(
-            preferredDisplayID: displayID(for: preferred),
-            availableDisplayIDs: currentScreens.compactMap(displayID(for:))
-        ),
-           let currentScreen = currentScreens.first(where: { displayID(for: $0) == preferredDisplayID }) {
-            finderCutTopNotchScreen = currentScreen
-            return currentScreen
+    private func connectedScreen(preferred: NSScreen?) -> NSScreen? {
+        guard let preferred else { return topNotchScreenProvider.currentScreen() }
+        let screens = NSScreen.screens
+        if let preferredID = displayID(for: preferred),
+           let connected = screens.first(where: { displayID(for: $0) == preferredID }) {
+            return connected
         }
-
-        if currentScreens.contains(where: { $0 === preferred }) {
-            finderCutTopNotchScreen = preferred
-            return preferred
-        }
-
-        let fallback = topNotchScreenProvider.currentScreen()
-        finderCutTopNotchScreen = fallback
-        return fallback
+        if screens.contains(where: { $0 === preferred }) { return preferred }
+        return topNotchScreenProvider.currentScreen()
     }
 
     private func displayID(for screen: NSScreen) -> CGDirectDisplayID? {
@@ -762,26 +714,15 @@ final class PanelController {
         )
     }
 
-    private func configureCompactStackPanel(
+    private func configureCompactPanel(
         _ panel: NSPanel,
+        surface: TopNotchHistorySurfaceView?,
         geometry: PasteStackCompactGeometry
     ) {
         panel.setFrame(geometry.panelFrame, display: false)
         panel.contentView?.layoutSubtreeIfNeeded()
-        stackSurface?.showCompactSurface(regions: geometry.localInteractiveRegions)
-        stackSurface?.setInteractiveRegions(geometry.localInteractiveRegions)
-        panel.ignoresMouseEvents = false
-        panel.alphaValue = 1
-    }
-
-    private func configureCompactFinderCutPanel(
-        _ panel: NSPanel,
-        geometry: PasteStackCompactGeometry
-    ) {
-        panel.setFrame(geometry.panelFrame, display: false)
-        panel.contentView?.layoutSubtreeIfNeeded()
-        finderCutSurface?.showCompactSurface(regions: geometry.localInteractiveRegions)
-        finderCutSurface?.setInteractiveRegions(geometry.localInteractiveRegions)
+        surface?.showCompactSurface(regions: geometry.localInteractiveRegions)
+        surface?.setInteractiveRegions(geometry.localInteractiveRegions)
         panel.ignoresMouseEvents = false
         panel.alphaValue = 1
     }
@@ -917,7 +858,7 @@ final class PanelController {
         stackPresentation.updateGeometry(geometry)
         switch stackPresentation.state {
         case .compact:
-            configureCompactStackPanel(panel, geometry: geometry)
+            configureCompactPanel(panel, surface: stackSurface, geometry: geometry)
         case .expanding, .expanded, .collapsing:
             let expandedFrame = topNotchFrame(
                 for: panel,
@@ -941,7 +882,7 @@ final class PanelController {
         let geometry = finderCutCompactGeometry(for: resolveFinderCutScreen())
         finderCutPresentation.updateGeometry(geometry)
         if finderCutPresentation.state == .compact {
-            configureCompactFinderCutPanel(panel, geometry: geometry)
+            configureCompactPanel(panel, surface: finderCutSurface, geometry: geometry)
         }
     }
 

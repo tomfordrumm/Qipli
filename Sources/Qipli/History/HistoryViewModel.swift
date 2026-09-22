@@ -40,7 +40,6 @@ final class HistoryViewModel: ObservableObject {
     private var thumbnailUpdateRevision = 0
 
     private let service: SerializedHistoryService
-    private let hasStackPayloadLeases: Bool
     private let searchDebounceNanoseconds: UInt64
     private let now: () -> Date
     /// Only bounded descriptors for requested pages cross onto the main actor.
@@ -64,12 +63,11 @@ final class HistoryViewModel: ObservableObject {
     var onClearAllWillStart: (() -> Void)?
 
     init(
-        service: HistoryService,
+        service: SerializedHistoryService,
         searchDebounceNanoseconds: UInt64 = 100_000_000,
         now: @escaping () -> Date = Date.init
     ) {
-        self.service = SerializedHistoryService(service: service)
-        hasStackPayloadLeases = service.supportsStackPayloadLeases
+        self.service = service
         self.searchDebounceNanoseconds = searchDebounceNanoseconds
         self.now = now
         let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
@@ -150,30 +148,10 @@ final class HistoryViewModel: ObservableObject {
 
     func reload(selectFirstResult: Bool = false) async {
         await refreshRecentHistory()
-        cancelSearch()
         invalidateThumbnailTasks()
-        pagingGeneration &+= 1
-        pageTask?.cancel()
         captureNotice = nil
-        state = .loading
-        do {
-            loadedDescriptors = []
-            pageCursor = nil
-            hasMorePages = false
-            let page = query.isEmpty
-                ? try await service.page(mode: mode)
-                : try await service.searchPage(query: query, mode: mode)
-            pageCursor = page.nextCursor
-            hasMorePages = page.hasMore
-            loadedDescriptors = page.descriptors
-            hasLoadedSnapshot = true
-            publish(descriptors: page.descriptors, selectFirstResult: selectFirstResult)
-            await waitForPendingSearch()
-        } catch {
-            cancelSearch()
-            state = .error
-            selectedEntryID = nil
-        }
+        schedulePagedSearch(selectFirstResult: selectFirstResult, debounce: false, showLoading: true)
+        await waitForPendingSearch()
     }
 
     func updateQuery(_ query: String) {
@@ -299,8 +277,6 @@ final class HistoryViewModel: ObservableObject {
     func recordCaptureRejection(_ message: String) {
         captureNotice = message
     }
-
-    var supportsStackPayloadLeases: Bool { hasStackPayloadLeases }
 
     func acquireStackPayloadLease(
         occurrenceID: UUID,
@@ -622,12 +598,14 @@ final class HistoryViewModel: ObservableObject {
         await searchTask?.value
     }
 
-    private func schedulePagedSearch(selectFirstResult: Bool, debounce: Bool) {
+    private func schedulePagedSearch(selectFirstResult: Bool, debounce: Bool, showLoading: Bool = false) {
         searchGeneration &+= 1
         pagingGeneration &+= 1
         let generation = searchGeneration
         searchTask?.cancel()
         pageTask?.cancel()
+        pageTask = nil
+        pageTaskToken = nil
         let requestedQuery = query
         let requestedMode = mode
         let delay = debounce ? searchDebounceNanoseconds : 0
@@ -638,8 +616,8 @@ final class HistoryViewModel: ObservableObject {
         pageCursor = nil
         hasMorePages = false
         visibleSnapshotRevision &+= 1
-        state = .list([])
-        selectedEntryID = nil
+        state = showLoading ? .loading : .list([])
+        if !showLoading { selectedEntryID = nil }
         searchTask = Task { @MainActor [weak self] in
             guard let self else { return }
             if delay > 0 {
@@ -655,6 +633,7 @@ final class HistoryViewModel: ObservableObject {
                       requestedQuery == self.query,
                       requestedMode == self.mode
                 else { return }
+                self.hasLoadedSnapshot = true
                 self.loadedDescriptors = page.descriptors
                 self.pageCursor = page.nextCursor
                 self.hasMorePages = page.hasMore

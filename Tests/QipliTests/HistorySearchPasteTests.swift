@@ -319,6 +319,41 @@ final class HistoryViewModelSearchTests: XCTestCase {
         XCTAssertEqual(viewModel.query, "beta")
     }
 
+    func testBackgroundReloadPreservesSelectionUnlessFirstResultIsRequested() async {
+        let first = makeEntry("first", offset: 2)
+        let second = makeEntry("selected", offset: 1)
+        let viewModel = HistoryViewModel(service: HistoryService(store: InMemoryHistoryStore(entries: [first, second])))
+        await viewModel.reload()
+        viewModel.select(id: second.id)
+        await viewModel.reload()
+        XCTAssertEqual(viewModel.selectedEntryID, second.id)
+        await viewModel.reload(selectFirstResult: true)
+        XCTAssertEqual(viewModel.selectedEntryID, first.id)
+    }
+
+    func testReloadCompletionCannotReplaceANewerSearch() async {
+        let alpha = makeEntry("alpha result", offset: 2)
+        let beta = makeEntry("beta result", offset: 1)
+        let store = InMemoryHistoryStore(entries: [alpha, beta])
+        let viewModel = HistoryViewModel(service: HistoryService(store: store), searchDebounceNanoseconds: 0)
+        let started = expectation(description: "reload entered storage")
+        let release = DispatchSemaphore(value: 0)
+        store.onFetch = {
+            started.fulfill()
+            _ = release.wait(timeout: .now() + 2)
+        }
+        let reload = Task { await viewModel.reload(selectFirstResult: true) }
+        await fulfillment(of: [started], timeout: 2)
+        viewModel.updateQuery("beta")
+        store.onFetch = nil
+        release.signal()
+        await reload.value
+        await viewModel.waitForPendingSearch()
+        XCTAssertEqual(viewModel.visibleEntries, [beta])
+        XCTAssertEqual(viewModel.selectedEntryID, beta.id)
+        XCTAssertEqual(viewModel.query, "beta")
+    }
+
     func testSearchRunsOffMainActorAndEmptyQueryRestoresUnfilteredPage() async {
         let first = makeEntry("alpha", offset: 2)
         let second = makeEntry("beta", offset: 1)
@@ -957,7 +992,7 @@ final class HistoryPanelInteractionTests: XCTestCase {
 
 }
 
-private final class InMemoryHistoryStore: HistoryStoring, HistoryFavoriteStoring {
+private final class InMemoryHistoryStore: TextTestHistoryStoring {
     var entries: [HistoryEntry]
     var markUsedError: Error?
     var clearAllError: Error?
