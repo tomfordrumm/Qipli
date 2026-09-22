@@ -495,6 +495,8 @@ QipliUITests/         in-app keyboard and panel flows
 
 ## 10. Сборка и распространение
 
+Операционный порядок подготовки веток, выпуска версии и восстановления после сбоя описан в [RELEASING.md](RELEASING.md). Соглашение принято в D-049; технические проверки подписи и распространения остаются в этом разделе.
+
 - Debug собирается как `Qipli Dev.app` с Bundle ID `com.qipli.app.dev`, Apple Development signing и постоянной Team `3N2R5K4J63`. Release сохраняет `Qipli.app` / `com.qipli.app` и существующий Developer ID release pipeline. Swift module и executable остаются `Qipli`, Debug test host указывает на Dev bundle.
 - Debug использует `UnavailableSecureUpdater`: Sparkle controller не создаётся, manual/automatic update checks недоступны. Настройки и onboarding используют отдельный bundle defaults domain. По явному решению пользователя History.sqlite, ManagedImages и RichText остаются общими в `Application Support/Qipli`; переключение версий выполняется после выхода из другой версии. Debug migrations/deletions затрагивают общие данные; одновременная работа не является поддерживаемым сценарием тестирования.
 - Для локальной проверки запустить scheme `Qipli` через Cmd+R, найти `Qipli Dev.app` через Products → Show in Finder и один раз добавить её в System Settings → Privacy & Security → Accessibility. Разрешение установленной Qipli сохраняется отдельно. Не использовать ad-hoc signing для интерактивных проверок разрешений. Сохранение доступа после следующей пересборки требует ручной проверки на Mac.

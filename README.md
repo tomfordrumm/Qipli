@@ -15,7 +15,8 @@
   </p>
 </div>
 
-Qipli keeps 30 days of clipboard history on the current Mac. It supports text,
+Qipli keeps clipboard history on the current Mac, with automatic cleanup after
+30 days and favorites you can keep longer. It supports plain and formatted text,
 URLs, inline images, and references to local files or videos. Its Paste Stack
 collects text and images and pastes them one by one with the normal `Command-V`
 shortcut.
@@ -36,29 +37,39 @@ shortcut.
 ### History
 
 Open a searchable shelf of recent copies, select an exact entry, and paste it back
-into the app you were using. Individual entries and the complete Qipli history can
-be deleted. The menu bar also offers the five most recent History items for
-immediate paste.
-Favorites remain available beyond automatic History expiry.
+into the app you were using. Text retains its formatting by default; use
+`Shift-Enter` to paste it as plain text. Individual entries and the complete
+Qipli history can be deleted. The menu bar also offers the five most recent
+History items for immediate paste; these actions are unavailable while a Paste
+Stack is active.
+
+Star an entry to keep it beyond automatic History expiry. Use the star in the
+History header to show only favorites and search within them.
 
 ### Paste Stack
 
 Collect plain text, formatted text, and images from the active app, review their
 order, and paste them one at a time. The compact panel shows previews and expands
-for review and reordering. A stack is a temporary session; its active payloads
-are protected from automatic History expiry until the session ends.
+for review and reordering. Choose whether to paste from top to bottom or bottom
+to top. A stack is a temporary session; its active payloads are protected from
+automatic History expiry until the session ends. File and video references are
+available in History, but cannot be collected into a Paste Stack.
 
 ### Finder Cut
 
 In Finder, use `Command-X` on selected files and `Command-V` in a destination
 folder to request Finder's native move. A compact panel shows the prepared
-selection. Finder handles file operations, conflicts, and permissions.
+selection. Finder handles file operations, conflicts, and permissions; the panel
+does not confirm that a move completed.
 
-### Configurable shortcuts
+Finder Cut supports regular local files. Folders, iCloud items, and files on
+network volumes are not supported.
+
+### Settings
 
 History, Paste Stack, and Reactivate Previous shortcuts can be changed in
-Settings and restored to their defaults. The regular `Command-V` and `Escape`
-commands are not configurable.
+Settings and restored to their defaults. Enable Launch at Login if you want Qipli
+to open when you sign in to your Mac.
 
 ### Updates you control
 
@@ -89,21 +100,34 @@ an unsigned CI run.
 | Action | Default shortcut |
 | --- | --- |
 | Open History | `Command-Shift-V` |
+| Paste the selected History item | `Enter` in History |
+| Paste selected History text without formatting | `Shift-Enter` in History |
+| Delete the selected History item | `Shift-Backspace` with History search focused |
 | Start or collect a Paste Stack item | `Command-Shift-C` |
 | Paste the next Stack item | `Command-V` while a Stack is active |
 | Reactivate the last dispatched Stack item | `Command-Shift-Z` |
 | Cancel the active Stack | `Escape` |
+| Prepare selected files for a move | `Command-X` in Finder |
+| Request the prepared file move | `Command-V` in the destination Finder folder |
 
 The three Qipli shortcuts can be changed in Settings and restored to their
 defaults. The regular `Command-V` and `Escape` commands are not configurable.
 
 ## Privacy
 
-Qipli stores copied text, URLs, filenames, file references, and managed image data
-locally on the current Mac for 30 days. It has no account, telemetry, cloud sync,
-or automatic crash reporting. Qipli does not automatically recognize passwords,
-API keys, or other sensitive content, so copied secrets can enter local history.
-You can delete one history item or clear all Qipli history at any time.
+Qipli stores copied plain and formatted text, URLs, filenames, file references,
+and managed image data locally on the current Mac. Ordinary History entries
+expire after 30 days without capture or reuse. Favorites are excluded from
+automatic expiry, and active Paste Stack payloads stay protected until the
+session ends. You can still delete individual entries or clear all Qipli history,
+including favorites and entries used by an active Stack.
+
+File and video entries reference the original files; Qipli does not keep backup
+copies of their contents. Inline images and text formatting are stored by Qipli.
+
+It has no account, telemetry, cloud sync, or automatic crash reporting. Qipli does
+not automatically recognize passwords, API keys, or other sensitive content, so
+copied secrets can enter local history.
 
 The only runtime network path is Sparkle: a manual check, or periodic checks after
 explicit opt-in, reads Qipli's public GitHub Pages appcast and a selected GitHub
@@ -144,6 +168,7 @@ pushes to `main` run unsigned tests and builds only.
 
 - [Product contract](docs/PRODUCT.md)
 - [Technical contract and architecture](docs/TECHNICAL.md)
+- [Release preparation and publication](docs/RELEASING.md)
 - [Security policy](SECURITY.md)
 
 ## Security
