@@ -33,9 +33,11 @@ enum ApplicationShellPasteboardRouting {
 final class ApplicationShell: NSObject {
     private let permissionService: AccessibilityPermissionService
     private let inputCoordinator: InputCoordinator
+    private var recentHistoryMenu: RecentHistoryMenuController?
     private let panels: PanelController
     private let historyViewModel: HistoryViewModel
     private let stackSessionController: StackSessionController
+    private let finderCutSessionController: FinderCutSessionController
     private let stackCaptureCoordinator: StackCollectionCaptureCoordinator
     private let stackCollectionStarter: StackCollectionStarter
     private let stackSequentialPasteExecutor: StackSequentialPasteExecutor
@@ -99,6 +101,25 @@ final class ApplicationShell: NSObject {
             historyViewModel: historyViewModel,
             stackSessionController: stackSessionController
         )
+        let resolvedCopyCommandDispatcher = copyCommandDispatcher
+            ?? (resolvedInputAdapter as? TaggedCopyCommandDispatching)
+            ?? UnavailableCopyCommandDispatcher()
+        let resolvedMoveCommandDispatcher = (resolvedInputAdapter as? TaggedMoveCommandDispatching)
+            ?? UnavailableMoveCommandDispatcher()
+        let resolvedPasteCommandDispatcher = pasteCommandDispatcher
+            ?? (resolvedInputAdapter as? TaggedPasteCommandDispatching)
+            ?? UnavailablePasteCommandDispatcher()
+        let finderCutSessionController = FinderCutSessionController(
+            contextProvider: SystemFinderContextProvider(),
+            pasteboard: SystemFinderCutPasteboard(),
+            copyCommandDispatcher: resolvedCopyCommandDispatcher,
+            moveCommandDispatcher: resolvedMoveCommandDispatcher,
+            pasteCommandDispatcher: resolvedPasteCommandDispatcher,
+            stackIsActive: { [weak stackSessionController] in
+                stackSessionController?.isActive ?? false
+            }
+        )
+        self.finderCutSessionController = finderCutSessionController
         let monitor = PasteboardMonitor(
             onExternalText: { [weak stackCaptureCoordinator, weak stackSessionController] change in
             // The monitor observes the active session before it defers the
@@ -125,16 +146,20 @@ final class ApplicationShell: NSObject {
                         stackCaptureContext: captureContext
                     )
                 }
+            },
+            onExternalChangeObserved: { [weak finderCutSessionController] changeCount in
+                finderCutSessionController?.handleExternalPasteboardChange(changeCount: changeCount) ?? false
             }
         )
         pasteboardMonitor = monitor
+        finderCutSessionController.registerSelfWrite = { [weak monitor] changeCount in
+            monitor?.registerSelfWrite(changeCount: changeCount)
+        }
         inputCoordinator = InputCoordinator(
             permissionService: permissionService,
             eventAdapter: resolvedInputAdapter
         )
-        let commandDispatcher = pasteCommandDispatcher
-            ?? (resolvedInputAdapter as? TaggedPasteCommandDispatching)
-            ?? UnavailablePasteCommandDispatcher()
+        let commandDispatcher = resolvedPasteCommandDispatcher
         let pasteExecutor = HistoryPasteExecutor(
             permissionService: permissionService,
             pasteboardWriter: SystemHistoryPasteboardWriter(),
@@ -155,12 +180,19 @@ final class ApplicationShell: NSObject {
             permissionService: permissionService,
             historyViewModel: historyViewModel,
             stackSessionController: stackSessionController,
+            finderCutSessionController: finderCutSessionController,
             historyPasteExecutor: pasteExecutor,
             openAccessibilitySettings: { [weak permissionService] in
                 permissionService?.openSystemSettings()
             }
         )
         panels = panelController
+        finderCutSessionController.showPanel = { [weak panelController] in
+            panelController?.showFinderCut()
+        }
+        finderCutSessionController.hidePanel = { [weak panelController] in
+            panelController?.dismissFinderCutPanel()
+        }
         historyViewModel.onHistoryEntryDeletionWillStart = { [weak stackSessionController] id in
             stackSessionController?.prepareHistoryDeletion(for: id) ?? false
         }
@@ -170,8 +202,9 @@ final class ApplicationShell: NSObject {
         historyViewModel.onHistoryEntryDeletionFailed = { [weak stackSessionController] id in
             stackSessionController?.cancelHistoryDeletion(for: id)
         }
-        historyViewModel.onClearAllWillStart = { [weak panelController] in
+        historyViewModel.onClearAllWillStart = { [weak panelController, weak finderCutSessionController] in
             panelController?.cancelPasteStack()
+            finderCutSessionController?.cancel()
         }
         stackSequentialPasteExecutor = StackSequentialPasteExecutor(
             permissionService: permissionService,
@@ -190,16 +223,17 @@ final class ApplicationShell: NSObject {
             currentPasteboardChangeCount: { monitor.currentChangeCount },
             finishPresentation: { panelController.finishPasteStackAfterCompletion() }
         )
-        let resolvedCopyCommandDispatcher = copyCommandDispatcher
-            ?? (resolvedInputAdapter as? TaggedCopyCommandDispatching)
-            ?? UnavailableCopyCommandDispatcher()
         stackCollectionStarter = StackCollectionStarter(
             sessionController: stackSessionController,
             currentPasteboardChangeCount: { monitor.currentChangeCount },
             showStackPanel: { panelController.showPasteStack() },
             copyCommandDispatcher: resolvedCopyCommandDispatcher
         )
+        #if DEBUG
+        let resolvedSecureUpdater = secureUpdater ?? UnavailableSecureUpdater()
+        #else
         let resolvedSecureUpdater = secureUpdater ?? SparkleSecureUpdater()
+        #endif
         self.secureUpdater = resolvedSecureUpdater
         settingsViewModel = SettingsViewModel(
             shortcutPreferences: shortcutPreferences,
@@ -292,6 +326,15 @@ final class ApplicationShell: NSObject {
         inputCoordinator.onEscape = { [weak self] in
             self?.cancelPasteStack()
         }
+        inputCoordinator.onFinderCutCommand = { [weak finderCutSessionController] isRepeat in
+            finderCutSessionController?.handleCommandX(isRepeat: isRepeat)
+        }
+        inputCoordinator.finderCutPasteInterception = { [weak finderCutSessionController] isRepeat in
+            finderCutSessionController?.inputGate.admitPaste(isRepeat: isRepeat) ?? .passThrough
+        }
+        inputCoordinator.onFinderCutMove = { [weak finderCutSessionController] in
+            finderCutSessionController?.dispatchMove()
+        }
         panels.onPasteStackCancelled = { [weak self] in
             self?.updatePasteStackMenuTitle()
         }
@@ -330,6 +373,7 @@ final class ApplicationShell: NSObject {
         updateAvailabilityObservation?.cancel()
         updateAvailabilityObservation = nil
         secureUpdater.stop()
+        finderCutSessionController.cancel()
         inputCoordinator.stop()
         pasteboardMonitor.stop()
         retentionTimer?.invalidate()
@@ -366,7 +410,26 @@ final class ApplicationShell: NSObject {
         }
 
         let menu = NSMenu()
-        menu.addItem(menuItem(title: "History", action: #selector(showHistory)))
+        menu.autoenablesItems = false
+        let recentMenu = RecentHistoryMenuController(
+            snapshot: { [weak self] in self?.historyViewModel.recentState ?? .loading },
+            refresh: { [weak self] in
+                self?.pasteboardMonitor.poll()
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await self.stackCaptureCoordinator.drainPendingCaptures()
+                    await self.historyViewModel.refreshRecentHistory()
+                }
+            },
+            captureTarget: { SystemFrontmostApplicationCapture().capturePriorApplication() },
+            stackIsActive: { [weak self] in self?.stackSessionController.isActive ?? true },
+            paste: { [weak self] id, target in self?.panels.pasteRecentHistoryEntry(id: id, target: target) }
+        )
+        recentHistoryMenu = recentMenu
+        menu.delegate = recentMenu
+        let historyItem = menuItem(title: "Open History", action: #selector(showHistory))
+        historyItem.image = NSImage(systemSymbolName: "clock.arrow.circlepath", accessibilityDescription: "History")
+        menu.addItem(historyItem)
         pasteStackMenuItem.target = self
         pasteStackMenuItem.action = #selector(togglePasteStackFromMenu)
         menu.addItem(pasteStackMenuItem)
@@ -457,6 +520,7 @@ final class ApplicationShell: NSObject {
     }
 
     private func startPasteStackFromHotKey() {
+        finderCutSessionController.cancel()
         guard permissionService.refresh() == .granted else {
             showPermissionSettings()
             return
@@ -471,6 +535,7 @@ final class ApplicationShell: NSObject {
     }
 
     private func startPasteStackFromMenu() {
+        finderCutSessionController.cancel()
         guard permissionService.refresh() == .granted else {
             showPermissionSettings()
             return
@@ -549,4 +614,128 @@ private final class UnavailablePasteCommandDispatcher: TaggedPasteCommandDispatc
 
 private final class UnavailableCopyCommandDispatcher: TaggedCopyCommandDispatching {
     func postTaggedCommandC() -> Bool { false }
+}
+
+private final class UnavailableMoveCommandDispatcher: TaggedMoveCommandDispatching {
+    func postTaggedCommandMove() -> Bool { false }
+}
+
+/// Owns an immutable set of native menu rows for each opening. Persistence
+/// refreshes the next snapshot without changing the item under the pointer.
+@MainActor
+final class RecentHistoryMenuController: NSObject, NSMenuDelegate {
+    private let snapshot: () -> HistoryViewState
+    private let refresh: () -> Void
+    private let captureTarget: () -> HistoryPasteTarget?
+    private let stackIsActive: () -> Bool
+    private let paste: (UUID, HistoryPasteTarget?) -> Void
+    private var insertedItems: [NSMenuItem] = []
+    private var openingID: UUID?
+    private var target: HistoryPasteTarget?
+    private var selected = false
+
+    init(snapshot: @escaping () -> HistoryViewState,
+         refresh: @escaping () -> Void,
+         captureTarget: @escaping () -> HistoryPasteTarget?,
+         stackIsActive: @escaping () -> Bool,
+         paste: @escaping (UUID, HistoryPasteTarget?) -> Void) {
+        self.snapshot = snapshot
+        self.refresh = refresh
+        self.captureTarget = captureTarget
+        self.stackIsActive = stackIsActive
+        self.paste = paste
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        target = captureTarget()
+        openingID = UUID()
+        selected = false
+        insertedItems.forEach { menu.removeItem($0) }
+        insertedItems = []
+        let blocked = stackIsActive()
+        switch snapshot() {
+        case .loading:
+            append(NSMenuItem(title: "Loading recent History…", action: nil, keyEquivalent: ""), to: menu)
+        case .error:
+            append(NSMenuItem(title: "Recent History unavailable. Reopen to retry.", action: nil, keyEquivalent: ""), to: menu)
+        case .empty:
+            break
+        case let .list(descriptors):
+            for descriptor in descriptors.prefix(5) {
+                let row = RecentHistoryMenuRow(descriptor)
+                let item = NSMenuItem(title: row.title, action: #selector(selectRecent(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = descriptor.id
+                item.image = NSImage(systemSymbolName: row.symbol, accessibilityDescription: row.kind)
+                item.isEnabled = !blocked
+                item.setAccessibilityLabel(row.kind + ": " + row.title)
+                append(item, to: menu)
+            }
+            if blocked && !descriptors.isEmpty {
+                append(NSMenuItem(title: "Finish Paste Stack to paste from History", action: nil, keyEquivalent: ""), to: menu)
+            }
+        }
+        if !insertedItems.isEmpty {
+            let separator = NSMenuItem.separator()
+            menu.insertItem(separator, at: 1)
+            insertedItems.insert(separator, at: 0)
+            append(.separator(), to: menu)
+        }
+        refresh()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        let closedID = openingID
+        // AppKit can deliver the selected item's action after menuDidClose.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.openingID == closedID else { return }
+            self.openingID = nil
+            self.target = nil
+        }
+    }
+
+    private func append(_ item: NSMenuItem, to menu: NSMenu) {
+        if item.action == nil { item.isEnabled = false }
+        menu.insertItem(item, at: 1 + insertedItems.count)
+        insertedItems.append(item)
+    }
+
+    @objc func selectRecent(_ sender: NSMenuItem) {
+        guard openingID != nil, !selected, !stackIsActive(), sender.isEnabled,
+              insertedItems.contains(where: { $0 === sender }),
+              let id = sender.representedObject as? UUID else { return }
+        selected = true
+        let capturedTarget = target
+        sender.menu?.cancelTracking()
+        // Default-mode dispatch runs after native menu tracking has unwound.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.stackIsActive() else { return }
+            self.paste(id, capturedTarget)
+        }
+    }
+}
+
+struct RecentHistoryMenuRow {
+    let title: String
+    let symbol: String
+    let kind: String
+
+    init(_ descriptor: HistoryOccurrenceDescriptor) {
+        let primary = descriptor.representations.first?.kind ?? .text
+        switch primary {
+        case .text: kind = "Text"; symbol = "text.alignleft"
+        case .url: kind = "URL"; symbol = "link"
+        case .inlineImage: kind = "Image"; symbol = "photo"
+        case .fileReference: kind = "File"; symbol = "doc"
+        case .videoReference: kind = "Video"; symbol = "film"
+        }
+        let count = descriptor.imageMetadata.count + descriptor.referenceMetadata.count
+        let source = descriptor.textPreview
+            ?? descriptor.referenceMetadata.first?.displayName
+            ?? kind
+        let bounded = source.prefix(256).split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
+        let preview = bounded.isEmpty ? kind : bounded
+        let suffix = count > 1 ? " (\(count) items)" : ""
+        title = String(preview.prefix(64)) + (preview.count > 64 || source.count > 256 ? "…" : "") + suffix
+    }
 }

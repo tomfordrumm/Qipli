@@ -7,6 +7,7 @@ final class PanelController {
     private let permissionService: AccessibilityPermissionService
     private let historyViewModel: HistoryViewModel
     private let stackSessionController: StackSessionController
+    private let finderCutSessionController: FinderCutSessionController
     private let historyPasteExecutor: HistoryPasteExecutor
     private let frontmostApplicationCapture: FrontmostApplicationCapturing
     private let screenProvider: PanelScreenProviding
@@ -17,17 +18,23 @@ final class PanelController {
     private let topNotchLayoutModel = TopNotchHistoryLayoutModel()
     private let historyPresentation = TopNotchPanelLifecycle()
     private let stackPresentation = PasteStackPresentationModel()
+    private let finderCutPresentation = FinderCutPresentationModel()
     private var historyPanel: NSPanel?
     private var stackPanel: NSPanel?
+    private var finderCutPanel: NSPanel?
     private weak var stackSurface: TopNotchHistorySurfaceView?
+    private weak var finderCutSurface: TopNotchHistorySurfaceView?
     private var stackTopNotchScreen: NSScreen?
+    private var finderCutTopNotchScreen: NSScreen?
     private var historyPasteTarget: HistoryPasteTarget?
     private var historyPasteTransactionID: UUID?
     private var pendingHistoryPasteEntryID: UUID?
+    private var pendingHistoryPasteRequestID: UUID?
     private var historyPanelDelegate: HistoryPanelDelegate?
     private var historyKeyboardMonitor: HistoryPanelKeyboardMonitor?
     private var historyOutsideClickMonitor: HistoryPanelOutsideClickMonitor?
     private var stackPanelDelegate: StackPanelDelegate?
+    private var finderCutPanelDelegate: StackPanelDelegate?
     private var screenParametersObserver: NSObjectProtocol?
 
     /// The shell uses this only to refresh its Start/Cancel menu title.
@@ -37,6 +44,7 @@ final class PanelController {
         permissionService: AccessibilityPermissionService,
         historyViewModel: HistoryViewModel,
         stackSessionController: StackSessionController,
+        finderCutSessionController: FinderCutSessionController,
         historyPasteExecutor: HistoryPasteExecutor,
         frontmostApplicationCapture: FrontmostApplicationCapturing = SystemFrontmostApplicationCapture(),
         screenProvider: PanelScreenProviding = SystemPanelScreenProvider(),
@@ -47,6 +55,7 @@ final class PanelController {
         self.permissionService = permissionService
         self.historyViewModel = historyViewModel
         self.stackSessionController = stackSessionController
+        self.finderCutSessionController = finderCutSessionController
         self.historyPasteExecutor = historyPasteExecutor
         self.frontmostApplicationCapture = frontmostApplicationCapture
         self.screenProvider = screenProvider
@@ -55,6 +64,9 @@ final class PanelController {
         self.materialProvider = materialProvider ?? PanelMaterialProvider()
         stackPresentation.onIntent = { [weak self] intent in
             self?.handleStackPresentationIntent(intent)
+        }
+        finderCutPresentation.onDismiss = { [weak self] token in
+            self?.dismissFinderCutPanel(token: token)
         }
         screenParametersObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -159,6 +171,38 @@ final class PanelController {
         }
     }
 
+    func showFinderCut() {
+        let capturedScreen = frontmostApplicationCapture.capturePriorApplication()?.preferredScreen
+        let panel = finderCutPanel ?? makeFinderCutPanel {
+            FinderCutPanelView(
+                sessionController: self.finderCutSessionController,
+                presentationModel: self.finderCutPresentation,
+                close: { [weak self] in
+                    self?.finderCutSessionController.cancel()
+                }
+            )
+        }
+        finderCutPanel = panel
+        finderCutTopNotchScreen = resolveFinderCutScreen(preferredScreen: capturedScreen)
+        let geometry = finderCutCompactGeometry(for: finderCutTopNotchScreen)
+        let isNewPresentation = finderCutPresentation.state == .hidden
+            || finderCutPresentation.state == .dismissing
+        if isNewPresentation {
+            finderCutPresentation.beginSession(geometry: geometry)
+            configureCompactFinderCutPanel(panel, geometry: geometry)
+            panel.orderFrontRegardless()
+        } else {
+            finderCutPresentation.updateGeometry(geometry)
+            refreshFinderCutPanelFrame()
+            panel.orderFrontRegardless()
+        }
+    }
+
+    func dismissFinderCutPanel() {
+        guard finderCutPresentation.state != .hidden else { return }
+        finderCutPresentation.requestDismissal()
+    }
+
     func cancelPasteStack() {
         stackSessionController.cancel()
         dismissPasteStackPanel()
@@ -175,13 +219,16 @@ final class PanelController {
     func closeAll() {
         cancelHistoryPasteTransaction()
         cancelPasteStack()
+        finderCutSessionController.cancel()
         historyPanel?.delegate = nil
         historyPresentation.close(panel: historyPanel)
         stackPresentation.close()
-        [historyPanel, stackPanel].forEach { $0?.close() }
+        finderCutPresentation.close()
+        [historyPanel, stackPanel, finderCutPanel].forEach { $0?.close() }
     }
 
     private func pasteHistoryEntry(_ entry: HistoryEntry, mode: HistoryPasteMode = .rich) {
+        finderCutSessionController.cancel()
         pendingHistoryPasteEntryID = nil
         guard historyPasteTransactionID == nil else { return }
         let transactionID = UUID()
@@ -245,7 +292,9 @@ final class PanelController {
     }
 
     private func cancelHistoryPasteTransaction() {
+        pendingHistoryPasteRequestID = nil
         pendingHistoryPasteEntryID = nil
+        historyViewModel.endPaste()
         guard historyPasteTransactionID != nil || historyPasteExecutor.hasActivePaste else {
             return
         }
@@ -418,22 +467,41 @@ final class PanelController {
         }
     }
 
-    private func requestPasteHistoryEntry(id: UUID, mode: HistoryPasteMode = .rich) {
-        guard pendingHistoryPasteEntryID == nil,
+    /// Menu actions join the same reservation and executor as shelf actions.
+    func pasteRecentHistoryEntry(id: UUID, target: HistoryPasteTarget?) {
+        guard !stackSessionController.isActive,
+              pendingHistoryPasteEntryID == nil,
               historyPasteTransactionID == nil,
-              !historyViewModel.isPasteInProgress,
-              permissionService.state == .granted
+              !historyViewModel.isPasteInProgress else { return }
+        historyPasteTarget = target
+        prepareHistoryPanel()
+        requestPasteHistoryEntry(id: id)
+    }
+
+    private func requestPasteHistoryEntry(id: UUID, mode: HistoryPasteMode = .rich) {
+        guard !stackSessionController.isActive,
+              pendingHistoryPasteEntryID == nil,
+              historyPasteTransactionID == nil,
+              !historyViewModel.isPasteInProgress
         else { return }
+        let requestID = UUID()
+        pendingHistoryPasteRequestID = requestID
         pendingHistoryPasteEntryID = id
+        historyViewModel.beginPaste()
         Task { @MainActor [weak self] in
-            guard let self,
-                  self.pendingHistoryPasteEntryID == id
-            else { return }
+            guard let self, self.pendingHistoryPasteRequestID == requestID else { return }
+            let result = await self.historyViewModel.entryForPaste(id: id)
+            guard self.pendingHistoryPasteRequestID == requestID else { return }
             self.pendingHistoryPasteEntryID = nil
-            switch await self.historyViewModel.entryForPaste(id: id) {
+            guard !self.stackSessionController.isActive else {
+                self.historyViewModel.endPaste()
+                return
+            }
+            switch result {
             case let .success(entry):
                 self.pasteHistoryEntry(entry, mode: mode)
             case let .failure(failure):
+                self.historyViewModel.endPaste()
                 self.historyViewModel.recordPasteFailure(failure)
                 self.reopenHistoryAfterPasteFailure()
             }
@@ -476,6 +544,35 @@ final class PanelController {
         let panelDelegate = StackPanelDelegate(cancel: { [weak self] in self?.cancelPasteStack() })
         panel.delegate = panelDelegate
         stackPanelDelegate = panelDelegate
+        return panel
+    }
+
+    private func makeFinderCutPanel<Content: View>(@ViewBuilder content: () -> Content) -> NSPanel {
+        let configuration = PanelWindowConfiguration.make(for: .pasteStack)
+        let panel = TopNotchPasteStackPanel(
+            contentRect: configuration.contentRect,
+            styleMask: configuration.styleMask,
+            backing: .buffered,
+            defer: false
+        )
+        configuration.applyPresentation(to: panel)
+        let surface = materialProvider.install(
+            content: NSHostingView(rootView: content()),
+            in: panel,
+            opaqueBackground: .black,
+            opaqueSurface: TopNotchHistorySurfaceView()
+        )
+        configuration.applySurfacePresentation(to: surface)
+
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
+        surface.layer?.cornerRadius = 0
+        panel.hasShadow = false
+        finderCutSurface = surface as? TopNotchHistorySurfaceView
+        let panelDelegate = StackPanelDelegate(cancel: { [weak self] in
+            self?.finderCutSessionController.cancel()
+        })
+        panel.delegate = panelDelegate
+        finderCutPanelDelegate = panelDelegate
         return panel
     }
 
@@ -530,6 +627,34 @@ final class PanelController {
 
         let fallback = topNotchScreenProvider.currentScreen()
         stackTopNotchScreen = fallback
+        return fallback
+    }
+
+    private func resolveFinderCutScreen(preferredScreen: NSScreen? = nil) -> NSScreen? {
+        let preferred = preferredScreen ?? finderCutTopNotchScreen
+        guard let preferred else {
+            let fallback = topNotchScreenProvider.currentScreen()
+            finderCutTopNotchScreen = fallback
+            return fallback
+        }
+
+        let currentScreens = NSScreen.screens
+        if let preferredDisplayID = TopNotchDisplaySelection.resolvedPreferredDisplayID(
+            preferredDisplayID: displayID(for: preferred),
+            availableDisplayIDs: currentScreens.compactMap(displayID(for:))
+        ),
+           let currentScreen = currentScreens.first(where: { displayID(for: $0) == preferredDisplayID }) {
+            finderCutTopNotchScreen = currentScreen
+            return currentScreen
+        }
+
+        if currentScreens.contains(where: { $0 === preferred }) {
+            finderCutTopNotchScreen = preferred
+            return preferred
+        }
+
+        let fallback = topNotchScreenProvider.currentScreen()
+        finderCutTopNotchScreen = fallback
         return fallback
     }
 
@@ -615,6 +740,10 @@ final class PanelController {
         )
     }
 
+    private func finderCutCompactGeometry(for screen: NSScreen?) -> PasteStackCompactGeometry {
+        stackCompactGeometry(for: screen).addingFinderCutFilenameRow()
+    }
+
     private func stackCompactGeometry(for screen: NSScreen?) -> PasteStackCompactGeometry {
         guard let screen else {
             let frame = screenProvider.currentVisibleFrame()
@@ -641,6 +770,18 @@ final class PanelController {
         panel.contentView?.layoutSubtreeIfNeeded()
         stackSurface?.showCompactSurface(regions: geometry.localInteractiveRegions)
         stackSurface?.setInteractiveRegions(geometry.localInteractiveRegions)
+        panel.ignoresMouseEvents = false
+        panel.alphaValue = 1
+    }
+
+    private func configureCompactFinderCutPanel(
+        _ panel: NSPanel,
+        geometry: PasteStackCompactGeometry
+    ) {
+        panel.setFrame(geometry.panelFrame, display: false)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        finderCutSurface?.showCompactSurface(regions: geometry.localInteractiveRegions)
+        finderCutSurface?.setInteractiveRegions(geometry.localInteractiveRegions)
         panel.ignoresMouseEvents = false
         panel.alphaValue = 1
     }
@@ -745,6 +886,30 @@ final class PanelController {
         }
     }
 
+    private func dismissFinderCutPanel(token: Int) {
+        guard let panel = finderCutPanel,
+              finderCutPresentation.isCurrent(token: token, state: .dismissing)
+        else { return }
+        panel.ignoresMouseEvents = true
+        let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.10 : 0.16
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
+            finderCutSurface?.animateContentAlpha(to: 0)
+        } completionHandler: { [weak self, weak panel] in
+            Task { @MainActor [weak self, weak panel] in
+                guard let self, let panel,
+                      self.finderCutPresentation.isCurrent(token: token, state: .dismissing)
+                else { return }
+                panel.orderOut(nil)
+                panel.alphaValue = 1
+                panel.ignoresMouseEvents = false
+                self.finderCutSurface?.setInteractiveRegions(nil)
+                self.finderCutPresentation.finishDismissal(token: token)
+            }
+        }
+    }
+
     private func refreshStackPanelFrame() {
         guard let panel = stackPanel, stackPresentation.state != .hidden else { return }
         let screen = resolveStackTopNotchScreen()
@@ -771,6 +936,15 @@ final class PanelController {
         }
     }
 
+    private func refreshFinderCutPanelFrame() {
+        guard let panel = finderCutPanel, finderCutPresentation.state != .hidden else { return }
+        let geometry = finderCutCompactGeometry(for: resolveFinderCutScreen())
+        finderCutPresentation.updateGeometry(geometry)
+        if finderCutPresentation.state == .compact {
+            configureCompactFinderCutPanel(panel, geometry: geometry)
+        }
+    }
+
     private func refreshVisibleTopNotchFrame() {
         if historyPresentation.isVisible, let panel = historyPanel, panel.isVisible {
             topNotchLayoutModel.topContentInset = topNotchSafeAreaInset(for: historyPasteTarget)
@@ -778,6 +952,9 @@ final class PanelController {
         }
         if stackPresentation.state != .hidden, let panel = stackPanel, panel.isVisible {
             refreshStackPanelFrame()
+        }
+        if finderCutPresentation.state != .hidden, let panel = finderCutPanel, panel.isVisible {
+            refreshFinderCutPanelFrame()
         }
     }
 

@@ -10,6 +10,12 @@ protocol TaggedCopyCommandDispatching: AnyObject {
     @discardableResult func postTaggedCommandC() -> Bool
 }
 
+/// Sends Finder's native move command without reconstructing private
+/// pasteboard representations or touching source files.
+protocol TaggedMoveCommandDispatching: AnyObject {
+    @discardableResult func postTaggedCommandMove() -> Bool
+}
+
 protocol HistoryPasteboardWriting: AnyObject {
     /// Returns the pasteboard's final change count after this write completes.
     func write(text: String) throws -> Int

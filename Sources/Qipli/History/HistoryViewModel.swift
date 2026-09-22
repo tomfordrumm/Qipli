@@ -15,6 +15,9 @@ struct HistoryFavoriteFailure: Equatable {
 
 @MainActor
 final class HistoryViewModel: ObservableObject {
+    private(set) var recentState: HistoryViewState = .loading
+    private var recentGeneration = 0
+
     @Published private(set) var state: HistoryViewState = .loading
     @Published private(set) var query = ""
     @Published private(set) var mode: HistoryFilterMode = .history
@@ -79,6 +82,19 @@ final class HistoryViewModel: ObservableObject {
 
     deinit { memoryPressureSource?.cancel() }
 
+    func refreshRecentHistory() async {
+        recentGeneration &+= 1
+        let generation = recentGeneration
+        do {
+            let descriptors = try await service.recentDescriptors()
+            guard generation == recentGeneration else { return }
+            recentState = descriptors.isEmpty ? .empty : .list(descriptors)
+        } catch {
+            guard generation == recentGeneration else { return }
+            recentState = .error
+        }
+    }
+
     func thumbnailData(for entryID: UUID) -> Data? {
         thumbnailCache.value(for: entryID)
     }
@@ -133,6 +149,7 @@ final class HistoryViewModel: ObservableObject {
     }
 
     func reload(selectFirstResult: Bool = false) async {
+        await refreshRecentHistory()
         cancelSearch()
         invalidateThumbnailTasks()
         pagingGeneration &+= 1
@@ -376,7 +393,10 @@ final class HistoryViewModel: ObservableObject {
         pagingGeneration &+= 1
         do {
             let activityAt = try await service.markUsed(id: id)
-            guard let index = loadedDescriptors.firstIndex(where: { $0.id == id }) else { return }
+            guard let index = loadedDescriptors.firstIndex(where: { $0.id == id }) else {
+                await refreshRecentHistory()
+                return
+            }
             let previous = loadedDescriptors.remove(at: index)
             let updated = HistoryOccurrenceDescriptor(
                 id: previous.id,
@@ -403,6 +423,7 @@ final class HistoryViewModel: ObservableObject {
                 }
             }
             hasUnpublishedSnapshotChanges = true
+            await refreshRecentHistory()
         } catch {
             // Paste already succeeded. Keep the last durable snapshot and do not
             // turn a recency-only persistence failure into a false paste failure.
@@ -421,6 +442,7 @@ final class HistoryViewModel: ObservableObject {
             let entry = result.entry
             if mode == .favorites {
                 schedulePagedSearch(selectFirstResult: true, debounce: false)
+                await refreshRecentHistory()
                 return result
             }
             let descriptor = Self.descriptor(from: entry)
@@ -441,6 +463,7 @@ final class HistoryViewModel: ObservableObject {
             } else {
                 schedulePagedSearch(selectFirstResult: true, debounce: false)
             }
+            await refreshRecentHistory()
             return result
         } catch {
             captureNotice = (error as? LocalizedError)?.errorDescription ?? capture.failureMessage
@@ -550,6 +573,7 @@ final class HistoryViewModel: ObservableObject {
             } else if !visibleDescriptors.contains(where: { $0.id == selectedEntryID }) {
                 selectedEntryID = visibleDescriptors.first?.id
             }
+            await refreshRecentHistory()
         } catch {
             onHistoryEntryDeletionFailed?(id)
             deletionNotice = nil
@@ -584,6 +608,7 @@ final class HistoryViewModel: ObservableObject {
             captureNotice = nil
             isPasteInProgress = false
             state = .empty
+            await refreshRecentHistory()
             return true
         } catch {
             cancelSearch()

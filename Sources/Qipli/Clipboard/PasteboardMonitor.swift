@@ -306,6 +306,9 @@ final class PasteboardMonitor {
     private let scheduler: PasteboardPollScheduling
     private let onExternalText: (PasteboardTextChange) -> Void
     private let onExternalChange: ((PasteboardTypedChange) -> Void)?
+    /// Runs after exact Qipli self-writes have been removed and before the
+    /// normal typed/text read. Returning true suppresses this external change.
+    var onExternalChangeObserved: ((Int) -> Bool)?
     private var lastChangeCount: Int?
     private var ignoredChanges = Set<Int>()
     private var scheduledPoll: PasteboardPollCancellation?
@@ -316,12 +319,14 @@ final class PasteboardMonitor {
         pasteboard: PasteboardReading = SystemPasteboardReader(),
         scheduler: PasteboardPollScheduling? = nil,
         onExternalText: @escaping (PasteboardTextChange) -> Void,
-        onExternalChange: ((PasteboardTypedChange) -> Void)? = nil
+        onExternalChange: ((PasteboardTypedChange) -> Void)? = nil,
+        onExternalChangeObserved: ((Int) -> Bool)? = nil
     ) {
         self.pasteboard = pasteboard
         self.scheduler = scheduler ?? RunLoopPasteboardPollScheduler()
         self.onExternalText = onExternalText
         self.onExternalChange = onExternalChange
+        self.onExternalChangeObserved = onExternalChangeObserved
     }
 
     var currentChangeCount: Int { pasteboard.changeCount }
@@ -369,6 +374,7 @@ final class PasteboardMonitor {
         // A newer external change makes every older expected self-write irrelevant.
         ignoredChanges = ignoredChanges.filter { $0 >= currentChangeCount }
         guard ignoredChanges.remove(currentChangeCount) == nil else { return }
+        if onExternalChangeObserved?(currentChangeCount) == true { return }
         if let typedReader = pasteboard as? TypedPasteboardReading,
            onExternalChange != nil {
             typedReadInFlight = true

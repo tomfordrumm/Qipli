@@ -7,6 +7,9 @@ enum GlobalHotKey: Equatable {
 
 enum GlobalInputAction: Equatable {
     case hotKey(GlobalHotKey)
+    /// Command-X is observed and passed through. The main-actor handler
+    /// decides whether Finder owns a supported file selection.
+    case observeFinderCutCommand
     case cancelPasteStack
     case pasteStackItem
     /// The current stack input is already reserved. Consume key repeat without
@@ -14,6 +17,8 @@ enum GlobalInputAction: Equatable {
     case consumePasteStackItem
     case reactivatePreviousStackItem
     case consumeReactivatePreviousStackItem
+    case dispatchFinderCutMove
+    case consumeFinderCutMove
 }
 
 /// The synchronous decision returned to the active event tap for ordinary
@@ -30,6 +35,12 @@ enum StackReactivationInputDisposition: Equatable {
     case passThrough
     case consume
     case consumeAndReactivate
+}
+
+enum FinderCutPasteInputDisposition: Equatable {
+    case passThrough
+    case consume
+    case consumeAndDispatch
 }
 
 enum GlobalInputStatus: Equatable {
@@ -65,11 +76,14 @@ protocol GlobalInputEventAdapting: AnyObject {
     var onEscape: (() -> Void)? { get set }
     var onStackPaste: (() -> Void)? { get set }
     var onReactivatePrevious: (() -> Void)? { get set }
+    var onFinderCutCommand: ((Bool) -> Void)? { get set }
+    var onFinderCutMove: (() -> Void)? { get set }
     /// The adapter reads this synchronously from its active event filter so it
     /// can consume Escape only while a Stack session exists.
     var shouldConsumeEscape: (() -> Bool)? { get set }
     var stackPasteInterception: (() -> StackPasteInputDisposition)? { get set }
     var reactivationPreviousInterception: (() -> StackReactivationInputDisposition)? { get set }
+    var finderCutPasteInterception: ((Bool) -> FinderCutPasteInputDisposition)? { get set }
     var onStatusChange: ((GlobalInputStatus) -> Void)? { get set }
 
     @discardableResult func start() -> GlobalInputStatus
@@ -88,9 +102,12 @@ final class InputCoordinator {
     var onEscape: (() -> Void)?
     var onStackPaste: (() -> Void)?
     var onReactivatePrevious: (() -> Void)?
+    var onFinderCutCommand: ((Bool) -> Void)?
+    var onFinderCutMove: (() -> Void)?
     var shouldConsumeEscape: (() -> Bool)?
     var stackPasteInterception: (() -> StackPasteInputDisposition)?
     var reactivationPreviousInterception: (() -> StackReactivationInputDisposition)?
+    var finderCutPasteInterception: ((Bool) -> FinderCutPasteInputDisposition)?
     var onStatusChange: ((GlobalInputStatus) -> Void)?
 
     init(permissionService: AccessibilityPermissionChecking, eventAdapter: GlobalInputEventAdapting) {
@@ -103,6 +120,12 @@ final class InputCoordinator {
         eventAdapter.onEscape = { [weak self] in
             self?.onEscape?()
         }
+        eventAdapter.onFinderCutCommand = { [weak self] isRepeat in
+            self?.onFinderCutCommand?(isRepeat)
+        }
+        eventAdapter.onFinderCutMove = { [weak self] in
+            self?.onFinderCutMove?()
+        }
         eventAdapter.shouldConsumeEscape = { [weak self] in
             self?.shouldConsumeEscape?() ?? false
         }
@@ -111,6 +134,9 @@ final class InputCoordinator {
         }
         eventAdapter.reactivationPreviousInterception = { [weak self] in
             self?.reactivationPreviousInterception?() ?? .passThrough
+        }
+        eventAdapter.finderCutPasteInterception = { [weak self] isRepeat in
+            self?.finderCutPasteInterception?(isRepeat) ?? .passThrough
         }
         eventAdapter.onStackPaste = { [weak self] in
             self?.onStackPaste?()

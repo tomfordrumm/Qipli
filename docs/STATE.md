@@ -1,6 +1,6 @@
 # Qipli — текущее состояние проекта
 
-Последняя актуализация: 2026-09-16
+Последняя актуализация: 2026-09-22
 
 Источник operational-статусов: этот файл. Исторические переходы и прежние verification snapshots находятся в [`STATE-HISTORY.md`](STATE-HISTORY.md).
 
@@ -23,7 +23,9 @@
 
 S033 реализован и принят по D-043: Stack начинает в compact presentation с bounded side previews, pending/status/direction indicators, раскрытием без задержки, explicit accessibility expansion и geometry-aware hit testing. Synthetic geometry, focused/full SwiftPM suites, unsigned universal Xcode Debug build и ручная установленная matrix подтверждены пользователем. S034 реализован и закрыт пользователем 2026-09-16 по D-044: typed capture/paste для rich text и images, session leases, revocation/unavailable states и bounded previews. Установленная source/target matrix, Accessibility/VoiceOver и signed-update gate остаются delivery gates и не меняют статус закрытого implementation slice. Предыдущий release snapshot ниже не перепроверялся этой задачей.
 
-S035 добавлен как план вырезания файлов с индикацией в компактном окне. Предложен Finder-only сценарий ⌘X → ⌘V; scope и platform probe остаются открыты по D-046. Реализация не начата, приоритет относительно S034 не назначен.
+S035 реализован локально по предложенному Finder-only сценарию ⌘X → ⌘V. Synthetic platform probe подтвердил рабочую связку tagged Finder ⌘C → ⌥⌘V, но прямой Finder ⌘X и наблюдение результата не подтверждены; поэтому UI остаётся dispatch-only, а установленная Finder/accessibility/display matrix и окончательное подтверждение scope по D-046 открыты. Статус `needs_verification`; релизная поставка не выполнялась.
+
+S036 реализован по D-047: до пяти последних записей под History, bounded native menu previews, immutable UUID snapshot, захват target при открытии и общий typed paste coordinator. Статус `needs_verification`: автоматические проверки проходят, installed-app target/keyboard/VoiceOver/appearance matrix ещё открыта. При active Stack выбор отключён с пояснением.
 
 ## Текущая работа
 
@@ -95,7 +97,8 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 | S032 | Полировка карточек и релевантный поиск History | `needs_verification` | installed-app visual/search/accessibility matrix |
 | S033 | Компактный Paste Stack по центру | `done` | S030; automated checks и ручная установленная matrix подтверждены пользователем |
 | S034 | Rich text и изображения в Paste Stack | `done` | implementation и пользовательский smoke закрыты; installed-app matrix и signed-update gate S031 остаются delivery gates |
-| S035 | Вырезание файлов с индикацией в чёлке | `planned` | S033, S025; подтверждение scope и Finder platform probe D-046 |
+| S035 | Вырезание файлов с индикацией в чёлке | `needs_verification` | S033, S025; installed Finder/accessibility/display matrix и окончательное подтверждение D-046 |
+| S036 | Пять последних записей History в меню | `needs_verification` | реализация и automated checks; installed-app typed target/keyboard/VoiceOver/Light-Dark matrix, release gate S031 сохранён |
 
 ## Блокеры и recheck points
 
@@ -110,6 +113,12 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 - Ограничение BL-006, отключение дисплея во время Top Notch reveal, принято и не блокирует S030.
 
 ## Последняя проверка
+
+- 2026-09-22: уточнение UI S035 по пользователю: только compact Finder Cut, без expansion; значок вырезания/состояния слева, крестик справа, имя/количество либо ошибка снизу. 282 SwiftPM tests, 0 failures, 5 pasteboard environment skips; development-signed universal Debug build и synthetic offscreen ready/error render. Новая installed-app cancel/hover/VoiceOver/display проверка остаётся открытой.
+
+- 2026-09-22: S036: 8 новых tests и полный SwiftPM suite, 279 tests / 0 failures / 0 skipped. Финальный прогон использовал идентичную копию Sources/Tests в `/private/tmp`, поскольку чтение `.git/config` и старого `.build` в Documents зависало. Development-signed universal Debug build и strict codesign verification прошли. Подробности находятся в Implementation report S036; installed-app acceptance не заявляется.
+
+- 2026-09-21: S035 реализован: Finder AX admission для локальных regular files, non-consuming ⌘X, bounded clipboard correlation/self-write suppression, Cut Top Notch panel, Stack arbitration и одноразовый tagged ⌥⌘V. Stale clipboard invalidates Cut; ordinary ⌘V replays only when destination context is unchanged. Synthetic probe подтвердил native перемещение через tagged ⌘C → ⌥⌘V, но не дал result/progress API; 10 focused Finder Cut tests проходят. Installed Finder/accessibility/display matrix остаётся открытой.
 
 - 2026-09-15: S034 implementation: History-first typed capture/paste для text/rich text/images, session leases, expiry protection, Delete/Clear All revocation и unavailable cards. Пользовательский smoke выявил placeholder в compact image preview до раскрытия панели; исправлено eager thumbnail request после Stack capture и реактивным обновлением compact view по thumbnail revision. Focused thumbnail regression test и S034 tests `4/4`; полный SwiftPM: `259` tests, `0` failures, `5` skipped; development-signed universal Debug и unsigned universal Debug/Release builds; version contract и embedded Sparkle runtime linking прошли. Installed-app rerun именно после thumbnail fix, остальная source/target matrix, Accessibility/VoiceOver, rapid-interaction и signed Sparkle update gates остаются открыты.
 
@@ -132,6 +141,8 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 - 2026-09-04: `v1.0.8` signed/notarized public release независимо проверен; installed update остаётся отдельным gate S031.
 
 ## Следующее действие
+
+Провести S036 installed-app matrix на synthetic данных в development-signed Debug: TextEdit plain/rich, браузер, image target и Finder reference; мышь/клавиатура/Escape, отказ Accessibility, закрытый target, active Stack, VoiceOver и Light/Dark. Ожидается одна вставка полного payload в исходное приложение без открытия History при успехе.
 
 S034 закрыт по пользовательскому smoke acceptance и автоматическим проверкам. Его installed-app и signed-update проверки остаются delivery gates; отдельные release gates S014/S008, S031 и S032 остаются в общем порядке ниже.
 
