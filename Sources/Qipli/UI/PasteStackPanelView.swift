@@ -659,4 +659,3 @@ enum PasteStackPanelAccessibility {
         "Reactivate used item \(position + 1)"
     }
 }
-

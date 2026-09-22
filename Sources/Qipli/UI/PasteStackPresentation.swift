@@ -229,4 +229,3 @@ final class PasteStackPresentationModel: ObservableObject {
         collapseWorkItem = nil
     }
 }
-

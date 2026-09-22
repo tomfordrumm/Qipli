@@ -32,9 +32,11 @@ Source code and license: https://github.com/tomfordrumm/Qipli
 
 ## Changes
 
-- Mark History items as favorites and browse or search them in a dedicated filter.
-- Keep favorite items and their stored content beyond automatic History expiry.
-- Open and use History from password fields, with improved keyboard and search focus.
-- Return to the first History item whenever the panel is opened.
+- Collect and paste rich text and images in Paste Stack, with compact previews and a panel that expands on interaction.
+- Open any of the five most recent History items directly from the menu bar and paste it into the app you were using.
+- Use Command-X and Command-V to request native file moves in Finder, with a compact status panel. Finder handles conflicts and the move itself.
+- Protect active Paste Stack payloads from automatic History expiry.
+- Keep the selected History item during background refreshes and reject outdated search results.
+- Simplify storage, paste handling, and panel code for easier maintenance.
 
-Existing History is migrated automatically, preserving clipboard content and formatting.
+Existing History and favorites are preserved; this release does not change the database schema.
