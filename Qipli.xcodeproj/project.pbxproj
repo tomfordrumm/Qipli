@@ -52,6 +52,8 @@
 		A00100000000000000000048 /* TopNotchHistoryShelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000048 /* TopNotchHistoryShelfTests.swift */; };
 		A00100000000000000000049 /* ManagedAssetDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000049 /* ManagedAssetDirectory.swift */; };
 		A00100000000000000000050 /* HistoryRichTextAssetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000050 /* HistoryRichTextAssetStore.swift */; };
+		A00100000000000000000051 /* FinderCut.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000051 /* FinderCut.swift */; };
+		A00100000000000000000052 /* FinderCutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000052 /* FinderCutTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -114,6 +116,8 @@
 		A00200000000000000000048 /* TopNotchHistoryShelfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopNotchHistoryShelfTests.swift; sourceTree = "<group>"; };
 		A00200000000000000000049 /* ManagedAssetDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedAssetDirectory.swift; sourceTree = "<group>"; };
 		A00200000000000000000050 /* HistoryRichTextAssetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryRichTextAssetStore.swift; sourceTree = "<group>"; };
+		A00200000000000000000051 /* FinderCut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderCut.swift; sourceTree = "<group>"; };
+		A00200000000000000000052 /* FinderCutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderCutTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -180,6 +184,7 @@
 				A00200000000000000000013 /* EventTapRecoveryPolicy.swift */,
 				A00200000000000000000014 /* SyntheticEventMarker.swift */,
 				A00200000000000000000022 /* HistoryPasteExecutor.swift */,
+				A00200000000000000000051 /* FinderCut.swift */,
 			);
 			path = Input;
 			sourceTree = "<group>";
@@ -212,6 +217,7 @@
 				A00200000000000000000044 /* PerformanceBaselineTests.swift */,
 				A00200000000000000000043 /* HistoryTestSupport.swift */,
 				A00200000000000000000048 /* TopNotchHistoryShelfTests.swift */,
+				A00200000000000000000052 /* FinderCutTests.swift */,
 			);
 			path = Tests/QipliTests;
 			sourceTree = "<group>";
@@ -411,6 +417,7 @@
 				A00100000000000000000046 /* ManagedImageStore.swift in Sources */,
 				A00100000000000000000049 /* ManagedAssetDirectory.swift in Sources */,
 				A00100000000000000000050 /* HistoryRichTextAssetStore.swift in Sources */,
+				A00100000000000000000051 /* FinderCut.swift in Sources */,
 				A00100000000000000000013 /* HistoryStore.swift in Sources */,
 				A00100000000000000000014 /* HistoryService.swift in Sources */,
 				A00100000000000000000015 /* HistoryViewModel.swift in Sources */,
@@ -449,6 +456,7 @@
 				A00100000000000000000044 /* PerformanceBaselineTests.swift in Sources */,
 				A00100000000000000000043 /* HistoryTestSupport.swift in Sources */,
 				A00100000000000000000048 /* TopNotchHistoryShelfTests.swift in Sources */,
+				A00100000000000000000052 /* FinderCutTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -494,8 +502,10 @@
 				INFOPLIST_FILE = Sources/Qipli/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.qipli.app;
-				PRODUCT_NAME = Qipli;
+				PRODUCT_BUNDLE_IDENTIFIER = com.qipli.app.dev;
+				PRODUCT_MODULE_NAME = Qipli;
+				EXECUTABLE_NAME = Qipli;
+				PRODUCT_NAME = "Qipli Dev";
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -539,7 +549,7 @@
 				SDKROOT = macosx;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Qipli.app/Contents/MacOS/Qipli";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Qipli Dev.app/Contents/MacOS/Qipli";
 			};
 			name = Debug;
 		};

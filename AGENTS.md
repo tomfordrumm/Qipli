@@ -44,6 +44,13 @@
 - `docs/slices/S031-formatted-text-history.md` — bounded RTF/HTML representations, rich paste и явная plain-text вставка из History.
 - `docs/slices/S032-history-card-polish-ranked-search.md` — full-bleed image cards, безопасное удаление и URL-first ranking в History search.
 
+- `docs/slices/S033-compact-notch-paste-stack.md` — единый центральный compact Paste Stack, раскрытие без задержки и проверка menu-band placement.
+- `docs/slices/S034-rich-image-paste-stack.md` — rich text/images в Stack, typed paste, previews и session ownership.
+
+- `docs/slices/S035-finder-cut-move.md` — предложение Finder Cut через ⌘X/⌘V и индикация в компактном окне; требуется platform probe.
+
+- `docs/slices/S036-recent-history-menu.md` — пять последних записей под History в status menu и немедленная typed вставка в исходное приложение.
+
 ### Подход к поставке
 
 - Профиль: `production`, потому что публичная сборка обрабатывает чувствительные локальные данные и устанавливает исполняемые обновления.
@@ -78,5 +85,3 @@
 
 Сначала добавляйте раздел в существующий документ. `docs/STATE.md` остаётся коротким operational snapshot, а не changelog или audit log. Исторические переходы и подробные старые evidence выносите в `docs/STATE-HISTORY.md` или документ соответствующего домена. Выносите отдельный файл только для самостоятельного домена с собственным жизненным циклом. После выноса оставляйте одну точку истины, исправляйте ссылки и карту документов.
 <!-- END EASY PRD WORKFLOW -->
-- `docs/slices/S033-compact-notch-paste-stack.md` — единый центральный compact Paste Stack, раскрытие без задержки и проверка menu-band placement.
-- `docs/slices/S034-rich-image-paste-stack.md` — rich text/images в Stack, typed paste, previews и session ownership.

@@ -53,6 +53,21 @@ final class HistoryService {
         return entries.filter(Self.isRenderable)
     }
 
+    /// Reads only display metadata in small pages, independent of panel filters.
+    func recentDescriptors() throws -> [HistoryOccurrenceDescriptor] {
+        var result: [HistoryOccurrenceDescriptor] = []
+        var cursor: HistoryPageCursor?
+        repeat {
+            let page = try store.fetchPage(since: retentionCutoff, after: cursor, limit: 5)
+            result.append(contentsOf: page.descriptors.filter {
+                !$0.isTextOnly || HistoryTextPolicy.shouldCapture($0.textPreview ?? "")
+            }.prefix(5 - result.count))
+            guard result.count < 5, page.hasMore, let next = page.nextCursor, next != cursor else { break }
+            cursor = next
+        } while true
+        return result
+    }
+
     func page(after cursor: HistoryPageCursor? = nil, mode: HistoryFilterMode = .history) throws -> HistoryPage {
         if let favoriteStore {
             return try favoriteStore.fetchPage(
@@ -216,6 +231,10 @@ actor SerializedHistoryService {
         try service.entries(mode: mode)
     }
 
+
+    func recentDescriptors() throws -> [HistoryOccurrenceDescriptor] {
+        try service.recentDescriptors()
+    }
 
     func page(after cursor: HistoryPageCursor? = nil, mode: HistoryFilterMode = .history) throws -> HistoryPage {
         try service.page(after: cursor, mode: mode)

@@ -271,7 +271,7 @@ final class HistoryViewModelSearchTests: XCTestCase {
         }
         _ = await viewModel.clearAll()
 
-        XCTAssertEqual(store.operationNames, ["fetch", "create", "markUsed", "delete", "clearAll"])
+        XCTAssertEqual(store.operationNames, ["recent", "fetch", "create", "recent", "markUsed", "recent", "delete", "recent", "clearAll", "recent"])
         XCTAssertTrue(store.operationWasOnMainThread.allSatisfy { !$0 })
     }
 
@@ -987,6 +987,16 @@ private final class InMemoryHistoryStore: HistoryStoring, HistoryFavoriteStoring
 
     func fetchCurrent(since cutoff: Date, favoritesOnly: Bool) throws -> [HistoryEntry] {
         try fetchCurrent(since: cutoff).filter { !favoritesOnly || $0.isFavorite }
+    }
+
+    // Mirror the production metadata-only query separately from full reads.
+    func fetchPage(since cutoff: Date, after cursor: HistoryPageCursor?, limit: Int) throws -> HistoryPage {
+        recordOperation("recent")
+        return try makeFavoritePage(
+            entries: entries.filter { $0.activityAt > cutoff }.sorted {
+                $0.activityAt == $1.activityAt ? $0.id.uuidString > $1.id.uuidString : $0.activityAt > $1.activityAt
+            }, after: cursor, limit: limit, query: nil
+        )
     }
 
     func fetchPage(

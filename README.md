@@ -118,6 +118,17 @@ xcodebuild \
   CODE_SIGNING_REQUIRED=NO
 ```
 
+For interactive testing, run the `Qipli` scheme in Xcode with normal Apple
+Development signing. Debug builds are named `Qipli Dev.app` and use
+`com.qipli.app.dev`. Add this app once under System Settings → Privacy & Security
+→ Accessibility; keep the installed Qipli permission enabled. The unsigned
+command above is only a build check, not a permission-testing build.
+
+Qipli Dev has separate preferences and no Sparkle updates, but intentionally
+shares the installed app's History database and managed assets. Quit one version
+before running the other. Deleting History or testing a database migration in Dev
+affects the same data used by the installed app.
+
 Release signing credentials never belong in the repository. Pull requests and
 pushes to `main` run unsigned tests and builds only.
 

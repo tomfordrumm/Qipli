@@ -376,9 +376,12 @@ private final class FakeInputAdapter: GlobalInputEventAdapting {
     var onEscape: (() -> Void)?
     var onStackPaste: (() -> Void)?
     var onReactivatePrevious: (() -> Void)?
+    var onFinderCutCommand: ((Bool) -> Void)?
+    var onFinderCutMove: (() -> Void)?
     var shouldConsumeEscape: (() -> Bool)?
     var stackPasteInterception: (() -> StackPasteInputDisposition)?
     var reactivationPreviousInterception: (() -> StackReactivationInputDisposition)?
+    var finderCutPasteInterception: ((Bool) -> FinderCutPasteInputDisposition)?
     var onStatusChange: ((GlobalInputStatus) -> Void)?
     private var startResults: [GlobalInputStatus]
     private(set) var startCount = 0

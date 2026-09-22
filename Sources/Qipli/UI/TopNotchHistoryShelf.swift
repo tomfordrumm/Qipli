@@ -84,6 +84,19 @@ enum PasteStackPresentationStateMachine {
 /// All rectangles are in global screen coordinates until converted by the
 /// `local...` accessors below.
 struct PasteStackCompactGeometry: Equatable {
+    static let finderCutFilenameRowHeight: CGFloat = 28
+
+    func addingFinderCutFilenameRow() -> Self {
+        let height = Self.finderCutFilenameRowHeight
+        return Self(
+            panelFrame: NSRect(x: panelFrame.minX, y: panelFrame.minY - height,
+                               width: panelFrame.width, height: panelFrame.height + height),
+            leftContentRect: leftContentRect,
+            rightContentRect: rightContentRect,
+            isNotched: isNotched
+        )
+    }
+
     let panelFrame: NSRect
     let leftContentRect: NSRect
     let rightContentRect: NSRect

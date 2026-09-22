@@ -109,6 +109,27 @@ final class TopNotchHistoryShelfTests: XCTestCase {
         XCTAssertTrue(geometry.panelFrame.contains(geometry.rightContentRect))
     }
 
+    func testFinderCutFilenameRowExtendsBelowBandWithoutMovingCameraSafeContent() {
+        for notched in [false, true] {
+            let band = PasteStackCompactGeometry.make(
+                screenFrame: NSRect(x: 100, y: 40, width: 1_512, height: 982),
+                visibleFrame: NSRect(x: 100, y: 40, width: 1_512, height: 945),
+                safeAreaInsets: NSEdgeInsets(top: notched ? 37 : 0, left: 0, bottom: 0, right: 0),
+                auxiliaryTopLeftArea: notched ? NSRect(x: 100, y: 985, width: 586, height: 37) : nil,
+                auxiliaryTopRightArea: notched ? NSRect(x: 1_026, y: 985, width: 586, height: 37) : nil
+            )
+            let cut = band.addingFinderCutFilenameRow()
+            XCTAssertEqual(cut.panelFrame.maxY, band.panelFrame.maxY)
+            XCTAssertEqual(cut.panelFrame.width, band.panelFrame.width)
+            XCTAssertEqual(cut.panelFrame.height, band.panelFrame.height + 28)
+            XCTAssertEqual(cut.leftContentRect, band.leftContentRect)
+            XCTAssertEqual(cut.rightContentRect, band.rightContentRect)
+            XCTAssertGreaterThanOrEqual(cut.localLeftContentRect.minY, 28)
+            XCTAssertGreaterThanOrEqual(cut.localRightContentRect.minY, 28)
+            XCTAssertEqual(cut.localInteractiveRegions, [CGRect(origin: .zero, size: cut.panelFrame.size)])
+        }
+    }
+
     @MainActor
     func testCompactPointerReentryReversesCollapseWithoutReturningToCompact() {
         let model = PasteStackPresentationModel()

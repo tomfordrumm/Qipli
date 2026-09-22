@@ -521,3 +521,28 @@ D-044 расширяет прежний text-only Stack после S033. Огр�
 | BR-035 | Session удерживает доступ к owned payload до Cancel/finish, включая used items для Reactivate. Automatic expiry не удаляет leased bytes; они входят в существующие quotas. Explicit Delete отзывает соответствующий Stack payload и preview, оставляя unavailable позицию без пропуска. Clear All отменяет Stack и удаляет данные. UI сообщает этот эффект до удаления. |
 | BR-036 | Stack использует фактически принятый History payload, включая plain-only fallback при capture. Missing/corrupt/deleted payload при paste не деградирует и не пропускается молча. Ошибка не отмечает occurrence used; repeat и reactivation сохраняют существующую reservation semantics. Отдельного plain-paste shortcut Stack нет. |
 | NFR-034 | Stack descriptors не содержат raw rich/image bytes. Asset I/O/materialization выполняются вне main actor, async results проверяют session/reservation/revocation перед write/dispatch. Leases ограничены жизнью процесса/session, cleanup и quota accounting охватывают retained assets. Payload не попадает в logs, snapshots или network. |
+
+
+## Вырезание файлов: предложение S035
+
+Запрошены ⌘X для файлов и отображение в мини-окне. Следующая граница предложена для первой версии и требует проверки D-046.
+
+| Требование | Контракт |
+|---|---|
+| FR-049 | В подтверждённом file-selection контексте Finder ⌘X подготавливает временный набор для перемещения, ⌘V в допустимой папке передаёт штатную move-команду Finder. До вставки source files остаются на месте. |
+| FR-050 | Finder Cut использует только компактную presentation без раскрытия по hover, клику или accessibility action. Слева показан значок вырезания/состояния, справа крестик отмены, снизу имя первого файла и количество остальных. Ошибка или передача команды Finder заменяют имя сообщением; подробности доступны в tooltip/VoiceOver. Успешный dispatch не считается доказательством перемещения; проценты и success требуют наблюдаемого результата. |
+| BR-037 | Cut и Stack имеют единственного владельца input. Text fields и другие приложения сохраняют обычные shortcuts. Внешний clipboard change, History paste, запуск Stack и relaunch снимают Cut intent. History не хранит intent и никогда не повторяет move. |
+| NFR-035 | Нет собственного source copy/delete, payload logs или persistent Cut session. Перед реализацией доказать selection/focus admission, freshness, self-write suppression и границу наблюдаемости Finder. Новые permissions требуют отдельного решения. |
+
+Это узкое целевое исключение для ordinary ⌘V вне Stack применяется только при реализации S035 и активном допустимом Cut intent. Остальной input-контракт сохраняется.
+
+## Последние записи History в меню: S036
+
+Пользователь 2026-09-21 подтвердил размещение пяти последних записей под History и немедленную вставку по клику. D-047 фиксирует границу; подробные критерии находятся в S036.
+
+| Требование | Контракт |
+|---|---|
+| FR-051 | Меню status icon показывает History, затем до пяти первых записей общей History, затем существующие Paste Stack и остальные команды в прежнем порядке. При числе записей меньше пяти выводятся все доступные; при пустой History блок отсутствует. |
+| FR-052 | Выбор записи закрывает меню и запускает обычную typed History paste в приложение, из которого открыто меню, без промежуточного открытия History. Сам пункт History сохраняет прежнее действие. |
+| BR-038 | Список использует порядок общей History `activityAt DESC, id DESC`, включая её обычное продвижение после использования. Search и Favorites filter панели не влияют на меню. Каждая строка привязана к UUID occurrence; одинаковые previews не объединяются. |
+| NFR-036 | Меню использует ограниченные локальные подписи и metadata. Открытие не читает raw rich/image payload и не блокирует main actor storage I/O. Сохраняются typed paste, target validation, self-write suppression, privacy и keyboard/VoiceOver contracts. |

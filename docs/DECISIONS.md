@@ -442,3 +442,33 @@
 - Решение: S034 расширяет Stack existing text/RTF/HTML и inline-image payloads после S033. Используются existing History storage/materializer/writer, один copy остаётся одной occurrence. File/video, mixed image+reference и arbitrary/private types не входят в scope. S031 text-only Stack restriction заменяется только для этой новой поставки.
 - Уточнения планирования: owned payload удерживается session lease, expiry не ломает активную серию, bytes входят в существующие quotas. Explicit Delete отзывает exact payload/preview и оставляет unavailable позицию, Clear All отменяет Stack перед очисткой. UI сообщает эти последствия. При paste нет молчаливой потери форматирования или пропуска картинки; новый plain-paste shortcut не добавляется. Это конкретизация хранения/удаления при планировании, а не отдельное пользовательское подтверждение каждой детали.
 - Последствия: потребуются async materialization в Stack executor, ownership/revocation contracts и tests гонок с delete/cancel. Rich/image bytes не копируются в UI и не создают второй неограниченный store. Процессный lease не сохраняет Stack после relaunch. Реализация, ручная matrix и signed update остаются непроверенными.
+
+
+## D-045: Отдельная Debug identity с общей History
+
+- Статус: `accepted`
+- Дата: 2026-09-14
+- Источник: пользователь подтвердил Qipli Dev с отдельным Bundle ID и стабильной подписью, явно попросив не разделять базу.
+- Решение: Debug использует `com.qipli.app.dev`, имя `Qipli Dev` и Apple Development с существующей Team. Sparkle в Debug не создаётся. Release identity и distribution pipeline не меняются.
+- Последствия: отдельные Accessibility grant и UserDefaults/onboarding; общие History.sqlite и owned assets. Удаления и миграции Dev влияют на рабочую историю. Версии запускаются по очереди. Разрешение Dev выдаётся пользователем один раз; сохранение после пересборки проверяется вручную. Основание стабильной signing identity: Apple TN2206, https://developer.apple.com/library/archive/technotes/tn2206/_index.html, сверено 2026-09-14.
+
+
+## D-046: Вырезание файлов с индикацией в компактном окне
+
+- Статус: `proposed`
+- Дата: 2026-09-14
+- Подтверждённый запрос: добавить ⌘X для вырезания файлов с последующей вставкой в другое место и показать процесс в мини-окне у чёлки.
+- Предложение: S035 после S033, отдельный от Stack временный Cut intent; первая версия Finder-only, ⌘X → ожидание в compact → ⌘V → native Finder move. S034 не является технической зависимостью.
+- Уточнения планирования: один набор без накопления, source files остаются до вставки, native Finder owns move/conflicts; никаких собственных source copy/delete. Progress/success не выводятся из отправки клавиш. Конкуренция со Stack и invalidation описаны в S035.
+- Открыто: подтвердить границу Finder-only и достаточность отображения подготовленного набора с передачей операции Finder. Проверить AX admission, copy correlation и result observability на устройстве до ready. Дополнительные permissions/API не утверждены.
+
+- Подтверждённое уточнение UI, 2026-09-22: пользователь отказался от расширенного Finder Cut окна целиком. Только компактная панель: значок вырезания/состояния слева, крестик справа, имя/количество снизу; ошибка заменяет имя коротким сообщением. Подробности доступны в tooltip/VoiceOver без раскрытия. После dispatch крестик закрывает notice, а не отменяет операцию Finder. Это уточнение UI не закрывает остальные platform verification gates D-046.
+
+## D-047: Пять последних записей History в status menu
+
+- Статус: `accepted`
+- Дата: 2026-09-21
+- Источник: пользователь запросил пять последних записей между History и Paste Stack и подтвердил немедленную вставку в приложение, из которого открыто меню.
+- Решение: S036 добавляет прямой доступ к пяти первым occurrences общей History. Пункт History и последующие команды сохраняются; используется существующая typed History paste.
+- Уточнения планирования: activity order общей History без зависимости от Search/Favorites; bounded локальные подписи; нет placeholders до пяти. При active Stack предложено отключать recent actions с объяснением, сохраняя текущую границу BR-028. Эти детали не выдаются за отдельные ответы пользователя.
+- Последствия: нужны независимая bounded projection, захват исходного target при открытии native menu и общий paste transaction guard. Новые permissions, storage schema и input interception не требуются. Focus/handoff и typed target acceptance проверяются при реализации S036.

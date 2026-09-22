@@ -3,14 +3,17 @@ import Carbon.HIToolbox
 import Foundation
 
 /// Core Graphics adapter. Its active filter consumes only Qipli's exact untagged global hotkeys.
-final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispatching, TaggedCopyCommandDispatching {
+final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispatching, TaggedCopyCommandDispatching, TaggedMoveCommandDispatching {
     var onHotKey: ((GlobalHotKey) -> Void)?
     var onEscape: (() -> Void)?
     var onStackPaste: (() -> Void)?
     var onReactivatePrevious: (() -> Void)?
+    var onFinderCutCommand: ((Bool) -> Void)?
+    var onFinderCutMove: (() -> Void)?
     var shouldConsumeEscape: (() -> Bool)?
     var stackPasteInterception: (() -> StackPasteInputDisposition)?
     var reactivationPreviousInterception: (() -> StackReactivationInputDisposition)?
+    var finderCutPasteInterception: ((Bool) -> FinderCutPasteInputDisposition)?
     var onStatusChange: ((GlobalInputStatus) -> Void)?
 
     private var recoveryPolicy = EventTapRecoveryPolicy(maximumAttempts: 2)
@@ -83,10 +86,18 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
 
     @discardableResult
     func postTaggedCommandC() -> Bool {
-        postTaggedCommand(keyCode: CGKeyCode(kVK_ANSI_C))
+        postTaggedCommand(keyCode: CGKeyCode(kVK_ANSI_C), flags: .maskCommand)
     }
 
-    private func postTaggedCommand(keyCode: CGKeyCode) -> Bool {
+    @discardableResult
+    func postTaggedCommandMove() -> Bool {
+        postTaggedCommand(
+            keyCode: CGKeyCode(kVK_ANSI_V),
+            flags: [.maskCommand, .maskAlternate]
+        )
+    }
+
+    private func postTaggedCommand(keyCode: CGKeyCode, flags: CGEventFlags = .maskCommand) -> Bool {
         guard let source = CGEventSource(stateID: .combinedSessionState),
               let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
               let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
@@ -95,7 +106,7 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         }
 
         for event in [keyDown, keyUp] {
-            event.flags = .maskCommand
+            event.flags = flags
             event.setIntegerValueField(.eventSourceUserData, value: SyntheticEventMarker.sourceUserData)
             event.post(tap: .cghidEventTap)
         }
@@ -111,11 +122,12 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
             stackSessionIsActive: adapter.shouldConsumeEscape?() ?? false,
             stackPasteInterception: adapter.stackPasteInterception,
             reactivationPreviousInterception: adapter.reactivationPreviousInterception,
+            finderCutPasteInterception: adapter.finderCutPasteInterception,
             shortcutSnapshot: adapter.shortcutSnapshotProvider(),
             historyHotKeyIsRegistered: adapter.historyHotKey.isRegistered
         )
         adapter.handle(type: type, event: event, action: action)
-        return action == nil ? Unmanaged.passUnretained(event) : nil
+        return action?.consumesInput == true ? nil : Unmanaged.passUnretained(event)
     }
 
     private func handle(type: CGEventType, event: CGEvent, action: GlobalInputAction?) {
@@ -131,6 +143,10 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
                 switch action {
                 case let .hotKey(hotKey):
                     self?.onHotKey?(hotKey)
+                case .observeFinderCutCommand:
+                    self?.onFinderCutCommand?(
+                        event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+                    )
                 case .cancelPasteStack:
                     self?.onEscape?()
                 case .pasteStackItem:
@@ -140,6 +156,10 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
                 case .reactivatePreviousStackItem:
                     self?.onReactivatePrevious?()
                 case .consumeReactivatePreviousStackItem:
+                    break
+                case .dispatchFinderCutMove:
+                    self?.onFinderCutMove?()
+                case .consumeFinderCutMove:
                     break
                 }
             }
@@ -177,14 +197,15 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         return hotKey
     }
 
-    /// Full active-filter contract. Ordinary Command-V is intentionally absent:
-    /// it continues to reach the source application until S006.
+    /// Full active-filter contract. Ordinary Command-V reaches Paste Stack first,
+    /// then Finder Cut only while its main-actor admission gate is open.
     static func consumedAction(
         type: CGEventType,
         event: CGEvent,
         stackSessionIsActive: Bool,
         stackPasteInterception: (() -> StackPasteInputDisposition)? = nil,
         reactivationPreviousInterception: (() -> StackReactivationInputDisposition)? = nil,
+        finderCutPasteInterception: ((Bool) -> FinderCutPasteInputDisposition)? = nil,
         shortcutSnapshot: ShortcutSnapshot = .defaults,
         historyHotKeyIsRegistered: Bool = false
     ) -> GlobalInputAction? {
@@ -219,12 +240,25 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         if isExactOrdinaryCommandV(event) {
             switch stackPasteInterception?() ?? .passThrough {
             case .passThrough:
-                return nil
+                switch finderCutPasteInterception?(
+                    event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+                ) ?? .passThrough {
+                case .passThrough:
+                    return nil
+                case .consume:
+                    return .consumeFinderCutMove
+                case .consumeAndDispatch:
+                    return .dispatchFinderCutMove
+                }
             case .consume:
                 return .consumePasteStackItem
             case .consumeAndDispatch:
                 return .pasteStackItem
             }
+        }
+
+        if isExactFinderCutCommandX(event) {
+            return .observeFinderCutCommand
         }
 
         guard stackSessionIsActive,
@@ -239,6 +273,13 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
     private static func isExactOrdinaryCommandV(_ event: CGEvent) -> Bool {
         let flags = event.flags
         return event.getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_ANSI_V)
+            && flags.contains(.maskCommand)
+            && flags.intersection([.maskShift, .maskControl, .maskAlternate]).isEmpty
+    }
+
+    private static func isExactFinderCutCommandX(_ event: CGEvent) -> Bool {
+        let flags = event.flags
+        return event.getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_ANSI_X)
             && flags.contains(.maskCommand)
             && flags.intersection([.maskShift, .maskControl, .maskAlternate]).isEmpty
     }
@@ -289,6 +330,17 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
             return
         }
         status = .ready
+    }
+}
+
+private extension GlobalInputAction {
+    var consumesInput: Bool {
+        switch self {
+        case .observeFinderCutCommand:
+            false
+        default:
+            true
+        }
     }
 }
 
