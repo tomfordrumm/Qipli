@@ -17,7 +17,7 @@
 
 Qipli keeps 30 days of clipboard history on the current Mac. It supports text,
 URLs, inline images, and references to local files or videos. Its Paste Stack
-collects text values and pastes them one by one with the normal `Command-V`
+collects text and images and pastes them one by one with the normal `Command-V`
 shortcut.
 
 ## Why Qipli
@@ -27,7 +27,7 @@ shortcut.
 - **Keyboard-first.** Open History, collect a Paste Stack, and paste through the
   active app without leaving the keyboard.
 - **Predictable.** The normal `Command-V` and `Escape` behavior stays unchanged
-  outside an active Paste Stack.
+  outside an active Paste Stack or Finder Cut session.
 - **Native.** Qipli uses macOS panels, permissions, settings, and release
   conventions instead of adding a second UI layer.
 
@@ -35,16 +35,24 @@ shortcut.
 
 ### History
 
-Open a searchable list of recent copies, select an exact entry, and paste it back
+Open a searchable shelf of recent copies, select an exact entry, and paste it back
 into the app you were using. Individual entries and the complete Qipli history can
-be deleted. URLs, images, and local file references stay in History without
-changing the text-only Paste Stack.
+be deleted. The menu bar also offers the five most recent History items for
+immediate paste.
+Favorites remain available beyond automatic History expiry.
 
 ### Paste Stack
 
-Collect values from the active app, review their order, and paste them one at a
-time. A stack is a temporary session. It does not change the lifecycle of your
-clipboard history.
+Collect plain text, formatted text, and images from the active app, review their
+order, and paste them one at a time. The compact panel shows previews and expands
+for review and reordering. A stack is a temporary session; its active payloads
+are protected from automatic History expiry until the session ends.
+
+### Finder Cut
+
+In Finder, use `Command-X` on selected files and `Command-V` in a destination
+folder to request Finder's native move. A compact panel shows the prepared
+selection. Finder handles file operations, conflicts, and permissions.
 
 ### Configurable shortcuts
 

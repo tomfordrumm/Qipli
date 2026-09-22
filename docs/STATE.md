@@ -11,8 +11,8 @@
 Статус: `needs_verification`. D-045 реализован: Debug `Qipli Dev.app` / `com.qipli.app.dev`, Apple Development, отдельные настройки, общий History store/assets и отключённый Sparkle. Подписанный universal `build-for-testing` прошёл; существующие `SecureUpdaterSettingsTests` 3/3; Release settings сохраняют `Qipli.app` / `com.qipli.app`. Strict codesign verification прошёл на копии в `/private/tmp/qipli-dev-identity-check/Qipli Dev.app` без Finder xattrs: Documents file provider повторно добавляет недопустимый FinderInfo к build test bundle. Проверка Accessibility остаётся за пользователем: обычный Cmd+R из Xcode, выдать Dev доступ, пересобрать и проверить сохранение доступа обеих версий. Версии запускать по очереди.
 
 
-- Основная ветка работы: `release/1.0.10`, версия `1.0.10`, build `11`. Release notes подготовлены; следующий delivery gate — push ветки, pull request в защищённый `main`, unsigned CI, merge и protected release workflow.
-- Последняя опубликованная версия по GitHub Releases — `v1.0.9` от 2026-09-07; наличие публикации перепроверено 2026-09-11, бинарные artifacts в этой проверке не проверялись. Публикация DMG/ZIP, appcast и реальный Sparkle update для `v1.0.10` ещё не выполнены.
+- Основная ветка работы: `codex/release-1.0.11`, версия `1.0.11`, build `12`. Release notes подготовлены; следующий delivery gate — push ветки, pull request в защищённый `main`, unsigned CI, merge и protected release workflow.
+- Последняя опубликованная версия по GitHub Releases — `v1.0.10` от 2026-09-11; публикация и remote refs перепроверены 2026-09-22, бинарные artifacts и установленное обновление в этой проверке не проверялись. `v1.0.11` ещё не опубликована.
 - Milestones M1–M3 и M6–M9 завершены. M4/M5 сохраняют release gates S014/S008; M10 и M11 активны из-за оставшихся gates S031 и S032.
 - S001–S007, S009–S013, S015–S016, S017–S027 и S030 имеют статус `done`.
 - S028 остаётся в backlog по D-038. S029 возвращён в активный план по D-042; M12 описывает избранное в Top Notch.
@@ -33,7 +33,7 @@ S036 реализован по D-047: до пяти последних запи�
 
 Локальная реализация проверена: обязательные History capabilities и lease forwarding, единый storage actor, общий Stack write/validation path, удаление неиспользуемых APIs, общий first-page loader с сохранением selection и stale-result guard, shared panel mechanics и разделение PlaceholderViews на именованные UI файлы. SwiftPM: 286 tests, 0 failures, 5 sandbox skips; отдельный запуск PasteboardMonitorTests вне sandbox: 23/23, без skips. Unsigned universal Debug Xcode build и `git diff --check` прошли. Independent review: найденный selection regression исправлен и покрыт тестом, оставшихся actionable findings нет. Net production Swift: −361 строк.
 
-Следующая проверка: установленная подписанная Dev сборка, History search/selection → paste в исходное приложение, plain/rich/image Stack с Cancel/Delete/Reactivate, Finder Cut compact panel и multi-display placement. Эти interactive gates не подтверждены автоматическими тестами. Commit/push/release не выполнялись.
+Следующая проверка: установленная подписанная Dev сборка, History search/selection → paste в исходное приложение, plain/rich/image Stack с Cancel/Delete/Reactivate, Finder Cut compact panel и multi-display placement. Эти interactive gates не подтверждены автоматическими тестами. Рефакторинг закоммичен в `605f001`; push/release не выполнялись.
 
 
 ### Избранное в Top Notch
@@ -59,11 +59,13 @@ History использует native `.nonactivatingPanel` с прямым key-wi
 
 Smoke test подтвердил migration, search, text/image/rich-text paste и Paste Stack. Он не заменяет S032 visual/accessibility matrix и signed update verification.
 
-## Подготовка v1.0.10
+## Подготовка v1.0.11
 
-- Ветка: `release/1.0.10`; версия `1.0.10`, build `11`.
-- Release notes: [`release-notes-template.md`](release-notes-template.md).
-- Следующий delivery path: push → pull request в защищённый `main` → unsigned CI → merge → tag `v1.0.10` на commit `main` → protected signing/notarization workflow.
+- Ветка: `codex/release-1.0.11`; версия `1.0.11`, build `12`.
+- Release notes: [`release-notes-template.md`](release-notes-template.md). Состав после `v1.0.10`: S033 compact Stack, S034 rich/image Stack, S035 Finder Cut, S036 recent menu и D-048 simplification.
+- Локальная проверка кандидата: unsigned Release build для arm64/x86_64, version/build в Debug/Release и built plist, Sparkle runtime linking, release-contract tests 13/13, version-validator tests 8/8, CI contract и public-readiness audit прошли. SwiftPM evidence текущего кода: 286 tests, 5 sandbox skips с отдельным успешным повтором PasteboardMonitorTests 23/23. Signing/notarization/CI/installed update не запускались.
+- Открытые release gates: установленная S035 Finder/focus/Accessibility/display matrix, S036 target/keyboard/VoiceOver matrix, source/target rich/image Stack и signed Sparkle update. Подготовка notes не подтверждает эти проверки.
+- Следующий delivery path: push → pull request в защищённый `main` → unsigned CI → merge → tag `v1.0.11` на commit `main` → protected signing/notarization workflow.
 - Перед публикацией требуется отдельная проверка, что installed History shortcut, S031 update path и S032 visual/search/accessibility gates не выданы за пройденные.
 
 ## Статусы срезов
@@ -157,6 +159,6 @@ S034 закрыт по пользовательскому smoke acceptance и а
 1. Проверить сброс History к первому элементу после прокрутки и повторного открытия; отдельно проверить custom shortcut/reset и обычное text field.
 2. Выполнить S032 installed-app visual/search/accessibility matrix, включая card reuse, selection-only update, URL-first search и exact `⇧Backspace`.
 3. Выполнить реальный Sparkle update для S031 с сохранением History.
-4. Подготовить и провести protected `v1.0.10` release после закрытия необходимых gates. Immutable-rerun gate S014 остаётся отдельным незавершённым требованием.
+4. Подготовить и провести protected `v1.0.11` release после закрытия необходимых gates. Immutable-rerun gate S014 остаётся отдельным незавершённым требованием.
 
 Подробные исторические записи не являются обязательным operational-контекстом. Открывайте [`STATE-HISTORY.md`](STATE-HISTORY.md) только если нужно восстановить происхождение решения, старый verification result или release evidence.
