@@ -228,6 +228,7 @@ final class ShortcutPreferences: ObservableObject, ShortcutSnapshotProviding {
     private let storageKey: String
     private let lock = NSLock()
     private var lockedSnapshot: ShortcutSnapshot
+    var additionalSnapshotValidator: ((ShortcutSnapshot) throws -> Void)?
 
     init(
         defaults: UserDefaults = .standard,
@@ -255,6 +256,7 @@ final class ShortcutPreferences: ObservableObject, ShortcutSnapshotProviding {
     func update(_ command: ShortcutCommand, binding: ShortcutBinding) throws {
         let candidate = snapshot.replacing(command, with: binding)
         try ShortcutValidator.validate(candidate)
+        try additionalSnapshotValidator?(candidate)
         replace(with: candidate, recoveredDefaults: false)
     }
 

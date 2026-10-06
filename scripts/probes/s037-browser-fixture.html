@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Qipli S037 synthetic browser probe</title>
+<style>body{font:18px system-ui;max-width:760px;margin:40px auto}input,textarea,[contenteditable]{display:block;box-sizing:border-box;width:100%;padding:12px;margin:8px 0 24px;font:20px system-ui;border:1px solid #888}textarea{height:120px}</style>
+<h1>Qipli S037 synthetic browser probe</h1>
+<p>Local fixture. No scripts, requests, storage, or real user data. Replace only the selected test fragment; then check selection and one native Undo.</p>
+<label for="plain">Plain input</label>
+<input id="plain" value="LEFT ghbdtn vbh RIGHT" autocomplete="off" spellcheck="false">
+<label for="multiline">Textarea with UTF-16 neighbors</label>
+<textarea id="multiline" autocomplete="off" spellcheck="false">LEFT 🙂 é ghbdtn vbh RIGHT
+SECOND LINE</textarea>
+<label>Contenteditable candidate</label>
+<div contenteditable="true" role="textbox" aria-label="Contenteditable candidate" spellcheck="false">LEFT ghbdtn vbh RIGHT</div>
+<label for="readonly">Read-only refusal</label>
+<input id="readonly" value="SYNTHETIC READ ONLY" readonly>
+<label for="secure">Secure-field refusal</label>
+<input id="secure" type="password" value="synthetic-fixture" autocomplete="off">
+</html>

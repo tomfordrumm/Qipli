@@ -346,7 +346,7 @@ final class SettingsViewModelTests: XCTestCase {
 
 @MainActor
 final class SettingsWindowControllerTests: XCTestCase {
-    func testRepeatedShowReusesOneNativeWindowAndRefreshesSystemState() {
+    func testRepeatedShowReusesOneNativeWindowAndRefreshesSystemState() async {
         let suiteName = "QipliTests.SettingsWindow.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
@@ -373,12 +373,25 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
         defer { controller.close() }
 
+        var wasVisibleWhenActivationRequested = false
+        activator.onUserInitiatedActivation = { [weak controller] in
+            wasVisibleWhenActivationRequested = controller?.managedWindow?.isVisible ?? false
+        }
         controller.show()
         let firstWindow = controller.managedWindow
+        XCTAssertFalse(wasVisibleWhenActivationRequested, "Activate before first window ordering.")
+        XCTAssertTrue(firstWindow?.isVisible == true)
+        let minimized = expectation(forNotification: NSWindow.didMiniaturizeNotification, object: firstWindow)
+        firstWindow?.miniaturize(nil)
+        await fulfillment(of: [minimized], timeout: 3)
+        XCTAssertTrue(firstWindow?.isMiniaturized == true)
         viewModel.select(.shortcuts)
         controller.show(section: .general)
 
         XCTAssertTrue(firstWindow === controller.managedWindow)
+        XCTAssertFalse(firstWindow?.isMiniaturized == true)
+        XCTAssertTrue(firstWindow?.isVisible == true)
+        XCTAssertEqual(firstWindow?.level, .normal)
         XCTAssertEqual(controller.windowCreationCount, 1)
         XCTAssertEqual(refreshCount, 2)
         XCTAssertEqual(activator.userInitiatedActivationCount, 2)
@@ -427,6 +440,7 @@ private enum TestLaunchAtLoginError: LocalizedError {
 @MainActor
 private final class FakeSettingsApplicationActivator: QipliApplicationActivating {
     var isActive = true
+    var onUserInitiatedActivation: (() -> Void)?
     private(set) var activationCount = 0
     private(set) var userInitiatedActivationCount = 0
 
@@ -436,5 +450,6 @@ private final class FakeSettingsApplicationActivator: QipliApplicationActivating
 
     func requestUserInitiatedActivation() {
         userInitiatedActivationCount += 1
+        onUserInitiatedActivation?()
     }
 }

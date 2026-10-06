@@ -56,6 +56,19 @@
 		A00100000000000000000052 /* FinderCutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000052 /* FinderCutTests.swift */; };
 		A00100000000000000000090 /* PasteStackPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000090 /* PasteStackPresentation.swift */; };
 		A00100000000000000000091 /* FinderCutPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000091 /* FinderCutPanelView.swift */; };
+		A00100000000000000000092 /* LayoutCorrectionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000092 /* LayoutCorrectionModels.swift */; };
+		A00100000000000000000093 /* LayoutCorrectionSourceCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000093 /* LayoutCorrectionSourceCatalog.swift */; };
+		A00100000000000000000094 /* LayoutCorrectionPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000094 /* LayoutCorrectionPreferences.swift */; };
+		A00100000000000000000095 /* CorrectionInputClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000095 /* CorrectionInputClassifier.swift */; };
+		A00100000000000000000096 /* CorrectionFreshWordMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000096 /* CorrectionFreshWordMonitor.swift */; };
+		A00100000000000000000097 /* LayoutCorrectionAXAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000097 /* LayoutCorrectionAXAdapter.swift */; };
+		A00100000000000000000098 /* LayoutCorrectionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000098 /* LayoutCorrectionCoordinator.swift */; };
+		A0010000000000000000009A /* LayoutCorrectionAXAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0020000000000000000009A /* LayoutCorrectionAXAdmissionTests.swift */; };
+		A0010000000000000000009B /* LayoutCorrectionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0020000000000000000009B /* LayoutCorrectionCoordinatorTests.swift */; };
+		A0010000000000000000009C /* LayoutCorrectionModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0020000000000000000009C /* LayoutCorrectionModelTests.swift */; };
+		A0010000000000000000009D /* CorrectionTriggerGesture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0020000000000000000009D /* CorrectionTriggerGesture.swift */; };
+		A0010000000000000000009E /* LayoutCorrectionPreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0020000000000000000009E /* LayoutCorrectionPreferencesTests.swift */; };
+		A0010000000000000000009F /* LayoutCorrectionClipboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0020000000000000000009F /* LayoutCorrectionClipboardTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -122,6 +135,19 @@
 		A00200000000000000000052 /* FinderCutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderCutTests.swift; sourceTree = "<group>"; };
 		A00200000000000000000090 /* PasteStackPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteStackPresentation.swift; sourceTree = "<group>"; };
 		A00200000000000000000091 /* FinderCutPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderCutPanelView.swift; sourceTree = "<group>"; };
+		A00200000000000000000092 /* LayoutCorrectionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutCorrectionModels.swift; sourceTree = "<group>"; };
+		A00200000000000000000093 /* LayoutCorrectionSourceCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutCorrectionSourceCatalog.swift; sourceTree = "<group>"; };
+		A00200000000000000000094 /* LayoutCorrectionPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutCorrectionPreferences.swift; sourceTree = "<group>"; };
+		A00200000000000000000095 /* CorrectionInputClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CorrectionInputClassifier.swift; sourceTree = "<group>"; };
+		A00200000000000000000096 /* CorrectionFreshWordMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CorrectionFreshWordMonitor.swift; sourceTree = "<group>"; };
+		A00200000000000000000097 /* LayoutCorrectionAXAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutCorrectionAXAdapter.swift; sourceTree = "<group>"; };
+		A00200000000000000000098 /* LayoutCorrectionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutCorrectionCoordinator.swift; sourceTree = "<group>"; };
+		A0020000000000000000009A /* LayoutCorrectionAXAdmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutCorrectionAXAdmissionTests.swift; sourceTree = "<group>"; };
+		A0020000000000000000009B /* LayoutCorrectionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutCorrectionCoordinatorTests.swift; sourceTree = "<group>"; };
+		A0020000000000000000009C /* LayoutCorrectionModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutCorrectionModelTests.swift; sourceTree = "<group>"; };
+		A0020000000000000000009D /* CorrectionTriggerGesture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CorrectionTriggerGesture.swift; sourceTree = "<group>"; };
+		A0020000000000000000009E /* LayoutCorrectionPreferencesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutCorrectionPreferencesTests.swift; sourceTree = "<group>"; };
+		A0020000000000000000009F /* LayoutCorrectionClipboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutCorrectionClipboardTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -189,6 +215,14 @@
 				A00200000000000000000014 /* SyntheticEventMarker.swift */,
 				A00200000000000000000022 /* HistoryPasteExecutor.swift */,
 				A00200000000000000000051 /* FinderCut.swift */,
+				A00200000000000000000092 /* LayoutCorrectionModels.swift */,
+				A00200000000000000000093 /* LayoutCorrectionSourceCatalog.swift */,
+				A00200000000000000000094 /* LayoutCorrectionPreferences.swift */,
+				A00200000000000000000095 /* CorrectionInputClassifier.swift */,
+				A00200000000000000000096 /* CorrectionFreshWordMonitor.swift */,
+				A00200000000000000000097 /* LayoutCorrectionAXAdapter.swift */,
+				A00200000000000000000098 /* LayoutCorrectionCoordinator.swift */,
+				A0020000000000000000009D /* CorrectionTriggerGesture.swift */,
 			);
 			path = Input;
 			sourceTree = "<group>";
@@ -224,6 +258,11 @@
 				A00200000000000000000043 /* HistoryTestSupport.swift */,
 				A00200000000000000000048 /* TopNotchHistoryShelfTests.swift */,
 				A00200000000000000000052 /* FinderCutTests.swift */,
+				A0020000000000000000009A /* LayoutCorrectionAXAdmissionTests.swift */,
+				A0020000000000000000009B /* LayoutCorrectionCoordinatorTests.swift */,
+				A0020000000000000000009C /* LayoutCorrectionModelTests.swift */,
+				A0020000000000000000009E /* LayoutCorrectionPreferencesTests.swift */,
+				A0020000000000000000009F /* LayoutCorrectionClipboardTests.swift */,
 			);
 			path = Tests/QipliTests;
 			sourceTree = "<group>";
@@ -445,6 +484,14 @@
 				A00100000000000000000036 /* OnboardingCoordinator.swift in Sources */,
 				A00100000000000000000037 /* OnboardingWindowController.swift in Sources */,
 				A00100000000000000000040 /* SecureUpdater.swift in Sources */,
+				A00100000000000000000092 /* LayoutCorrectionModels.swift in Sources */,
+				A00100000000000000000093 /* LayoutCorrectionSourceCatalog.swift in Sources */,
+				A00100000000000000000094 /* LayoutCorrectionPreferences.swift in Sources */,
+				A00100000000000000000095 /* CorrectionInputClassifier.swift in Sources */,
+				A00100000000000000000096 /* CorrectionFreshWordMonitor.swift in Sources */,
+				A00100000000000000000097 /* LayoutCorrectionAXAdapter.swift in Sources */,
+				A00100000000000000000098 /* LayoutCorrectionCoordinator.swift in Sources */,
+				A0010000000000000000009D /* CorrectionTriggerGesture.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -465,6 +512,11 @@
 				A00100000000000000000043 /* HistoryTestSupport.swift in Sources */,
 				A00100000000000000000048 /* TopNotchHistoryShelfTests.swift in Sources */,
 				A00100000000000000000052 /* FinderCutTests.swift in Sources */,
+				A0010000000000000000009A /* LayoutCorrectionAXAdmissionTests.swift in Sources */,
+				A0010000000000000000009B /* LayoutCorrectionCoordinatorTests.swift in Sources */,
+				A0010000000000000000009C /* LayoutCorrectionModelTests.swift in Sources */,
+				A0010000000000000000009E /* LayoutCorrectionPreferencesTests.swift in Sources */,
+				A0010000000000000000009F /* LayoutCorrectionClipboardTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

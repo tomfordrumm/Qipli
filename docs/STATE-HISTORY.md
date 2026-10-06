@@ -270,3 +270,16 @@ S026 завершён: HistoryStore `33/33`, полный SwiftPM `222/222`, mig
 | 2026-09-03 | Пользователь подтвердил ручные проверки S031. | Manual source/target, relaunch, deletion/Clear All и active Stack checks считаются принятыми. Статус остаётся `needs_verification` до clean Xcode/release verification, недоступной в текущем окружении. |
 | 2026-09-15 | S033 переведён в `done`. | Пользователь подтвердил полную ручную установленную matrix и сообщил, что использует compact Paste Stack несколько дней. Hover/collapse без задержки приняты. Свежий полный SwiftPM suite: 255 tests, 0 failures, 5 skipped; focused S033: 29/29. |
 | 2026-09-16 | S034 переведён в `done`. | Пользователь подтвердил завершение после smoke-теста и исправления eager image thumbnail в compact Paste Stack. Focused S034 tests `4/4`, полный SwiftPM suite `259` tests, 0 failures, 5 skipped, development-signed universal Debug и unsigned universal Debug/Release builds прошли. Installed-app matrix, Accessibility/VoiceOver, rapid-interaction и signed-update проверки сохранены как отдельные delivery gates. |
+
+## 2026-10-02: исправлен устаревший preparation snapshot v1.0.11
+
+GitHub read-only проверка подтвердила публикацию v1.0.11 2026-09-22, build 12, commit `7328f811e659f82db143dcf96a2185ca1d207add`, PR #26. Ниже прежняя запись локальной подготовки; утверждения о ещё не выполненной публикации относятся только к тому snapshot. Бинарные artifacts и installed update 2026-10-02 не перепроверены.
+
+## Подготовка v1.0.11
+
+- Ветка: `codex/release-1.0.11`; версия `1.0.11`, build `12`.
+- Release notes: [`release-notes-template.md`](release-notes-template.md). Состав после `v1.0.10`: S033 compact Stack, S034 rich/image Stack, S035 Finder Cut, S036 recent menu и D-048 simplification.
+- Локальная проверка кандидата: unsigned Release build для arm64/x86_64, version/build в Debug/Release и built plist, Sparkle runtime linking, release-contract tests 13/13, version-validator tests 8/8, CI contract и public-readiness audit прошли. SwiftPM evidence текущего кода: 286 tests, 5 sandbox skips с отдельным успешным повтором PasteboardMonitorTests 23/23. Signing/notarization/CI/installed update не запускались.
+- Открытые release gates: установленная S035 Finder/focus/Accessibility/display matrix, S036 target/keyboard/VoiceOver matrix, source/target rich/image Stack и signed Sparkle update. Подготовка notes не подтверждает эти проверки.
+- Следующий delivery path: push → pull request в защищённый `main` → unsigned CI → merge → tag `v1.0.11` на commit `main` → protected signing/notarization workflow.
+- Перед публикацией требуется отдельная проверка, что installed History shortcut, S031 update path и S032 visual/search/accessibility gates не выданы за пройденные.
