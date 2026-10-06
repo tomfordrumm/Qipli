@@ -32,11 +32,8 @@ Source code and license: https://github.com/tomfordrumm/Qipli
 
 ## Changes
 
-- Add opt-in manual layout correction for selected text or the last typed word, including words followed by spaces. Use left Option by itself or choose a shortcut in Settings.
-- Convert between supported enabled system keyboard layouts and cycle the same range with repeated corrections.
-- Match the correction shortcut row to the other shortcuts and remove the layout list from Settings.
-- Bring Settings forward when opened from the menu bar and restore the window if it is minimized.
+- Remove temporary diagnostic logging for manual layout correction from Debug and Release builds.
 
-Layout correction requires a compatible editable field and supported static keyboard layouts. Secure fields and unsupported input methods are skipped. Correction is unavailable while Paste Stack, Finder Cut, or another Qipli input action is active.
+Manual layout correction works as before: use left Option by itself or a configured shortcut to correct selected text or the last typed word, preserving trailing spaces. It requires a compatible editable field and supported static keyboard layouts. Secure fields and unsupported input methods are skipped. Correction is unavailable while Paste Stack, Finder Cut, or another Qipli input action is active.
 
 Existing History and favorites are preserved; this release does not change the database schema.
