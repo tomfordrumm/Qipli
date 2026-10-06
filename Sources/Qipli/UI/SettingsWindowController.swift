@@ -44,6 +44,7 @@ final class SettingsWindowController {
         }
         let inputStatus = refreshSystemState()
         viewModel.refresh(inputStatus: inputStatus)
+        viewModel.refreshCorrectionSources()
 
         let settingsWindow = window ?? makeWindow()
         if window == nil {
@@ -51,12 +52,17 @@ final class SettingsWindowController {
             windowCreationCount += 1
             settingsWindow.center()
         }
-        settingsWindow.makeKeyAndOrderFront(nil)
+        // This conventional window must activate Qipli before ordering above
+        // another application's windows. Reopening also restores minimization.
         applicationActivator.requestUserInitiatedActivation()
+        if settingsWindow.isMiniaturized { settingsWindow.deminiaturize(nil) }
+        settingsWindow.makeKeyAndOrderFront(nil)
+        settingsWindow.orderFrontRegardless()
     }
 
     func refresh() {
         viewModel.refresh(inputStatus: refreshSystemState())
+        viewModel.refreshCorrectionSources()
     }
 
     func close() {
@@ -269,6 +275,14 @@ private struct GeneralSettingsView: View {
 private struct ShortcutSettingsView: View {
     @ObservedObject var viewModel: SettingsViewModel
     @State private var recordingCommand: ShortcutCommand?
+    @State private var recordingCorrectionTrigger = false
+
+    private var correctionTriggerDisplayValue: String {
+        switch viewModel.correctionSettings.trigger {
+        case .leftOption: "Left ⌥"
+        case let .shortcut(binding): binding.displayValue
+        }
+    }
 
     var body: some View {
         Form {
@@ -285,7 +299,7 @@ private struct ShortcutSettingsView: View {
                             ShortcutRecorderField(
                                 displayValue: viewModel.shortcuts.binding(for: command).displayValue,
                                 isRecording: recordingCommand == command,
-                                beginRecording: { recordingCommand = command },
+                                beginRecording: { recordingCorrectionTrigger = false; recordingCommand = command },
                                 cancelRecording: { recordingCommand = nil },
                                 capture: { binding in
                                     viewModel.updateShortcut(command, binding: binding)
@@ -303,6 +317,40 @@ private struct ShortcutSettingsView: View {
                         }
                     }
                 }
+            }
+
+            Section("Manual layout correction") {
+                Toggle("Enable manual layout correction", isOn: Binding(
+                    get: { viewModel.correctionSettings.isEnabled },
+                    set: { viewModel.setCorrectionEnabled($0) }
+                ))
+                LabeledContent("Correct text layout") {
+                    ShortcutRecorderField(
+                        displayValue: correctionTriggerDisplayValue,
+                        isRecording: recordingCorrectionTrigger,
+                        beginRecording: { recordingCommand = nil; recordingCorrectionTrigger = true },
+                        cancelRecording: { recordingCorrectionTrigger = false },
+                        capture: {
+                            viewModel.setCorrectionTrigger(.shortcut($0))
+                            recordingCorrectionTrigger = false
+                        }
+                    )
+                    .frame(width: 132, height: 26)
+                    .help("Click to change the layout correction shortcut.")
+                }
+                if case .shortcut = viewModel.correctionSettings.trigger {
+                    Button("Use left Option instead") {
+                        viewModel.setCorrectionTrigger(.leftOption)
+                        recordingCorrectionTrigger = false
+                    }
+                }
+                if let error = viewModel.correctionError {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.secondary)
+                }
+                Text("Corrects selected text or the last typed word, preserving trailing spaces.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Section {

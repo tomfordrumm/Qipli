@@ -15,6 +15,16 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
     var reactivationPreviousInterception: (() -> StackReactivationInputDisposition)?
     var finderCutPasteInterception: ((Bool) -> FinderCutPasteInputDisposition)?
     var onStatusChange: ((GlobalInputStatus) -> Void)?
+    var onCorrectionTrigger: (() -> Void)?
+    var onCorrectionInputInvalidation: (() -> Void)?
+    private let correctionSettingsLock = NSLock()
+    private var correctionEnabled = false
+    private var correctionTrigger: CorrectionTrigger = .leftOption
+    let correctionLedger = CorrectionInputLedger()
+    let correctionClassifier = CorrectionInputClassifier()
+    var correctionFreshWordMonitor: CorrectionFreshWordMonitor?
+    private var correctionGesture = CorrectionTriggerGesture()
+    private var invalidationScheduled = false
 
     private var recoveryPolicy = EventTapRecoveryPolicy(maximumAttempts: 2)
     private var tap: CFMachPort?
@@ -34,12 +44,17 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
     func start() -> GlobalInputStatus {
         guard tap == nil else { return status }
 
-        let keyDownMask = CGEventMask(1) << CGEventType.keyDown.rawValue
+        let eventMask = (CGEventMask(1) << CGEventType.keyDown.rawValue) |
+            (CGEventMask(1) << CGEventType.flagsChanged.rawValue) |
+            (CGEventMask(1) << CGEventType.keyUp.rawValue) |
+            (CGEventMask(1) << CGEventType.leftMouseDown.rawValue) |
+            (CGEventMask(1) << CGEventType.rightMouseDown.rawValue) |
+            (CGEventMask(1) << CGEventType.otherMouseDown.rawValue)
         guard let newTap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
             options: Self.eventTapOptions,
-            eventsOfInterest: keyDownMask,
+            eventsOfInterest: eventMask,
             callback: Self.eventTapCallback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
@@ -53,6 +68,7 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         runLoopSource = source
         historyHotKey.onPress = { [weak self] in self?.onHotKey?(.history) }
         historyHotKey.update(shortcutSnapshotProvider().history)
+        correctionGesture.reset(flags: CGEventSource.flagsState(.combinedSessionState))
         recoveryPolicy.recordHealthyEvent()
         status = .ready
         return status
@@ -60,6 +76,11 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
 
     func stop() {
         historyHotKey.stop()
+        correctionFreshWordMonitor?.stop()
+        correctionLedger.resetWordMetadata()
+        correctionLedger.markCompositionUncertain()
+        correctionGesture.reset(flags: [.maskAlternate])
+        scheduleCorrectionInvalidation(preserveWordBaseline: false)
         if let source = runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
             CFRunLoopSourceInvalidate(source)
@@ -76,6 +97,18 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
     func refreshHistoryShortcut(_ binding: ShortcutBinding) {
         guard tap != nil else { return }
         historyHotKey.update(binding)
+    }
+
+    func updateCorrectionContext(source: CorrectionSource?, targetPID: pid_t, sourceID: String, enabled: Bool) {
+        correctionClassifier.install(source: source, targetPID: targetPID)
+        correctionLedger.setActiveSourceID(sourceID)
+        // D-052 captures AX only on an explicit correction. No background polling.
+    }
+
+    func installCorrectionSettings(enabled: Bool, trigger: CorrectionTrigger) {
+        correctionSettingsLock.lock(); defer { correctionSettingsLock.unlock() }
+        correctionEnabled = enabled
+        correctionTrigger = trigger
     }
 
     /// Platform-spike APIs for command dispatchers. They never read or log pasteboard content.
@@ -116,6 +149,16 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
     private static let eventTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
         guard let userInfo else { return Unmanaged.passUnretained(event) }
         let adapter = Unmanaged<CGEventTapAdapter>.fromOpaque(userInfo).takeUnretainedValue()
+        switch adapter.correctionShortcutEvent(type: type, event: event) {
+        case .trigger:
+            DispatchQueue.main.async { [weak adapter] in adapter?.onCorrectionTrigger?() }
+            return nil
+        case .consumeRepeat:
+            return nil
+        case .none:
+            break
+        }
+        adapter.observeCorrectionEvent(type: type, event: event)
         let action = consumedAction(
             type: type,
             event: event,
@@ -128,6 +171,117 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         )
         adapter.handle(type: type, event: event, action: action)
         return action?.consumesInput == true ? nil : Unmanaged.passUnretained(event)
+    }
+
+    private enum CorrectionShortcutEvent { case none, trigger, consumeRepeat }
+
+    private func correctionShortcutEvent(type: CGEventType, event: CGEvent) -> CorrectionShortcutEvent {
+        correctionSettingsLock.lock()
+        let enabled = correctionEnabled
+        let configuredTrigger = correctionTrigger
+        correctionSettingsLock.unlock()
+        guard enabled, type == .keyDown,
+              !SyntheticEventMarker.isQipliSynthetic(
+                sourceUserData: event.getIntegerValueField(.eventSourceUserData)
+              ),
+              case let .shortcut(binding) = configuredTrigger,
+              binding.matches(
+            keyCode: event.getIntegerValueField(.keyboardEventKeycode), flags: event.flags
+              ) else { return .none }
+        return event.getIntegerValueField(.keyboardEventAutorepeat) == 0 ? .trigger : .consumeRepeat
+    }
+
+    /// O(1), metadata-only event accounting. No AX, TIS, Unicode event payload, or keycode history.
+    private func observeCorrectionEvent(type: CGEventType, event: CGEvent) {
+        if SyntheticEventMarker.isQipliSynthetic(
+            sourceUserData: event.getIntegerValueField(.eventSourceUserData)
+        ) { return }
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        switch type {
+        case .flagsChanged:
+            // The generation is also the operation epoch. A modifier transition
+            // during an AX transaction makes its freshness closure fail.
+            correctionLedger.noteModifierChange()
+            correctionSettingsLock.lock()
+            let enabled = correctionEnabled
+            let trigger = correctionTrigger
+            correctionSettingsLock.unlock()
+            let shouldTrigger = correctionGesture.flagsChanged(
+                keyCode: keyCode, flags: event.flags, trigger: trigger, enabled: enabled
+            )
+            correctionLedger.setLeftOption(correctionGesture.leftOptionHeld)
+            if shouldTrigger {
+                DispatchQueue.main.async { [weak self] in self?.onCorrectionTrigger?() }
+            }
+            if keyCode != Int64(kVK_Option), isCorrectionEnabledForInput {
+                scheduleCorrectionInvalidation(preserveWordBaseline: true)
+            }
+        case .keyDown:
+            if correctionGesture.keyDown() {
+                if isCorrectionEnabledForInput {
+                    let metadata = correctionClassifier.metadata(keyCode: keyCode, flags: event.flags)
+                    if metadata.uncertain { correctionLedger.markCompositionUncertain() }
+                    else { correctionLedger.resetWordMetadata() }
+                    scheduleCorrectionInvalidation(preserveWordBaseline: false)
+                }
+                return
+            }
+            guard isCorrectionEnabledForInput else { return }
+            if !event.flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty {
+                // Modified typing, shortcuts and paste can never add fresh-word
+                // units. Start a new baseline for subsequent ordinary typing.
+                let metadata = correctionClassifier.metadata(keyCode: keyCode, flags: event.flags)
+                if metadata.uncertain { correctionLedger.markCompositionUncertain() }
+                else { correctionLedger.resetWordMetadata() }
+                scheduleCorrectionInvalidation(preserveWordBaseline: false)
+                return
+            }
+            let metadata = correctionClassifier.metadata(keyCode: keyCode, flags: event.flags)
+            let timestamp = event.timestamp
+            correctionLedger.noteKeyDown(timestamp: timestamp, sourceID: metadata.sourceID,
+                targetPID: metadata.pid, expectedUTF16Units: metadata.units,
+                isSpace: metadata.isSpace, isExternal: true,
+                uncertainComposition: metadata.uncertain)
+            if metadata.units == nil {
+                if metadata.uncertain { correctionLedger.markCompositionUncertain() }
+                else { correctionLedger.resetWordMetadata() }
+                scheduleCorrectionInvalidation(preserveWordBaseline: false)
+            } else {
+                scheduleCorrectionInvalidation(preserveWordBaseline: true)
+            }
+        case .keyUp:
+            correctionGesture.keyUp()
+        case .tapDisabledByTimeout, .tapDisabledByUserInput:
+            correctionLedger.resetWordMetadata()
+            correctionLedger.markCompositionUncertain()
+            correctionGesture.reset(flags: [.maskAlternate])
+            scheduleCorrectionInvalidation(preserveWordBaseline: false)
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            correctionGesture.mouseDown()
+            guard isCorrectionEnabledForInput else { return }
+            correctionLedger.resetWordMetadata()
+            scheduleCorrectionInvalidation(preserveWordBaseline: false)
+        default:
+            break
+        }
+    }
+
+    private var isCorrectionEnabledForInput: Bool {
+        correctionSettingsLock.lock(); defer { correctionSettingsLock.unlock() }; return correctionEnabled
+    }
+
+    func scheduleCorrectionInvalidation(preserveWordBaseline: Bool) {
+        // Clear provenance at the event that invalidates it, before returning the
+        // event to the target. A queued main callback must never clear a baseline
+        // established by later keyDown events. This is metadata-only, with no AX.
+        if !preserveWordBaseline { correctionFreshWordMonitor?.invalidateForInputReset() }
+        guard !invalidationScheduled else { return }
+        invalidationScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.invalidationScheduled = false
+            self.onCorrectionInputInvalidation?()
+        }
     }
 
     private func handle(type: CGEventType, event: CGEvent, action: GlobalInputAction?) {
@@ -329,6 +483,8 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
             }
             return
         }
+        let flags = CGEventSource.flagsState(.combinedSessionState)
+        correctionGesture.reset(flags: flags)
         status = .ready
     }
 }

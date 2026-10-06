@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Combine
 
 enum ApplicationShellPasteboardRouting {
@@ -33,6 +34,7 @@ enum ApplicationShellPasteboardRouting {
 final class ApplicationShell: NSObject {
     private let permissionService: AccessibilityPermissionService
     private let inputCoordinator: InputCoordinator
+    private let historyPasteExecutor: HistoryPasteExecutor
     private var recentHistoryMenu: RecentHistoryMenuController?
     private let panels: PanelController
     private let historyViewModel: HistoryViewModel
@@ -43,6 +45,14 @@ final class ApplicationShell: NSObject {
     private let stackSequentialPasteExecutor: StackSequentialPasteExecutor
     private let pasteboardMonitor: PasteboardMonitor
     private let shortcutPreferences: ShortcutPreferences
+    private let layoutCorrectionSourceCatalog: LayoutCorrectionSourceCatalog
+    private let layoutCorrectionPreferences: LayoutCorrectionPreferences
+    private let layoutCorrectionCoordinator: LayoutCorrectionCoordinator?
+    private let correctionInputAdapter: CGEventTapAdapter?
+    private var correctionContextObservers: [NSObjectProtocol] = []
+    private var correctionSettingsObservation: AnyCancellable?
+    private var correctionContextPID: pid_t = 0
+    private var correctionContextSourceID: String?
     private let secureUpdater: SecureUpdaterServicing
     private let settingsViewModel: SettingsViewModel
     private var settingsWindowController: SettingsWindowController!
@@ -69,9 +79,33 @@ final class ApplicationShell: NSObject {
     ) {
         self.permissionService = permissionService
         self.shortcutPreferences = shortcutPreferences
+        let correctionCatalog = LayoutCorrectionSourceCatalog()
+        correctionCatalog.refresh()
+        layoutCorrectionSourceCatalog = correctionCatalog
+        let correctionPreferences = LayoutCorrectionPreferences(shortcutPreferences: shortcutPreferences)
+        layoutCorrectionPreferences = correctionPreferences
+        shortcutPreferences.additionalSnapshotValidator = { [weak correctionPreferences] snapshot in
+            try correctionPreferences?.validateLegacyShortcutUpdate(snapshot)
+        }
         let resolvedInputAdapter = inputAdapter ?? CGEventTapAdapter(
             shortcutSnapshotProvider: { shortcutPreferences.currentSnapshot }
         )
+        let correctionInput = resolvedInputAdapter as? CGEventTapAdapter
+        correctionInputAdapter = correctionInput
+        let correctionAXAdapter: LayoutCorrectionAXAdapter?
+        if let correctionInput {
+            let axAdapter = LayoutCorrectionAXAdapter()
+            correctionAXAdapter = axAdapter
+            let coordinator = LayoutCorrectionCoordinator(
+                adapter: axAdapter,
+                ledger: correctionInput.correctionLedger
+            )
+            coordinator.sourceCatalog = correctionCatalog
+            layoutCorrectionCoordinator = coordinator
+        } else {
+            correctionAXAdapter = nil
+            layoutCorrectionCoordinator = nil
+        }
         historyShortcutObservation = shortcutPreferences.$snapshot
             .map(\.history)
             .removeDuplicates()
@@ -152,6 +186,9 @@ final class ApplicationShell: NSObject {
             }
         )
         pasteboardMonitor = monitor
+        correctionAXAdapter?.configurePasteboard(registerSelfWrite: { [weak monitor] count in
+            monitor?.registerSelfWrite(changeCount: count)
+        })
         finderCutSessionController.registerSelfWrite = { [weak monitor] changeCount in
             monitor?.registerSelfWrite(changeCount: changeCount)
         }
@@ -176,6 +213,7 @@ final class ApplicationShell: NSObject {
                 ])])
             }
         )
+        historyPasteExecutor = pasteExecutor
         let panelController = PanelController(
             permissionService: permissionService,
             historyViewModel: historyViewModel,
@@ -238,9 +276,34 @@ final class ApplicationShell: NSObject {
         settingsViewModel = SettingsViewModel(
             shortcutPreferences: shortcutPreferences,
             launchAtLoginService: launchAtLoginService,
-            secureUpdater: resolvedSecureUpdater
+            secureUpdater: resolvedSecureUpdater,
+            correctionPreferences: correctionPreferences,
+            correctionSourceCatalog: correctionCatalog
         )
         super.init()
+
+        let refreshCorrectionSettings = correctionCatalog.onChange
+        correctionCatalog.onChange = { [weak self] in
+            refreshCorrectionSettings?()
+            self?.refreshLayoutCorrectionContext(refreshSources: false)
+        }
+        correctionInput?.installCorrectionSettings(
+            enabled: correctionPreferences.settings.isEnabled,
+            trigger: correctionPreferences.settings.trigger
+        )
+        correctionInput?.onCorrectionInputInvalidation = { [weak self] in
+            // The tap has already cleared invalid word metadata synchronously.
+            // A later callback invalidates the cycle/operation only, preserving
+            // any new preinput baseline captured since the original event.
+            self?.layoutCorrectionCoordinator?.invalidateCyclePreservingWordBaseline()
+        }
+        correctionInput?.onCorrectionTrigger = { [weak self] in self?.performManualLayoutCorrection() }
+        correctionSettingsObservation = correctionPreferences.$settings
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.layoutCorrectionCoordinator?.invalidate()
+                self?.refreshLayoutCorrectionContext()
+            }
 
         onboardingCoordinator = OnboardingCoordinator(
             completionStore: onboardingCompletionStore,
@@ -286,6 +349,7 @@ final class ApplicationShell: NSObject {
         inputCoordinator.onStatusChange = { [weak self] status in
             guard let self else { return }
             self.settingsViewModel.updateInputStatus(status)
+            if status != .ready { self.layoutCorrectionCoordinator?.invalidate() }
             switch status {
             case .permissionRequired, .unavailable:
                 self.stackSessionController.recordInputUnavailable()
@@ -352,6 +416,8 @@ final class ApplicationShell: NSObject {
         observeUpdateAvailability()
         observePermissionChanges()
         refreshInputAvailability()
+        refreshLayoutCorrectionContext()
+        observeCorrectionContextChanges()
         pasteboardMonitor.start()
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -375,6 +441,12 @@ final class ApplicationShell: NSObject {
         secureUpdater.stop()
         finderCutSessionController.cancel()
         inputCoordinator.stop()
+        correctionSettingsObservation?.cancel(); correctionSettingsObservation = nil
+        for observer in correctionContextObservers {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            DistributedNotificationCenter.default().removeObserver(observer)
+        }
+        correctionContextObservers.removeAll()
         pasteboardMonitor.stop()
         retentionTimer?.invalidate()
         retentionTimer = nil
@@ -455,7 +527,74 @@ final class ApplicationShell: NSObject {
     }
 
     private func refreshInputAvailability() {
-        inputCoordinator.refreshAndStart()
+        let status = inputCoordinator.refreshAndStart()
+        if status != .ready { layoutCorrectionCoordinator?.invalidate() }
+    }
+
+    private func refreshLayoutCorrectionContext(refreshSources: Bool = true) {
+        if refreshSources { layoutCorrectionSourceCatalog.refresh() }
+        let descriptors = layoutCorrectionSourceCatalog.sources
+        let currentSource = descriptors.first(where: \.isCurrent)
+        let currentID = currentSource?.id
+        let nextPID = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
+        if correctionContextPID != nextPID {
+            correctionInputAdapter?.correctionLedger.reset()
+            layoutCorrectionCoordinator?.invalidate()
+            correctionContextPID = nextPID
+        }
+        if correctionContextSourceID != currentID {
+            correctionInputAdapter?.correctionLedger.reset()
+            correctionContextSourceID = currentID
+        }
+        correctionInputAdapter?.installCorrectionSettings(
+            enabled: layoutCorrectionPreferences.settings.isEnabled,
+            trigger: layoutCorrectionPreferences.settings.trigger
+        )
+        let sources = descriptors.compactMap(\.source)
+        layoutCorrectionCoordinator?.sourceContextDidChange(sources: sources, currentSourceID: currentID)
+        correctionInputAdapter?.updateCorrectionContext(
+            source: currentSource?.source,
+            targetPID: nextPID,
+            sourceID: currentID ?? "",
+            enabled: layoutCorrectionPreferences.settings.isEnabled
+        )
+    }
+
+    private func performManualLayoutCorrection() {
+        layoutCorrectionSourceCatalog.refreshCurrentSelection()
+        guard layoutCorrectionPreferences.settings.isEnabled,
+              let coordinator = layoutCorrectionCoordinator else { return }
+        let targetPID = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
+        let mayRun = inputCoordinator.status == .ready && !stackSessionController.isActive &&
+            !finderCutSessionController.isActive && !coordinator.isOperationActive &&
+            !historyPasteExecutor.hasActivePaste &&
+            targetPID != ProcessInfo.processInfo.processIdentifier
+        coordinator.handleTrigger(
+            targetPID: targetPID,
+            sources: layoutCorrectionSourceCatalog.sources.compactMap(\.source),
+            currentSourceID: layoutCorrectionSourceCatalog.currentSourceID,
+            mayRun: mayRun
+        ) { [weak self] outcome in
+            self?.settingsViewModel.updateCorrectionOutcome(outcome)
+        }
+    }
+
+    private func observeCorrectionContextChanges() {
+        guard correctionContextObservers.isEmpty else { return }
+        let workspaceToken = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] _ in Task { @MainActor [weak self] in self?.refreshLayoutCorrectionContext() } }
+        correctionContextObservers.append(workspaceToken)
+        let sourceNotifications = [
+            kTISNotifySelectedKeyboardInputSourceChanged,
+            kTISNotifyEnabledKeyboardInputSourcesChanged
+        ].compactMap { $0 }
+        for name in sourceNotifications {
+            let token = DistributedNotificationCenter.default().addObserver(
+                forName: NSNotification.Name(name as String), object: nil, queue: .main
+            ) { [weak self] _ in Task { @MainActor [weak self] in self?.refreshLayoutCorrectionContext() } }
+            correctionContextObservers.append(token)
+        }
     }
 
     func refreshSystemPermissions() {
@@ -555,7 +694,10 @@ final class ApplicationShell: NSObject {
     }
 
     @objc private func showSettings() {
-        settingsWindowController.show()
+        // Finish status-menu tracking before asking AppKit to change activation.
+        DispatchQueue.main.async { [weak self] in
+            self?.settingsWindowController.show()
+        }
     }
 
     @objc private func checkForUpdates() {

@@ -1,6 +1,6 @@
 # Qipli — текущее состояние проекта
 
-Последняя актуализация: 2026-09-22
+Последняя актуализация: 2026-10-06, повторный отказ ChatGPT и замена S037 на on-demand capture по D-052 после изучения GitHub implementations; remote refs, опубликованные версии/build numbers и release runs перепроверены через GitHub; текущий запрос ограничен локальным коммитом и подготовкой релиза.
 
 Источник operational-статусов: этот файл. Исторические переходы и прежние verification snapshots находятся в [`STATE-HISTORY.md`](STATE-HISTORY.md).
 
@@ -11,8 +11,8 @@
 Статус: `needs_verification`. D-045 реализован: Debug `Qipli Dev.app` / `com.qipli.app.dev`, Apple Development, отдельные настройки, общий History store/assets и отключённый Sparkle. Подписанный universal `build-for-testing` прошёл; существующие `SecureUpdaterSettingsTests` 3/3; Release settings сохраняют `Qipli.app` / `com.qipli.app`. Strict codesign verification прошёл на копии в `/private/tmp/qipli-dev-identity-check/Qipli Dev.app` без Finder xattrs: Documents file provider повторно добавляет недопустимый FinderInfo к build test bundle. Проверка Accessibility остаётся за пользователем: обычный Cmd+R из Xcode, выдать Dev доступ, пересобрать и проверить сохранение доступа обеих версий. Версии запускать по очереди.
 
 
-- Основная ветка работы: `codex/release-1.0.11`, версия `1.0.11`, build `12`. Release notes подготовлены; следующий delivery gate — push ветки, pull request в защищённый `main`, unsigned CI, merge и protected release workflow.
-- Последняя опубликованная версия по GitHub Releases — `v1.0.10` от 2026-09-11; публикация и remote refs перепроверены 2026-09-22, бинарные artifacts и установленное обновление в этой проверке не проверялись. `v1.0.11` ещё не опубликована.
+- Основная ветка работы: `feature/manual-layout-correction`. Исходная версия `1.0.11`, build `12`; версия следующего выпуска ещё не изменена. S037 реализован локально, автоматические regression/build checks прошли; installed feature matrix открыта.
+- Последняя опубликованная версия по [GitHub Releases](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.11) — `v1.0.11`, build `12`, от 2026-09-22. Publication metadata и remote refs перепроверены 2026-10-06; бинарные artifacts, Sparkle и установленное обновление в этой проверке не проверялись.
 - Milestones M1–M3 и M6–M9 завершены. M4/M5 сохраняют release gates S014/S008; M10 и M11 активны из-за оставшихся gates S031 и S032.
 - S001–S007, S009–S013, S015–S016, S017–S027 и S030 имеют статус `done`.
 - S028 остаётся в backlog по D-038. S029 возвращён в активный план по D-042; M12 описывает избранное в Top Notch.
@@ -21,9 +21,11 @@
 
 ## Новая запланированная работа
 
+S037 `needs_verification`: после повторных отказов ChatGPT обязательный background AX baseline заменён on-demand bounded capture при Option по D-052. Сохранены свежие typing counters, focus/source/ownership и exact range/context verification. Transport: single native Cmd-V с bounded clipboard lease; при недоступном snapshot — single Unicode input, без изменения clipboard и без повторного dispatch. GitHub LangSwitcher/UASwitcher/Punto изучены по immutable source refs, сторонний код не запускался. Полный SwiftPM: 325 tests / 0 failures; signed universal Debug/unsigned Release и owned NSTextView word+0/3 spaces/selection/native Undo PASS. Текущий clipboard недоступен для полного snapshot: native run проверил Unicode transport без clipboard mutation; Cmd-V/clipboard lease покрыты отдельно unit tests. ChatGPT UI automation недоступна, installed acceptance открыт. Подробности фиксируются в Implementation report S037. Версия 1.0.11/build12.
+
 S033 реализован и принят по D-043: Stack начинает в compact presentation с bounded side previews, pending/status/direction indicators, раскрытием без задержки, explicit accessibility expansion и geometry-aware hit testing. Synthetic geometry, focused/full SwiftPM suites, unsigned universal Xcode Debug build и ручная установленная matrix подтверждены пользователем. S034 реализован и закрыт пользователем 2026-09-16 по D-044: typed capture/paste для rich text и images, session leases, revocation/unavailable states и bounded previews. Установленная source/target matrix, Accessibility/VoiceOver и signed-update gate остаются delivery gates и не меняют статус закрытого implementation slice. Предыдущий release snapshot ниже не перепроверялся этой задачей.
 
-S035 реализован локально по предложенному Finder-only сценарию ⌘X → ⌘V. Synthetic platform probe подтвердил рабочую связку tagged Finder ⌘C → ⌥⌘V, но прямой Finder ⌘X и наблюдение результата не подтверждены; поэтому UI остаётся dispatch-only, а установленная Finder/accessibility/display matrix и окончательное подтверждение scope по D-046 открыты. Статус `needs_verification`; релизная поставка не выполнялась.
+S035 реализован локально по предложенному Finder-only сценарию ⌘X → ⌘V. Synthetic platform probe подтвердил рабочую связку tagged Finder ⌘C → ⌥⌘V, но прямой Finder ⌘X и наблюдение результата не подтверждены; поэтому UI остаётся dispatch-only, а установленная Finder/accessibility/display matrix и окончательное подтверждение scope по D-046 открыты. Статус `needs_verification`; включён в опубликованный `v1.0.11`, что не закрывает установленную matrix.
 
 S036 реализован по D-047: до пяти последних записей под History, bounded native menu previews, immutable UUID snapshot, захват target при открытии и общий typed paste coordinator. Статус `needs_verification`: автоматические проверки проходят, installed-app target/keyboard/VoiceOver/appearance matrix ещё открыта. При active Stack выбор отключён с пояснением.
 
@@ -33,7 +35,7 @@ S036 реализован по D-047: до пяти последних запи�
 
 Локальная реализация проверена: обязательные History capabilities и lease forwarding, единый storage actor, общий Stack write/validation path, удаление неиспользуемых APIs, общий first-page loader с сохранением selection и stale-result guard, shared panel mechanics и разделение PlaceholderViews на именованные UI файлы. SwiftPM: 286 tests, 0 failures, 5 sandbox skips; отдельный запуск PasteboardMonitorTests вне sandbox: 23/23, без skips. Unsigned universal Debug Xcode build и `git diff --check` прошли. Independent review: найденный selection regression исправлен и покрыт тестом, оставшихся actionable findings нет. Net production Swift: −361 строк.
 
-Следующая проверка: установленная подписанная Dev сборка, History search/selection → paste в исходное приложение, plain/rich/image Stack с Cancel/Delete/Reactivate, Finder Cut compact panel и multi-display placement. Эти interactive gates не подтверждены автоматическими тестами. Рефакторинг закоммичен в `605f001`; push/release не выполнялись.
+Следующая проверка: установленная подписанная Dev сборка, History search/selection → paste в исходное приложение, plain/rich/image Stack с Cancel/Delete/Reactivate, Finder Cut compact panel и multi-display placement. Эти interactive gates не подтверждены автоматическими тестами. Рефакторинг входит в опубликованный `v1.0.11`; нынешняя проверка publication metadata не заменяет этот interactive gate.
 
 
 ### Избранное в Top Notch
@@ -59,14 +61,15 @@ History использует native `.nonactivatingPanel` с прямым key-wi
 
 Smoke test подтвердил migration, search, text/image/rich-text paste и Paste Stack. Он не заменяет S032 visual/accessibility matrix и signed update verification.
 
-## Подготовка v1.0.11
+## Следующий выпуск
 
-- Ветка: `codex/release-1.0.11`; версия `1.0.11`, build `12`.
-- Release notes: [`release-notes-template.md`](release-notes-template.md). Состав после `v1.0.10`: S033 compact Stack, S034 rich/image Stack, S035 Finder Cut, S036 recent menu и D-048 simplification.
-- Локальная проверка кандидата: unsigned Release build для arm64/x86_64, version/build в Debug/Release и built plist, Sparkle runtime linking, release-contract tests 13/13, version-validator tests 8/8, CI contract и public-readiness audit прошли. SwiftPM evidence текущего кода: 286 tests, 5 sandbox skips с отдельным успешным повтором PasteboardMonitorTests 23/23. Signing/notarization/CI/installed update не запускались.
-- Открытые release gates: установленная S035 Finder/focus/Accessibility/display matrix, S036 target/keyboard/VoiceOver matrix, source/target rich/image Stack и signed Sparkle update. Подготовка notes не подтверждает эти проверки.
-- Следующий delivery path: push → pull request в защищённый `main` → unsigned CI → merge → tag `v1.0.11` на commit `main` → protected signing/notarization workflow.
-- Перед публикацией требуется отдельная проверка, что installed History shortcut, S031 update path и S032 visual/search/accessibility gates не выданы за пройденные.
+`v1.0.11` уже опубликован, build `12`, tag commit `7328f811e659f82db143dcf96a2185ca1d207add`, [PR #26](https://github.com/tomfordrumm/Qipli/pull/26). Старый локальный preparation snapshot перенесён в STATE-HISTORY. Новый выпуск включает S037 только после его обязательных проверок. Функциональные изменения сначала доставляются в `main`, затем версия/build и release notes оформляются отдельной веткой по [RELEASING.md](RELEASING.md). Функциональные изменения зафиксированы локально в feature/manual-layout-correction поверх свежего origin/main. Для 1.0.12/build13 подготовлен version/notes diff в dist/release-1.0.12-preparation/release-1.0.12.patch; основной Config сохраняет 1.0.11/build12 до отдельной release branch от origin/main после feature merge. Push, PR, merge, tag и публикация не выполнялись.
+
+Локальная проверка финального функционального tree 2026-10-06: полный SwiftPM 325/325 без failures/skips, Settings regression 14/14, signed universal Debug/strict codesign, unsigned universal Release и update-privacy/diff checks PASS. Пользователь принял упрощение Settings; окно открывается через deferred menu action, activation до ordering, deminiaturize и orderFrontRegardless. Дублирующий Xcode Dev остановлен, запущена одна новая Dev. ChatGPT correction и cross-app Settings focus manual gates не объявляются закрытыми.
+
+Подготовленный snapshot 1.0.12/build13 (2026-10-06): version validator 8/8, Debug/Release/source version consistency с tag validator v1.0.12, unsigned CI contract и release contract 13/13 PASS. Release patch содержит только Version.xcconfig и release notes. Основная feature ветка сохраняет 1.0.11/build12; release branch не создана до feature merge в main. GitHub unsigned CI выбранного SHA, DMG/ZIP signing/notarization, Sparkle и installed gates не выполнялись этой подготовкой.
+
+Локальные release contract checks 2026-10-02: version validator 8/8, source/Debug/Release version consistency, unsigned CI contract и release contract 13/13 прошли. Это не подтверждение новых бинарных artifacts или installed update. Открытые installed-app и signing/update gates остаются в таблице срезов и следующем действии.
 
 ## Статусы срезов
 
@@ -108,8 +111,11 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 | S034 | Rich text и изображения в Paste Stack | `done` | implementation и пользовательский smoke закрыты; installed-app matrix и signed-update gate S031 остаются delivery gates |
 | S035 | Вырезание файлов с индикацией в чёлке | `needs_verification` | S033, S025; installed Finder/accessibility/display matrix и окончательное подтверждение D-046 |
 | S036 | Пять последних записей History в меню | `needs_verification` | реализация и automated checks; installed-app typed target/keyboard/VoiceOver/Light-Dark matrix, release gate S031 сохранён |
+| S037 | Исправление раскладки по хоткею | `in_progress` | S001/S010; gesture, fresh-word, source switch, UTF-16 и budgets probe gates |
 
 ## Блокеры и recheck points
+
+- S037: core platform feasibility закрыт для выбранного bounded adapter и metadata tracking; production implementation продолжается. Complete gesture/race/owner matrix и дополнительные targets/sources проверяются отдельно; неизвестные capabilities дают отказ. Постоянный keyboard buffer не разрешён; explicit clipboard transaction задан D-052.
 
 - S033: закрыт после пользовательского подтверждения ручной установленной matrix. Release signing/update gates ведутся отдельно и не блокируют этот срез.
 
@@ -122,6 +128,8 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 - Ограничение BL-006, отключение дисплея во время Top Notch reveal, принято и не блокирует S030.
 
 ## Последняя проверка
+
+- 2026-10-02: S037 реализован локально и уточнён по пользовательскому smoke: полный SwiftPM 314 tests / 0 failures / 0 skips, signed universal Debug и unsigned universal Release, strict codesign, version/CI/release contracts, public-readiness/update-privacy и Sparkle runtime linking прошли. Core synthetic platform/hardware metadata proof отделён от installed feature matrix; дополнительный production AX adapter runtime probe пропущен до payload read, потому что прежнее owned TextEdit окно недоступно. Probe utility изолирован от обычного app target; версия 1.0.11/build 12 сохранена. Подробное evidence и незакрытые gates — в Implementation report S037 и D-051.
 
 - 2026-09-22: уточнение UI S035 по пользователю: только compact Finder Cut, без expansion; значок вырезания/состояния слева, крестик справа, имя/количество либо ошибка снизу. 282 SwiftPM tests, 0 failures, 5 pasteboard environment skips; development-signed universal Debug build и synthetic offscreen ready/error render. Новая installed-app cancel/hover/VoiceOver/display проверка остаётся открытой.
 
@@ -151,6 +159,8 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 
 ## Следующее действие
 
+Для S037: проверить установленную новую Dev сборку в ChatGPT с synthetic word без выделения, с 0/1/3 пробелами, selected path и Undo. Подтвердить фактические native transport/postcondition, clipboard restoration/newer Copy и History/Stack suppression. Полный gesture/source/permission/focus/VoiceOver matrix, macOS 14, 3+ sources и IME остаются открыты. Unit suite и owned fixture не заменяют ChatGPT acceptance. Подготовка версии — после доставки функционального PR в main и gates RELEASING.
+
 Провести S036 installed-app matrix на synthetic данных в development-signed Debug: TextEdit plain/rich, браузер, image target и Finder reference; мышь/клавиатура/Escape, отказ Accessibility, закрытый target, active Stack, VoiceOver и Light/Dark. Ожидается одна вставка полного payload в исходное приложение без открытия History при успехе.
 
 S034 закрыт по пользовательскому smoke acceptance и автоматическим проверкам. Его installed-app и signed-update проверки остаются delivery gates; отдельные release gates S014/S008, S031 и S032 остаются в общем порядке ниже.
@@ -159,6 +169,6 @@ S034 закрыт по пользовательскому smoke acceptance и а
 1. Проверить сброс History к первому элементу после прокрутки и повторного открытия; отдельно проверить custom shortcut/reset и обычное text field.
 2. Выполнить S032 installed-app visual/search/accessibility matrix, включая card reuse, selection-only update, URL-first search и exact `⇧Backspace`.
 3. Выполнить реальный Sparkle update для S031 с сохранением History.
-4. Подготовить и провести protected `v1.0.11` release после закрытия необходимых gates. Immutable-rerun gate S014 остаётся отдельным незавершённым требованием.
+4. Подготовить следующий выпуск после доставки S037 в `main` и необходимых gates по RELEASING; `v1.0.11` уже опубликован. Immutable-rerun gate S014 остаётся отдельным незавершённым требованием.
 
 Подробные исторические записи не являются обязательным operational-контекстом. Открывайте [`STATE-HISTORY.md`](STATE-HISTORY.md) только если нужно восстановить происхождение решения, старый verification result или release evidence.

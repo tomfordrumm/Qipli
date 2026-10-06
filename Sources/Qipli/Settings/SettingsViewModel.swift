@@ -18,27 +18,41 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var inputStatus: GlobalInputStatus = .stopped
     @Published private(set) var canCheckForUpdates: Bool
     @Published private(set) var automaticallyChecksForUpdates: Bool
+    @Published private(set) var correctionSettings: LayoutCorrectionSettings
+    @Published private(set) var correctionSources: [CorrectionSourceDescriptor]
+    @Published private(set) var correctionError: String?
 
     private let shortcutPreferences: ShortcutPreferences
     private let launchAtLoginService: LaunchAtLoginServicing
     private let secureUpdater: SecureUpdaterServicing
+    private let correctionPreferences: LayoutCorrectionPreferences?
+    private let correctionSourceCatalog: LayoutCorrectionSourceCatalog?
     private var shortcutObservation: AnyCancellable?
     private var recoveryObservation: AnyCancellable?
 
     init(
         shortcutPreferences: ShortcutPreferences,
         launchAtLoginService: LaunchAtLoginServicing,
-        secureUpdater: SecureUpdaterServicing? = nil
+        secureUpdater: SecureUpdaterServicing? = nil,
+        correctionPreferences: LayoutCorrectionPreferences? = nil,
+        correctionSourceCatalog: LayoutCorrectionSourceCatalog? = nil
     ) {
         let resolvedSecureUpdater = secureUpdater ?? UnavailableSecureUpdater()
         self.shortcutPreferences = shortcutPreferences
         self.launchAtLoginService = launchAtLoginService
         self.secureUpdater = resolvedSecureUpdater
+        self.correctionPreferences = correctionPreferences
+        self.correctionSourceCatalog = correctionSourceCatalog
         shortcuts = shortcutPreferences.snapshot
         recoveredShortcutDefaults = shortcutPreferences.recoveredDefaults
         launchAtLoginStatus = launchAtLoginService.status
         canCheckForUpdates = resolvedSecureUpdater.snapshot.canCheckForUpdates
         automaticallyChecksForUpdates = resolvedSecureUpdater.snapshot.automaticallyChecksForUpdates
+        correctionSettings = correctionPreferences?.settings ?? .defaults
+        correctionSources = correctionSourceCatalog?.sources ?? []
+        correctionSourceCatalog?.onChange = { [weak self, weak correctionSourceCatalog] in
+            self?.correctionSources = correctionSourceCatalog?.sources ?? []
+        }
 
         shortcutObservation = shortcutPreferences.$snapshot
             .removeDuplicates()
@@ -121,6 +135,35 @@ final class SettingsViewModel: ObservableObject {
         shortcutPreferences.resetToDefaults()
         shortcutError = nil
         shortcutErrorCommand = nil
+    }
+
+    func setCorrectionEnabled(_ enabled: Bool) {
+        guard let correctionPreferences else { return }
+        correctionPreferences.setEnabled(enabled)
+        correctionSettings = correctionPreferences.settings
+        correctionError = nil
+    }
+
+    func setCorrectionTrigger(_ trigger: CorrectionTrigger) {
+        guard let correctionPreferences else { return }
+        do {
+            try correctionPreferences.setTrigger(trigger)
+            correctionSettings = correctionPreferences.settings
+            correctionError = nil
+        } catch {
+            correctionError = (error as? LocalizedError)?.errorDescription ?? "Qipli could not save that trigger."
+        }
+    }
+
+    func refreshCorrectionSources() {
+        correctionSourceCatalog?.refresh()
+    }
+
+    func updateCorrectionOutcome(_ outcome: LayoutCorrectionOutcome) {
+        switch outcome {
+        case .completed: correctionError = nil
+        case let .denied(message), let .failed(message): correctionError = message
+        }
     }
 
     func setLaunchAtLoginEnabled(_ isEnabled: Bool) {
