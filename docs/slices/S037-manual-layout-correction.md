@@ -239,3 +239,6 @@ Production Shell больше не создаёт/start monitor до набор�
 ### 2026-10-06: удаление временной диагностики перед 1.0.13
 
 По запросу пользователя удалены LayoutCorrectionDiagnostics, import OSLog, все вызовы logger и stage tracking в coordinator. Internal monitor proof status остаётся в памяти; guard checks, transport, clipboard lease и сообщения отказа пользователю не меняются. Полный SwiftPM 325/325, 0 failures/skips, source logging scan, update privacy boundary и diff check PASS. Полная installed-app matrix S037 остаётся открытой.
+
+
+Удаление диагностики опубликовано в v1.0.13/build14, tag8be2a4c. Source scan и logging marker scan публичного executable PASS; signing/notarization/Gatekeeper и Sparkle PASS. Подробные workflow/PR pointers и public artifact checks находятся в STATE-HISTORY, актуальные открытые gates в STATE.
