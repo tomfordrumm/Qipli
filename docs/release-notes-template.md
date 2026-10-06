@@ -32,11 +32,11 @@ Source code and license: https://github.com/tomfordrumm/Qipli
 
 ## Changes
 
-- Collect and paste rich text and images in Paste Stack, with compact previews and a panel that expands on interaction.
-- Open any of the five most recent History items directly from the menu bar and paste it into the app you were using.
-- Use Command-X and Command-V to request native file moves in Finder, with a compact status panel. Finder handles conflicts and the move itself.
-- Protect active Paste Stack payloads from automatic History expiry.
-- Keep the selected History item during background refreshes and reject outdated search results.
-- Simplify storage, paste handling, and panel code for easier maintenance.
+- Add opt-in manual layout correction for selected text or the last typed word, including words followed by spaces. Use left Option by itself or choose a shortcut in Settings.
+- Convert between supported enabled system keyboard layouts and cycle the same range with repeated corrections.
+- Match the correction shortcut row to the other shortcuts and remove the layout list from Settings.
+- Bring Settings forward when opened from the menu bar and restore the window if it is minimized.
+
+Layout correction requires a compatible editable field and supported static keyboard layouts. Secure fields and unsupported input methods are skipped. Correction is unavailable while Paste Stack, Finder Cut, or another Qipli input action is active.
 
 Existing History and favorites are preserved; this release does not change the database schema.
