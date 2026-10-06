@@ -283,3 +283,14 @@ GitHub read-only проверка подтвердила публикацию v1
 - Открытые release gates: установленная S035 Finder/focus/Accessibility/display matrix, S036 target/keyboard/VoiceOver matrix, source/target rich/image Stack и signed Sparkle update. Подготовка notes не подтверждает эти проверки.
 - Следующий delivery path: push → pull request в защищённый `main` → unsigned CI → merge → tag `v1.0.11` на commit `main` → protected signing/notarization workflow.
 - Перед публикацией требуется отдельная проверка, что installed History shortcut, S031 update path и S032 visual/search/accessibility gates не выданы за пройденные.
+
+
+## 2026-10-06: публикация v1.0.12/build13
+
+- Functional PR #28 → main `80b35fb17cc1d539a6ea8be2b0ff10c7edc1328b`; Release PR #29 → main `c1b204c502aa622bcdc1ab7e40bc58444cbac6d2`. Release candidate commit `3cebffbfabd423dcc046b9e7e1c4af2c564d77f4` и merged release SHA имеют идентичный tree.
+- Exact-main unsigned CI [37456340402](https://github.com/tomfordrumm/Qipli/actions/runs/37456340402) SUCCESS. Аннотированный v1.0.12 создан на c1b204c; clean detached worktree release admission PASS.
+- Пользователь подтвердил ChatGPT word без selection с zero/trailing spaces, single CmdZ и clipboard preservation; отдельная запись находится в S037 Implementation report. Пользователь подтвердил protected Environment release approval в GitHub.
+- [Release workflow 37456903010](https://github.com/tomfordrumm/Qipli/actions/runs/37456903010): signed-release и deploy-appcast SUCCESS. [Release](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.12) публичный stable, target c1b204c, marker qipli-build13.
+- Пять assets доступны. ZIP 5325878 bytes, DMG 5526082 bytes, SHA-256 для обоих PASS; Qipli.dmg byte-identical версионному DMG. Workflow проверил подпись, notarization/stapling и Gatekeeper публичных artifacts. Скачанное из публичного Release приложение независимо прошло codesign --deep --strict, stapler validate и Gatekeeper: accepted, Notarized Developer ID.
+- Публичный appcast имеет 1.0.12/build13, minimum14.0, immutable v1.0.12 ZIP URL и matching length. verify-sparkle-appcast --require-public PASS. Ed25519 подпись ZIP независимо проверена Node WebCrypto с публичным SUPublicEDKey из скачанного приложения; private key локально не использовался.
+- Installed Sparkle update, History/favorites/Accessibility preservation, clean-machine macOS14 и дополнительные S037 verification criteria остаются открытыми. Publication не заменяет эти проверки.
