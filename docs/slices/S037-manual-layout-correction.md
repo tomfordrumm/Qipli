@@ -234,3 +234,8 @@ Production Shell больше не создаёт/start monitor до набор�
 ### 2026-10-06: пользовательская проверка ChatGPT перед выпуском
 
 Пользователь явно подтвердил в новой Dev сборке: слово без выделения исправляется в ChatGPT без пробела и после пробелов; один native ⌘Z отменяет замену; clipboard сохраняется. Это подтверждение installed user path, отдельно от synthetic probe. Ручной основной gate, блокировавший публикацию 1.0.12/build13, закрыт. Полная matrix дополнительных sources, permission/focus races, VoiceOver/macOS14 и установленное Sparkle обновление этим подтверждением не закрываются; S037 не объявляется полностью done.
+
+
+### 2026-10-06: удаление временной диагностики перед 1.0.13
+
+По запросу пользователя удалены LayoutCorrectionDiagnostics, import OSLog, все вызовы logger и stage tracking в coordinator. Internal monitor proof status остаётся в памяти; guard checks, transport, clipboard lease и сообщения отказа пользователю не меняются. Полный SwiftPM 325/325, 0 failures/skips, source logging scan, update privacy boundary и diff check PASS. Полная installed-app matrix S037 остаётся открытой.

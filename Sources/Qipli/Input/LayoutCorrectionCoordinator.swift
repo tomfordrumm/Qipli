@@ -8,14 +8,12 @@ enum LayoutCorrectionOutcome: Equatable, Sendable {
 }
 
 protocol CorrectionFreshWordProofProviding: AnyObject, Sendable {
-    func diagnostics() -> CorrectionMonitorDiagnostics
     func invalidate()
     func refreshForTrigger(deadline: CorrectionAXDeadline)
     func proof(generation: UInt64, sourceID: String, pid: pid_t,
                lastInputTimestamp: UInt64) -> (FreshWordBaseline, FreshWordSample)?
 }
 extension CorrectionFreshWordProofProviding {
-    func diagnostics() -> CorrectionMonitorDiagnostics { .unavailable }
     func refreshForTrigger(deadline: CorrectionAXDeadline) {}
 }
 extension CorrectionFreshWordMonitor: CorrectionFreshWordProofProviding {}
@@ -90,13 +88,11 @@ final class LayoutCorrectionCoordinator {
 
     func handleTrigger(targetPID: pid_t, sources: [CorrectionSource], currentSourceID: String?,
                        mayRun: Bool, completion: @escaping (LayoutCorrectionOutcome) -> Void) {
-        LayoutCorrectionDiagnostics.record(.trigger, ledger: ledger, monitor: freshWordMonitor?.diagnostics() ?? .unavailable)
-        guard mayRun else { LayoutCorrectionDiagnostics.record(.arbitration, ledger: ledger, monitor: freshWordMonitor?.diagnostics() ?? .unavailable); invalidate(); completion(.denied("Another Qipli input action is active.")); return }
-        guard operationID == nil else { LayoutCorrectionDiagnostics.record(.arbitration, ledger: ledger, monitor: freshWordMonitor?.diagnostics() ?? .unavailable); completion(.denied("A correction is already in progress.")); return }
+        guard mayRun else { invalidate(); completion(.denied("Another Qipli input action is active.")); return }
+        guard operationID == nil else { completion(.denied("A correction is already in progress.")); return }
         let eligible = sources.filter(\.isEligible).sorted { $0.id < $1.id }
         guard eligible.count >= 2, eligible.contains(where: { $0.id == currentSourceID }),
               !ledger.isCompositionUncertain() else {
-            LayoutCorrectionDiagnostics.record(.sourcesOrComposition, ledger: ledger, monitor: freshWordMonitor?.diagnostics() ?? .unavailable)
             invalidate(); completion(.denied("Use at least two supported static keyboard layouts.")); return
         }
         let id = UUID(); operationID = id
@@ -113,7 +109,6 @@ final class LayoutCorrectionCoordinator {
                 guard let self, self.operationID == id else { return }
                 self.operationID = nil
                 guard self.gate.snapshot() == gateEpoch, self.ledger.snapshot().generation == inputEpoch else {
-                    LayoutCorrectionDiagnostics.record(.contextChanged, ledger: self.ledger, monitor: self.freshWordMonitor?.diagnostics() ?? .unavailable)
                     self.invalidate(); completion(.failed("The input context changed; correction stopped.")); return
                 }
                 switch result {
@@ -124,7 +119,6 @@ final class LayoutCorrectionCoordinator {
                     guard self.gate.snapshot() == gateEpoch,
                           self.sourceCatalog == nil || self.sourceCatalog?.currentSourceID == currentSourceID,
                           (try? deadline.check()) != nil else {
-                        LayoutCorrectionDiagnostics.record(.contextChanged, ledger: self.ledger, monitor: self.freshWordMonitor?.diagnostics() ?? .unavailable)
                         self.invalidate()
                         completion(.failed("Text corrected, but the input context changed before layout switching.")); return
                     }
@@ -132,15 +126,12 @@ final class LayoutCorrectionCoordinator {
                     self.install(next)
                     let switched = self.selectSource?(next.currentSourceID) ?? self.sourceCatalog?.select(next.currentSourceID) ?? false
                     guard switched else {
-                        LayoutCorrectionDiagnostics.record(.sourceSwitch, ledger: self.ledger, monitor: self.freshWordMonitor?.diagnostics() ?? .unavailable)
                         self.invalidate()
                         completion(.failed("Text corrected, but the keyboard layout could not be switched.")); return
                     }
                     guard self.gate.snapshot() == gateEpoch else {
-                        LayoutCorrectionDiagnostics.record(.contextChanged, ledger: self.ledger, monitor: self.freshWordMonitor?.diagnostics() ?? .unavailable)
                         self.invalidate(); completion(.failed("The input context changed after correction.")); return
                     }
-                    LayoutCorrectionDiagnostics.record(.completed, ledger: self.ledger, monitor: self.freshWordMonitor?.diagnostics() ?? .unavailable)
                     completion(.completed(sourceID: next.currentSourceID))
                 }
             }
@@ -179,7 +170,6 @@ final class LayoutCorrectionCoordinator {
             return gate.snapshot() == gateEpoch && ledger.snapshot().generation == inputEpoch
                 && !ledger.isCompositionUncertain()
         }
-        var stage: CorrectionDiagnosticCode = .capture
         do {
             try deadline.check()
             guard isFresh() else { throw CorrectionAXError.stale }
@@ -192,7 +182,6 @@ final class LayoutCorrectionCoordinator {
             let ids = sources.map(\.id)
             let now = DispatchTime.now().uptimeNanoseconds
             if let prior {
-                stage = .cycle
                 // A changed cycle target is refused, never reinterpreted as a new operation.
                 guard prior.sourceIDs == ids, prior.currentSourceID == currentSourceID,
                       prior.target.pid == pid, CFEqual(prior.target.element, target.element),
@@ -205,7 +194,6 @@ final class LayoutCorrectionCoordinator {
                 range = prior.range; seed = prior.seedText; expected = prior.expectedText
                 originID = prior.originSourceID; keepSelected = prior.keepSelected; beganAt = prior.beganAt
             } else if target.selection.length > 0 {
-                stage = .selection
                 guard target.selection.length <= 4096 else { throw CorrectionAXError.limit }
                 range = target.selection
                 seed = try adapter.read(target, range: range, deadline: deadline)
@@ -213,48 +201,35 @@ final class LayoutCorrectionCoordinator {
                 originID = try LayoutCorrectionMapper.origin(for: seed, from: sources, activeSourceID: currentSourceID).id
                 keepSelected = true; beganAt = now
             } else {
-                stage = .wordMetadata
                 target = try adapter.capture(pid: pid, deadline: deadline)
                 guard target.selection.length == 0, isFresh() else { throw CorrectionAXError.stale }
-                stage = .wordBlocked
                 guard !ledger.isBlocked() else { throw CorrectionAXError.stale }
-                stage = .wordEmptyOrOversized
                 guard metadata.wordUTF16Units > 0, metadata.wordUTF16Units <= 4096 else { throw CorrectionAXError.stale }
-                stage = .wordSpaceLimit
                 guard metadata.trailingSpaces <= 8 else { throw CorrectionAXError.stale }
-                stage = .wordTargetMismatch
                 guard metadata.targetPID == pid else { throw CorrectionAXError.stale }
-                stage = .wordExpired
                 guard metadata.timestamp <= now, now - metadata.timestamp < 5_000_000_000 else { throw CorrectionAXError.stale }
-                stage = .wordSourceMissing
                 guard sources.contains(where: { $0.id == metadata.sourceID }) else { throw CorrectionAXError.stale }
                 // D-052: determine and verify the current bounded word at the
                 // explicit trigger. Never depend on a pretyping AX snapshot.
-                stage = .wordRange
                 let spaces = Int(metadata.trailingSpaces), length = Int(metadata.wordUTF16Units)
                 guard target.selection.location >= length + spaces else { throw CorrectionAXError.stale }
                 range = CFRange(location: target.selection.location - length - spaces, length: length)
                 let spaceRange = CFRange(location: range.location + length, length: spaces)
-                stage = .trailingSpaces
                 guard try adapter.read(target, range: spaceRange, deadline: deadline) == String(repeating: " ", count: spaces)
                 else { throw CorrectionAXError.stale }
                 // Old token prefixes and insertion in the middle of a token are excluded.
-                stage = .leftBoundary
                 if range.location > 0 {
                     let left = try adapter.read(target, range: CFRange(location: range.location - 1, length: 1), deadline: deadline)
                     guard left.allSatisfy(\.isWhitespace) else { throw CorrectionAXError.stale }
                 }
-                stage = .rightBoundary
                 if target.selection.location < target.characterCount {
                     let right = try adapter.read(target, range: CFRange(location: target.selection.location, length: 1), deadline: deadline)
                     guard right.allSatisfy(\.isWhitespace) else { throw CorrectionAXError.stale }
                 }
-                stage = .wordRead
                 seed = try adapter.read(target, range: range, deadline: deadline)
                 guard !seed.contains(where: \.isWhitespace), isFresh() else { throw CorrectionAXError.stale }
                 expected = seed; originID = metadata.sourceID; keepSelected = false; beganAt = now
             }
-            stage = .mapping
             guard let currentIndex = sources.firstIndex(where: { $0.id == (prior?.currentSourceID ?? originID) }) else {
                 throw CorrectionAXError.unsupported
             }
@@ -267,7 +242,6 @@ final class LayoutCorrectionCoordinator {
                 mapped = CorrectionMapping(sourceID: originID, text: seed)
             }
             guard mapped.sourceID == originID, isFresh() else { throw CorrectionAXError.stale }
-            stage = .replacement
             let replacement = try adapter.replace(target, range: range, expectedText: expected,
                 replacement: mapped.text, keepSelected: keepSelected, deadline: deadline, isFresh: isFresh)
             guard isFresh() else { throw CorrectionAXError.stale }
@@ -276,13 +250,10 @@ final class LayoutCorrectionCoordinator {
                 currentSourceID: destination, sourceIDs: ids, keepSelected: keepSelected,
                 beganAt: beganAt, lastUsedAt: DispatchTime.now().uptimeNanoseconds))
         } catch let error as CorrectionMappingError {
-            LayoutCorrectionDiagnostics.record(stage, ledger: ledger, monitor: monitor?.diagnostics() ?? .unavailable, error: .error(error))
             return .failure(.denied(message(error)))
         } catch let error as CorrectionAXError {
-            LayoutCorrectionDiagnostics.record(stage, ledger: ledger, monitor: monitor?.diagnostics() ?? .unavailable, error: .error(error))
             return .failure(.failed(message(error)))
         } catch {
-            LayoutCorrectionDiagnostics.record(stage, ledger: ledger, monitor: monitor?.diagnostics() ?? .unavailable, error: .unknownError)
             return .failure(.failed("Qipli could not verify the text change."))
         }
     }
