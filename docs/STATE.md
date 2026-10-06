@@ -1,6 +1,6 @@
 # Qipli — текущее состояние проекта
 
-Последняя актуализация: 2026-10-06, повторный отказ ChatGPT и замена S037 на on-demand capture по D-052 после изучения GitHub implementations; remote refs, опубликованные версии/build numbers и release runs перепроверены через GitHub; текущий запрос ограничен локальным коммитом и подготовкой релиза.
+Последняя актуализация: 2026-10-06, повторный отказ ChatGPT и замена S037 на on-demand capture по D-052 после изучения GitHub implementations; remote refs, опубликованные версии/build numbers и release runs перепроверены через GitHub; функциональный PR создан по запросу пользователя, merge остаётся за пользователем.
 
 Источник operational-статусов: этот файл. Исторические переходы и прежние verification snapshots находятся в [`STATE-HISTORY.md`](STATE-HISTORY.md).
 
@@ -63,7 +63,7 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 
 ## Следующий выпуск
 
-`v1.0.11` уже опубликован, build `12`, tag commit `7328f811e659f82db143dcf96a2185ca1d207add`, [PR #26](https://github.com/tomfordrumm/Qipli/pull/26). Старый локальный preparation snapshot перенесён в STATE-HISTORY. Новый выпуск включает S037 только после его обязательных проверок. Функциональные изменения сначала доставляются в `main`, затем версия/build и release notes оформляются отдельной веткой по [RELEASING.md](RELEASING.md). Функциональные изменения зафиксированы локально в feature/manual-layout-correction поверх свежего origin/main. Для 1.0.12/build13 подготовлен version/notes diff в dist/release-1.0.12-preparation/release-1.0.12.patch; основной Config сохраняет 1.0.11/build12 до отдельной release branch от origin/main после feature merge. Push, PR, merge, tag и публикация не выполнялись.
+`v1.0.11` уже опубликован, build `12`, tag commit `7328f811e659f82db143dcf96a2185ca1d207add`, [PR #26](https://github.com/tomfordrumm/Qipli/pull/26). Старый локальный preparation snapshot перенесён в STATE-HISTORY. Новый выпуск включает S037 только после его обязательных проверок. Функциональные изменения сначала доставляются в `main`, затем версия/build и release notes оформляются отдельной веткой по [RELEASING.md](RELEASING.md). Функциональные изменения зафиксированы локально в feature/manual-layout-correction поверх свежего origin/main. Для 1.0.12/build13 подготовлен version/notes diff в dist/release-1.0.12-preparation/release-1.0.12.patch; основной Config сохраняет 1.0.11/build12 до отдельной release branch от origin/main после feature merge. Ветка отправлена на origin; открыт [PR #28](https://github.com/tomfordrumm/Qipli/pull/28) в main. GitHub unsigned CI ожидается. Пользователь выполняет review/merge; merge, release branch, tag и публикация не выполнялись.
 
 Локальная проверка финального функционального tree 2026-10-06: полный SwiftPM 325/325 без failures/skips, Settings regression 14/14, signed universal Debug/strict codesign, unsigned universal Release и update-privacy/diff checks PASS. Пользователь принял упрощение Settings; окно открывается через deferred menu action, activation до ordering, deminiaturize и orderFrontRegardless. Дублирующий Xcode Dev остановлен, запущена одна новая Dev. ChatGPT correction и cross-app Settings focus manual gates не объявляются закрытыми.
 
