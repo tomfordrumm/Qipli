@@ -1,6 +1,6 @@
 # Qipli — текущее состояние проекта
 
-Последняя актуализация: 2026-10-06, опубликован и проверен v1.0.12/build13; пользователь подтвердил основной S037 сценарий в ChatGPT. Установленное Sparkle обновление остаётся отдельной проверкой.
+Последняя актуализация: 2026-10-06, по запросу пользователя готовится 1.0.13 с удалением временного логирования S037. Последний опубликованный выпуск 1.0.12/build13; установленное Sparkle обновление остаётся отдельной проверкой.
 
 Источник operational-статусов: этот файл. Исторические переходы и прежние verification snapshots находятся в [`STATE-HISTORY.md`](STATE-HISTORY.md).
 
@@ -60,6 +60,10 @@ History использует native `.nonactivatingPanel` с прямым key-wi
 Реализация, automated checks и пользовательский smoke test завершены. Изменения включают ranked search, indexed keyset range, persisted display projection, bounded image/rich quotas, ordered capture admission и bounded thumbnail cache. Подробные benchmark numbers и implementation evidence остаются в связанных slices и архивной записи состояния.
 
 Smoke test подтвердил migration, search, text/image/rich-text paste и Paste Stack. Он не заменяет S032 visual/accessibility matrix и signed update verification.
+
+## Подготовка 1.0.13
+
+Удалены временный OSLog logger S037, его trigger/error записи и coordinator stage tracking. Поведение correction и in-memory monitor proof state сохраняются. Ветка `feature/remove-layout-correction-logging`; проверки patch и доставка через функциональный PR предшествуют отдельному Release 1.0.13 PR. Версия/build пока 1.0.12/13. Полный SwiftPM 325/325, 0 failures/skips; source logging scan, update privacy boundary, version-validator 8/8, CI/release contract 13/13 и diff check PASS.
 
 ## Последний выпуск
 

@@ -1,8 +1,7 @@
 import ApplicationServices
 import Foundation
-import OSLog
 
-/// Trigger-only diagnostics. Every string is a fixed code; never pass Error descriptions or payload.
+/// In-memory monitor status codes used by proof checks and tests.
 enum CorrectionDiagnosticCode: String, Sendable {
     case ready, notStarted, unstableSample, notificationsUnavailable
     case noSample, selectedRange, sampleTooOld, inputEpochMismatch, observerEpochMismatch, sourceMissing
@@ -46,27 +45,6 @@ struct CorrectionMonitorDiagnostics: Sendable {
     let baselineLossUnits: UInt32
     static let unavailable = Self(sample: .notStarted, baseline: .notStarted, proof: .notStarted,
                                   hasBaseline: false, hasSample: false, notifications: false, baselineInputUnits: 0, firstInput: .notStarted, baselineLoss: .notStarted, baselineLossUnits: 0)
-}
-
-enum LayoutCorrectionDiagnostics {
-    private static let logger = Logger(subsystem: "com.qipli.app", category: "LayoutCorrection")
-    static func record(_ stage: CorrectionDiagnosticCode, ledger: CorrectionInputLedger,
-                       monitor: CorrectionMonitorDiagnostics, error: CorrectionDiagnosticCode = .ready) {
-        let metadata = ledger.snapshot()
-        // No source IDs, PIDs, selection offsets, document sizes, keycodes or text.
-        if monitor.sample == .notStarted && monitor.baseline == .notStarted && !monitor.notifications {
-            logger.notice("path=onDemand stage=\(stage.rawValue, privacy: .public) error=\(error.rawValue, privacy: .public) blocked=\(ledger.isBlocked(), privacy: .public) composition=\(ledger.isCompositionUncertain(), privacy: .public) wordUnits=\(metadata.wordUTF16Units, privacy: .public) spaces=\(metadata.trailingSpaces, privacy: .public)")
-            return
-        }
-        logger.notice("stage=\(stage.rawValue, privacy: .public) error=\(error.rawValue, privacy: .public) blocked=\(ledger.isBlocked(), privacy: .public) composition=\(ledger.isCompositionUncertain(), privacy: .public) wordUnits=\(metadata.wordUTF16Units, privacy: .public) spaces=\(metadata.trailingSpaces, privacy: .public) baselineInputUnits=\(monitor.baselineInputUnits, privacy: .public) firstInputStatus=\(monitor.firstInput.rawValue, privacy: .public) baselineLossStatus=\(monitor.baselineLoss.rawValue, privacy: .public) baselineLossUnits=\(monitor.baselineLossUnits, privacy: .public) notifications=\(monitor.notifications, privacy: .public) baseline=\(monitor.hasBaseline, privacy: .public) sample=\(monitor.hasSample, privacy: .public) sampleStatus=\(monitor.sample.rawValue, privacy: .public) baselineStatus=\(monitor.baseline.rawValue, privacy: .public) proofStatus=\(monitor.proof.rawValue, privacy: .public)")
-    }
-
-    static func recordDelta(expected: Int, caret: Int, count: Int,
-                            sampleMatches: Bool, elementMatches: Bool) {
-        // Differences only. Never publish absolute caret offsets or document sizes.
-        logger.notice("stage=wordDeltaDetail expectedUnits=\(expected, privacy: .public) caretDelta=\(caret, privacy: .public) countDelta=\(count, privacy: .public) sampleMatches=\(sampleMatches, privacy: .public) elementMatches=\(elementMatches, privacy: .public)")
-    }
-
 }
 
 enum CorrectionAXWorker {
