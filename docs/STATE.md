@@ -1,6 +1,6 @@
 # Qipli — текущее состояние проекта
 
-Последняя актуализация: 2026-10-06, по запросу пользователя готовится 1.0.13 с удалением временного логирования S037. Последний опубликованный выпуск 1.0.12/build13; установленное Sparkle обновление остаётся отдельной проверкой.
+Последняя актуализация: 2026-10-06, опубликован и проверен v1.0.13/build14 без временной диагностики S037. Установленное Sparkle обновление остаётся отдельной проверкой.
 
 Источник operational-статусов: этот файл. Исторические переходы и прежние verification snapshots находятся в [`STATE-HISTORY.md`](STATE-HISTORY.md).
 
@@ -11,8 +11,8 @@
 Статус: `needs_verification`. D-045 реализован: Debug `Qipli Dev.app` / `com.qipli.app.dev`, Apple Development, отдельные настройки, общий History store/assets и отключённый Sparkle. Подписанный universal `build-for-testing` прошёл; существующие `SecureUpdaterSettingsTests` 3/3; Release settings сохраняют `Qipli.app` / `com.qipli.app`. Strict codesign verification прошёл на копии в `/private/tmp/qipli-dev-identity-check/Qipli Dev.app` без Finder xattrs: Documents file provider повторно добавляет недопустимый FinderInfo к build test bundle. Проверка Accessibility остаётся за пользователем: обычный Cmd+R из Xcode, выдать Dev доступ, пересобрать и проверить сохранение доступа обеих версий. Версии запускать по очереди.
 
 
-- Функциональный [PR #28](https://github.com/tomfordrumm/Qipli/pull/28) и [Release PR #29](https://github.com/tomfordrumm/Qipli/pull/29) слиты в `main`. Release source SHA `c1b204c502aa622bcdc1ab7e40bc58444cbac6d2`, версия `1.0.12`, build `13`.
-- Последняя опубликованная версия [v1.0.12](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.12), от 2026-10-06. Signed/notarized ZIP/DMG и Sparkle feed проверены. Installed update этим не подтверждён.
+- Удаление логирования [PR #31](https://github.com/tomfordrumm/Qipli/pull/31) и [Release PR #32](https://github.com/tomfordrumm/Qipli/pull/32) слиты в `main`. Release source SHA `8be2a4c076896f08338b15e1d470b8e04fb4d5df`, версия `1.0.13`, build `14`.
+- Последняя опубликованная версия [v1.0.13](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.13), от 2026-10-06. Signed/notarized ZIP/DMG и Sparkle feed проверены. В публичном executable нет временных диагностических logger markers. Installed update этим не подтверждён.
 - Milestones M1–M3 и M6–M9 завершены. M4/M5 сохраняют release gates S014/S008; M10 и M11 активны из-за оставшихся gates S031 и S032.
 - S001–S007, S009–S013, S015–S016, S017–S027 и S030 имеют статус `done`.
 - S028 остаётся в backlog по D-038. S029 возвращён в активный план по D-042; M12 описывает избранное в Top Notch.
@@ -61,17 +61,13 @@ History использует native `.nonactivatingPanel` с прямым key-wi
 
 Smoke test подтвердил migration, search, text/image/rich-text paste и Paste Stack. Он не заменяет S032 visual/accessibility matrix и signed update verification.
 
-## Подготовка 1.0.13
-
-Удалены временный OSLog logger S037, его trigger/error записи и coordinator stage tracking. Поведение correction и in-memory monitor proof state сохраняются. Ветка `feature/remove-layout-correction-logging`; проверки patch и доставка через функциональный PR предшествуют отдельному Release 1.0.13 PR. Версия/build пока 1.0.12/13. Полный SwiftPM 325/325, 0 failures/skips; source logging scan, update privacy boundary, version-validator 8/8, CI/release contract 13/13 и diff check PASS.
-
 ## Последний выпуск
 
-`v1.0.12`, build `13`, tag/main SHA `c1b204c502aa622bcdc1ab7e40bc58444cbac6d2`. [PR #29](https://github.com/tomfordrumm/Qipli/pull/29) содержит только version/build и release notes. Exact-SHA [main unsigned CI](https://github.com/tomfordrumm/Qipli/actions/runs/37456340402) и protected [release workflow](https://github.com/tomfordrumm/Qipli/actions/runs/37456903010) завершились успешно; Environment approval выполнил пользователь.
+`v1.0.13`, build `14`, tag/main SHA `8be2a4c076896f08338b15e1d470b8e04fb4d5df`. [PR #31](https://github.com/tomfordrumm/Qipli/pull/31) удаляет временный logger, его вызовы и coordinator stage tracking; proof state и safety checks сохранены. [PR #32](https://github.com/tomfordrumm/Qipli/pull/32) содержит только version/build и release notes. Exact-SHA [main CI](https://github.com/tomfordrumm/Qipli/actions/runs/37460793779) и protected [release workflow](https://github.com/tomfordrumm/Qipli/actions/runs/37461443223) SUCCESS; Environment approval выполнил пользователь.
 
-Публичные ZIP/DMG SHA-256 PASS; стабильный `Qipli.dmg` идентичен версионному DMG. Codesign, notarization/stapling и Gatekeeper прошли в workflow; скачанное приложение независимо прошло strict/deep codesign, stapler и Gatekeeper. [Sparkle appcast](https://tomfordrumm.github.io/Qipli/appcast.xml): 1.0.12/build13, minimum macOS14.0, immutable ZIP URL и длина совпадают; Ed25519 подпись скачанного ZIP независимо проверена публичным ключом из приложения.
+Публичные ZIP/DMG SHA-256 PASS; стабильный и latest `Qipli.dmg` идентичны версионному DMG. Workflow проверил codesign, notarization/stapling и Gatekeeper; скачанное приложение независимо прошло strict/deep codesign, stapler и Gatekeeper. [Sparkle appcast](https://tomfordrumm.github.io/Qipli/appcast.xml): 1.0.13/build14, minimum macOS14.0, immutable ZIP URL и длина совпадают; Ed25519 подпись ZIP независимо проверена публичным ключом из приложения. Public executable logging marker scan PASS.
 
-Локальные функциональные gates: полный SwiftPM 325/325 без failures/skips, Settings regression 14/14, signed universal Debug, unsigned universal Release и version/CI/release/privacy contracts PASS. Упрощение Settings принято пользователем; activation/ordering исправлены. Cross-app Settings focus и остальные открытые installed-app gates не объявляются пройденными. Подробное release evidence находится в STATE-HISTORY.
+Локальные gates patch: SwiftPM 325/325 без failures, version validator 8/8, project-version, CI/release contract 13/13, privacy и diff checks PASS; в Sources нет OSLog/Logger/LayoutCorrectionDiagnostics. ChatGPT word/space/Undo/clipboard принят пользователем до v1.0.12, correction behavior в v1.0.13 не меняется. Cross-app Settings focus, installed update и остальные открытые matrix не объявляются пройденными. Подробное release evidence находится в STATE-HISTORY.
 
 ## Статусы срезов
 
@@ -113,11 +109,11 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 | S034 | Rich text и изображения в Paste Stack | `done` | implementation и пользовательский smoke закрыты; installed-app matrix и signed-update gate S031 остаются delivery gates |
 | S035 | Вырезание файлов с индикацией в чёлке | `needs_verification` | S033, S025; installed Finder/accessibility/display matrix и окончательное подтверждение D-046 |
 | S036 | Пять последних записей History в меню | `needs_verification` | реализация и automated checks; installed-app typed target/keyboard/VoiceOver/Light-Dark matrix, release gate S031 сохранён |
-| S037 | Исправление раскладки по хоткею | `needs_verification` | опубликован v1.0.12; ChatGPT word/space/Undo/clipboard принят; полная sources/permissions/focus/VoiceOver/macOS14 matrix открыта |
+| S037 | Исправление раскладки по хоткею | `needs_verification` | опубликован v1.0.13 без временных логов; ChatGPT word/space/Undo/clipboard принят; полная sources/permissions/focus/VoiceOver/macOS14 matrix открыта |
 
 ## Блокеры и recheck points
 
-- S037: core platform feasibility закрыт для выбранного bounded adapter и metadata tracking; production implementation опубликована в v1.0.12; основной ChatGPT smoke принят пользователем. Complete gesture/race/owner matrix и дополнительные targets/sources проверяются отдельно; неизвестные capabilities дают отказ. Постоянный keyboard buffer не разрешён; explicit clipboard transaction задан D-052.
+- S037: core platform feasibility закрыт для выбранного bounded adapter и metadata tracking; production implementation опубликована в v1.0.13 без временных логов; основной ChatGPT smoke принят пользователем. Complete gesture/race/owner matrix и дополнительные targets/sources проверяются отдельно; неизвестные capabilities дают отказ. Постоянный keyboard buffer не разрешён; explicit clipboard transaction задан D-052.
 
 - S033: закрыт после пользовательского подтверждения ручной установленной matrix. Release signing/update gates ведутся отдельно и не блокируют этот срез.
 
@@ -130,6 +126,8 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 - Ограничение BL-006, отключение дисплея во время Top Notch reveal, принято и не блокирует S030.
 
 ## Последняя проверка
+
+- 2026-10-06: v1.0.13/build14 опубликован без временного logger S037. Release/Pages SUCCESS; публичные ZIP/DMG checksums, stable/latest alias, codesign/stapler/Gatekeeper, Sparkle Ed25519 и public executable logging scan PASS.
 
 - 2026-10-06: v1.0.12/build13 опубликован, release и Pages jobs SUCCESS. Публичные ZIP/DMG checksums, stable DMG alias, app codesign/stapler/Gatekeeper и Sparkle Ed25519 verification PASS. Пользователь подтвердил основной ChatGPT correction path до публикации. Installed Sparkle update остаётся открытым.
 
@@ -163,7 +161,7 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 
 ## Следующее действие
 
-Установить опубликованное обновление 1.0.12 через Sparkle из предыдущей Release версии; проверить сохранение History/favorites и Accessibility после relaunch. Это отдельный installed-update gate, публикация его не закрывает.
+Установить опубликованное обновление 1.0.13 через Sparkle из предыдущей Release версии; проверить сохранение History/favorites и Accessibility после relaunch. Это отдельный installed-update gate, публикация его не закрывает.
 
 Для S037: основной ChatGPT word/space/Undo/clipboard smoke закрыт пользователем. Продолжить полную gesture/source/permission/focus/VoiceOver matrix, macOS14, 3+ sources и IME; проверить newer Copy и History/Stack suppression в установленном приложении.
 
@@ -175,6 +173,6 @@ S034 закрыт по пользовательскому smoke acceptance и а
 1. Проверить сброс History к первому элементу после прокрутки и повторного открытия; отдельно проверить custom shortcut/reset и обычное text field.
 2. Выполнить S032 installed-app visual/search/accessibility matrix, включая card reuse, selection-only update, URL-first search и exact `⇧Backspace`.
 3. Выполнить реальный Sparkle update для S031 с сохранением History.
-4. Выполнить clean-machine macOS14 install/launch и operational immutable-rerun gate S014. Выпуск v1.0.12 завершён, опубликованные tag/assets неизменяемы.
+4. Выполнить clean-machine macOS14 install/launch и operational immutable-rerun gate S014. Выпуск v1.0.13 завершён, опубликованные tag/assets неизменяемы.
 
 Подробные исторические записи не являются обязательным operational-контекстом. Открывайте [`STATE-HISTORY.md`](STATE-HISTORY.md) только если нужно восстановить происхождение решения, старый verification result или release evidence.
