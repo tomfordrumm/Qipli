@@ -32,11 +32,12 @@ Source code and license: https://github.com/tomfordrumm/Qipli
 
 ## Changes
 
-- Paste plain text from History with Shift-double-click, alongside Shift-Enter. Regular double-click keeps saved formatting.
-- Correct keyboard layout for selections up to 12,288 UTF-16 units, preserving the existing safety checks and native Undo behavior.
-- Show correction errors in a brief, nonactivating Top Notch panel that closes automatically.
-- Add optional local diagnostic logs in Settings → General → Diagnostics. Logging is off by default. Enable it when investigating correction incidents; Show Logs opens the folder and Clear Logs removes the journals. Logs contain operation steps, fixed error codes and timings, without clipboard content, typed text, application/window identities, URLs or file paths. Logs stay on this Mac, rotate at 10 MiB, and expire after seven days while Qipli is running or on its next launch.
+- Expand optional local diagnostics for keyboard-layout correction. Journals now record the specific Accessibility call and attribute, numeric system error, response type, requested range, expected and observed lengths, focus and selection checks, call timing, and remaining deadline.
+- Follow each correction through admission, mapping, selection, native or Unicode paste, postcondition checks, keyboard-layout switching, and clipboard restoration. A fixed browser category and input-owner state help identify the affected path.
+- Record a terminal outcome with the concrete failure. Numbered events and explicit overflow counts make incomplete diagnostic trails visible.
 
-Manual layout correction requires a compatible editable field and supported static keyboard layouts. Secure fields and unsupported input methods are skipped. Correction is unavailable while Paste Stack, Finder Cut, or another Qipli input action is active. Diagnostics help investigate failures; they do not add support for incompatible fields.
+Logging remains off by default. If it was enabled in 1.0.14, the setting is preserved after updating. Otherwise enable it in Settings → General → Diagnostics before reproducing an incident. Show Logs opens the local journal folder; Clear Logs removes the journals.
 
-Existing History and favorites are preserved; this release does not change the database schema.
+Diagnostics contain structural checks, numeric ranges and fixed categories. They exclude field and clipboard contents, keystrokes, raw application/window/layout identities, URLs and file paths. Journals stay on this Mac, rotate at 10 MiB, and expire after seven days while Qipli is running or on its next launch. There is no automatic upload.
+
+Manual layout correction requires a compatible editable field and supported static keyboard layouts. Existing History, favorites, shortcuts, Accessibility permissions and diagnostic preferences are preserved; this release does not change the database schema.
