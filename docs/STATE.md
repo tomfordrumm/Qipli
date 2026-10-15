@@ -1,28 +1,21 @@
 # Qipli — текущее состояние проекта
 
-Последняя актуализация: 2026-10-15, S038 реализован и проверен локально; подготовлен кандидат 1.0.14/build15. Публичным остаётся v1.0.13/build14; установленное Sparkle обновление остаётся отдельной проверкой.
+Последняя актуализация: 2026-10-15, пользователь разрешил публикацию 1.0.15 с D-055; local SwiftPM 355/355 и universal builds PASS, GitHub delivery в работе.
 
 Источник operational-статусов: этот файл. Исторические переходы и прежние verification snapshots находятся в [`STATE-HISTORY.md`](STATE-HISTORY.md).
 
 ## Текущее положение
 
-### Локальная диагностика и подготовка 1.0.14
+### Расследование сбоев раскладки: D-055
 
-S038 `needs_verification`, D-054: Settings General → Diagnostics, default-off preference, Show/Clear Logs, bounded JSONL writer и correction stage/reason/transport traces без payload и app/source identities. Dev/Release logs разделены. Size ≤10 MiB, retention 7 дней при работающем приложении/следующем запуске. Disable/clear epoch, queue bound и unsafe-file tests пройдены.
-
-Финальный SwiftPM 345/345, universal unsigned Debug/Release, development-signed universal Dev 1.0.14/build15, strict/deep codesign, version/CI/release/privacy/readiness checks PASS. Native Light/Dark renders и отдельный scoped UI review пройдены; production-size scrolling, installed keyboard/VoiceOver/Finder opening и реальный correction smoke новой сборки остаются открытыми.
-
-Локальный release snapshot: `/private/tmp/qipli-1.0.14-candidate`; результаты и патчи: `dist/1.0.14-preparation/`. Включает все текущие изменения D-053/S031/S037 и S038. База свежего origin/main `4917a44`; GitHub проверен 2026-10-15: последняя версия 1.0.13/build14, открытых PR/незавершённого release run нет. Функциональная поставка подготовлена в ветке `feature/history-plain-paste-correction-feedback`; Config сохраняет 1.0.13/build14. Candidate version 1.0.14/build15 и notes подготовлены отдельным patch, поскольку release branch создаётся только после merge функционального PR в main. Пользователь 2026-10-15 разрешил функциональный PR в main и, после его слияния, отдельный Release 1.0.14 PR. Merge/tag/publication этим запросом не выполняются.
-
-Следующий шаг: unsigned CI функционального PR; после его слияния создать Release 1.0.14 PR с build15. Installed smoke Diagnostics и D-053 на подписанной Dev остаётся открытым. После merge подготовить release/1.0.14 от свежего origin/main с version-and-notes patch; подписанный public ZIP/DMG, Sparkle и остальные release gates проверяются существующим workflow.
+Ветка `feature/correction-incident-diagnostics`, S038 остаётся `needs_verification`. По запросу пользователя schema v2 сохраняет конкретные AX calls/errors/types/ranges/checks, timings, admission/context, transport/postcondition/clipboard restore, terminal lastFailure и counted overflow. Только structural evidence, без payload и raw identities. Финальный SwiftPM 355/355 без failures/skips; universal signed Debug и unsigned Release, strict/deep codesign, version/CI/release/privacy/diff checks PASS. Native owned-field probe собран и подписан, runtime SKIPPED: Accessibility=false; installed ChatGPT path не проверен. Dev artifact: `/private/tmp/qipli-incident-debug/Build/Products/Debug/Qipli Dev.app`. Пользователь разрешил 1.0.15 publication, включая feature PR, отдельный release PR, merge/tag/workflow. Functional branch сохраняет 1.0.14/15; release/1.0.15 после merge получит build16. Следующий шаг: feature PR/unsigned CI, затем version-and-notes PR, exact-main-SHA CI и protected release. Installed Settings/ChatGPT/Sparkle acceptance остаётся открытым.
 
 ### Qipli Dev identity
 
 Статус: `needs_verification`. D-045 реализован: Debug `Qipli Dev.app` / `com.qipli.app.dev`, Apple Development, отдельные настройки, общий History store/assets и отключённый Sparkle. Подписанный universal `build-for-testing` прошёл; существующие `SecureUpdaterSettingsTests` 3/3; Release settings сохраняют `Qipli.app` / `com.qipli.app`. Strict codesign verification прошёл на копии в `/private/tmp/qipli-dev-identity-check/Qipli Dev.app` без Finder xattrs: Documents file provider повторно добавляет недопустимый FinderInfo к build test bundle. Проверка Accessibility остаётся за пользователем: обычный Cmd+R из Xcode, выдать Dev доступ, пересобрать и проверить сохранение доступа обеих версий. Версии запускать по очереди.
 
 
-- Удаление логирования [PR #31](https://github.com/tomfordrumm/Qipli/pull/31) и [Release PR #32](https://github.com/tomfordrumm/Qipli/pull/32) слиты в `main`. Release source SHA `8be2a4c076896f08338b15e1d470b8e04fb4d5df`, версия `1.0.13`, build `14`.
-- Последняя опубликованная версия [v1.0.13](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.13), от 2026-10-06. Signed/notarized ZIP/DMG и Sparkle feed проверены. В публичном executable нет временных диагностических logger markers. Installed update этим не подтверждён.
+- Последняя опубликованная версия [v1.0.14](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.14), build15 от 2026-10-15. Optional local diagnostics D-054 опубликованы; расширенная schema v2 D-055 готовится к 1.0.15/build16. Installed update проверяется отдельно.
 - Milestones M1–M3 и M6–M9 завершены. M4/M5 сохраняют release gates S014/S008; M10 и M11 активны из-за оставшихся gates S031 и S032.
 - S001–S007, S009–S013, S015–S016, S017–S027 и S030 имеют статус `done`.
 - S028 остаётся в backlog по D-038. S029 возвращён в активный план по D-042; M12 описывает избранное в Top Notch.
@@ -75,11 +68,7 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 
 ## Последний выпуск
 
-`v1.0.13`, build `14`, tag/main SHA `8be2a4c076896f08338b15e1d470b8e04fb4d5df`. [PR #31](https://github.com/tomfordrumm/Qipli/pull/31) удаляет временный logger, его вызовы и coordinator stage tracking; proof state и safety checks сохранены. [PR #32](https://github.com/tomfordrumm/Qipli/pull/32) содержит только version/build и release notes. Exact-SHA [main CI](https://github.com/tomfordrumm/Qipli/actions/runs/37460793779) и protected [release workflow](https://github.com/tomfordrumm/Qipli/actions/runs/37461443223) SUCCESS; Environment approval выполнил пользователь.
-
-Публичные ZIP/DMG SHA-256 PASS; стабильный и latest `Qipli.dmg` идентичны версионному DMG. Workflow проверил codesign, notarization/stapling и Gatekeeper; скачанное приложение независимо прошло strict/deep codesign, stapler и Gatekeeper. [Sparkle appcast](https://tomfordrumm.github.io/Qipli/appcast.xml): 1.0.13/build14, minimum macOS14.0, immutable ZIP URL и длина совпадают; Ed25519 подпись ZIP независимо проверена публичным ключом из приложения. Public executable logging marker scan PASS.
-
-Локальные gates patch: SwiftPM 325/325 без failures, version validator 8/8, project-version, CI/release contract 13/13, privacy и diff checks PASS; в Sources нет OSLog/Logger/LayoutCorrectionDiagnostics. ChatGPT word/space/Undo/clipboard принят пользователем до v1.0.12, correction behavior в v1.0.13 не меняется. Cross-app Settings focus, installed update и остальные открытые matrix не объявляются пройденными. Подробное release evidence находится в STATE-HISTORY.
+GitHub проверен 2026-10-15: публичный `v1.0.14`, build `15`, tag/main SHA `7be55850c6d7a1f2ea123349b1a0f0b1d7b8ce4a`. [Functional PR #34](https://github.com/tomfordrumm/Qipli/pull/34), [Release PR #35](https://github.com/tomfordrumm/Qipli/pull/35), [release workflow](https://github.com/tomfordrumm/Qipli/actions/runs/38728118262) SUCCESS. ZIP/DMG/checksums и stable Qipli.dmg опубликованы. Текущая установленная версия при диагностике была 1.0.14/build15; installed Sparkle acceptance не подтверждён.
 
 ## Статусы срезов
 
@@ -174,20 +163,4 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 
 ## Следующее действие
 
-Для кандидата 1.0.14/build15: дождаться merge функционального PR перед созданием release branch/PR; отдельно проверить Diagnostics и D-053 в подписанной Dev. Публикация кандидата не выполнялась.
-
-Установить опубликованное обновление 1.0.13 через Sparkle из предыдущей Release версии; проверить сохранение History/favorites и Accessibility после relaunch. Это отдельный installed-update gate, публикация его не закрывает.
-
-Для S037: основной ChatGPT word/space/Undo/clipboard smoke закрыт пользователем. Продолжить полную gesture/source/permission/focus/VoiceOver matrix, macOS14, 3+ sources и IME; проверить newer Copy и History/Stack suppression в установленном приложении.
-
-Провести S036 installed-app matrix на synthetic данных в development-signed Debug: TextEdit plain/rich, браузер, image target и Finder reference; мышь/клавиатура/Escape, отказ Accessibility, закрытый target, active Stack, VoiceOver и Light/Dark. Ожидается одна вставка полного payload в исходное приложение без открытия History при успехе.
-
-S034 закрыт по пользовательскому smoke acceptance и автоматическим проверкам. Его installed-app и signed-update проверки остаются delivery gates; отдельные release gates S014/S008, S031 и S032 остаются в общем порядке ниже.
-
-
-1. Проверить сброс History к первому элементу после прокрутки и повторного открытия; отдельно проверить custom shortcut/reset и обычное text field.
-2. Выполнить S032 installed-app visual/search/accessibility matrix, включая card reuse, selection-only update, URL-first search и exact `⇧Backspace`.
-3. Выполнить реальный Sparkle update для S031 с сохранением History.
-4. Выполнить clean-machine macOS14 install/launch и operational immutable-rerun gate S014. Выпуск v1.0.13 завершён, опубликованные tag/assets неизменяемы.
-
-Подробные исторические записи не являются обязательным operational-контекстом. Открывайте [`STATE-HISTORY.md`](STATE-HISTORY.md) только если нужно восстановить происхождение решения, старый verification result или release evidence.
+Доставить D-055 через feature PR в main и успешный unsigned CI. Создать `release/1.0.15` от свежего origin/main, увеличить build до16 и заменить Changes в release notes; отдельный PR `Release 1.0.15`. После merge дождаться exact-main-SHA CI, проверить tag admission и опубликовать `v1.0.15` существующим protected workflow. Protected Environment approval сохраняется; ZIP/DMG/Sparkle и установленное обновление проверяются раздельно.

@@ -9,7 +9,11 @@ mkdir -p "$probe_app_dir/Contents/MacOS" "$probe_output_dir/module-cache"
 xcrun swiftc -D DEBUG -parse-as-library -module-cache-path "$probe_output_dir/module-cache" \
   "$probe_source_dir/S037NativePasteProbe.swift" \
   "$probe_repo_dir/Sources/Qipli/Input/LayoutCorrectionAXAdapter.swift" \
+  "$probe_repo_dir/Sources/Qipli/Input/CorrectionDiagnostics.swift" \
+  "$probe_repo_dir/Sources/Qipli/Settings/LocalDiagnostics.swift" \
   "$probe_repo_dir/Sources/Qipli/Input/LayoutCorrectionCoordinator.swift" \
+  "$probe_repo_dir/Sources/Qipli/Input/LayoutCorrectionPreferences.swift" \
+  "$probe_repo_dir/Sources/Qipli/Settings/ShortcutPreferences.swift" \
   "$probe_repo_dir/Sources/Qipli/Input/CorrectionFreshWordMonitor.swift" \
   "$probe_repo_dir/Sources/Qipli/Input/LayoutCorrectionModels.swift" \
   "$probe_repo_dir/Sources/Qipli/Input/LayoutCorrectionSourceCatalog.swift" \

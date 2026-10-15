@@ -302,6 +302,7 @@ final class ApplicationShell: NSObject {
             // any new preinput baseline captured since the original event.
             self?.layoutCorrectionCoordinator?.invalidateCyclePreservingWordBaseline()
         }
+        correctionInput?.diagnostics = diagnostics
         correctionInput?.onCorrectionTrigger = { [weak self] in self?.performManualLayoutCorrection() }
         correctionSettingsObservation = correctionPreferences.$settings
             .removeDuplicates()
@@ -579,7 +580,11 @@ final class ApplicationShell: NSObject {
             sources: layoutCorrectionSourceCatalog.sources.compactMap(\.source),
             currentSourceID: layoutCorrectionSourceCatalog.currentSourceID,
             mayRun: mayRun,
-            trigger: layoutCorrectionPreferences.settings.trigger
+            trigger: layoutCorrectionPreferences.settings.trigger,
+            context: DiagnosticDetails(targetKind: DiagnosticTargetKind(bundleIdentifier: NSWorkspace.shared.frontmostApplication?.bundleIdentifier),
+                inputReady: inputCoordinator.status == .ready, stackActive: stackSessionController.isActive,
+                finderActive: finderCutSessionController.isActive, historyPasteActive: historyPasteExecutor.hasActivePaste,
+                operationActive: coordinator.isOperationActive, ownTarget: targetPID == ProcessInfo.processInfo.processIdentifier)
         ) { [weak self] outcome in
             self?.settingsViewModel.updateCorrectionOutcome(outcome)
             self?.panels.showLayoutCorrectionOutcome(outcome)

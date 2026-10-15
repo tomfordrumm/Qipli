@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        DA0100000000000000000002 /* CorrectionDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0200000000000000000002 /* CorrectionDiagnostics.swift */; };
         DA0100000000000000000001 /* LocalDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0200000000000000000001 /* LocalDiagnostics.swift */; };
 		A00100000000000000000001 /* QipliAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000001 /* QipliAppDelegate.swift */; };
 		A00100000000000000000002 /* ApplicationShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000002 /* ApplicationShell.swift */; };
@@ -83,6 +84,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+        DA0200000000000000000002 /* CorrectionDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CorrectionDiagnostics.swift; sourceTree = "<group>"; };
         DA0200000000000000000001 /* LocalDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDiagnostics.swift; sourceTree = "<group>"; };
 		A00200000000000000000001 /* QipliAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QipliAppDelegate.swift; sourceTree = "<group>"; };
 		A00200000000000000000002 /* ApplicationShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationShell.swift; sourceTree = "<group>"; };
@@ -210,7 +212,8 @@
 		A00400000000000000000004 /* Input */ = {
 			isa = PBXGroup;
 			children = (
-				A00200000000000000000003 /* AccessibilityPermissionService.swift */,
+				DA0200000000000000000002 /* CorrectionDiagnostics.swift */,
+                A00200000000000000000003 /* AccessibilityPermissionService.swift */,
 				A00200000000000000000004 /* GlobalInput.swift */,
 				A00200000000000000000005 /* CGEventTapAdapter.swift */,
 				A00200000000000000000013 /* EventTapRecoveryPolicy.swift */,
@@ -455,7 +458,8 @@
 			files = (
 				A00100000000000000000001 /* QipliAppDelegate.swift in Sources */,
 				A00100000000000000000002 /* ApplicationShell.swift in Sources */,
-				A00100000000000000000003 /* AccessibilityPermissionService.swift in Sources */,
+				DA0100000000000000000002 /* CorrectionDiagnostics.swift in Sources */,
+                A00100000000000000000003 /* AccessibilityPermissionService.swift in Sources */,
 				A00100000000000000000004 /* GlobalInput.swift in Sources */,
 				A00100000000000000000005 /* CGEventTapAdapter.swift in Sources */,
 				A00100000000000000000009 /* EventTapRecoveryPolicy.swift in Sources */,

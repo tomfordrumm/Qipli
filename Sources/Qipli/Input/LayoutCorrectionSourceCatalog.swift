@@ -57,18 +57,33 @@ final class LayoutCorrectionSourceCatalog {
         onChange?()
     }
 
-    func select(_ sourceID: String) -> Bool {
+    func select(_ sourceID: String, trace: CorrectionDiagnosticTrace? = nil) -> Bool {
         dispatchPrecondition(condition: .onQueue(.main))
-        guard sources.contains(where: { $0.id == sourceID }) else { return false }
+        guard sources.contains(where: { $0.id == sourceID }) else {
+            trace?(.layoutSwitch, .mismatch, DiagnosticDetails(check: .sourceExists, matches: false)); return false
+        }
         let list = TISCreateInputSourceList([
             kTISPropertyInputSourceID: sourceID
         ] as CFDictionary, false)?.takeRetainedValue() as? [TISInputSource] ?? []
-        guard let selected = list.first,
-              Self.boolProperty(selected, kTISPropertyInputSourceIsEnabled) == true,
-              Self.boolProperty(selected, kTISPropertyInputSourceIsSelectCapable) == true,
-              TISSelectInputSource(selected) == noErr else { return false }
+        guard let selected = list.first else {
+            trace?(.layoutSwitch, .mismatch, DiagnosticDetails(check: .sourceExists, matches: false)); return false
+        }
+        guard Self.boolProperty(selected, kTISPropertyInputSourceIsEnabled) == true else {
+            trace?(.layoutSwitch, .mismatch, DiagnosticDetails(check: .sourceEnabled, matches: false)); return false
+        }
+        guard Self.boolProperty(selected, kTISPropertyInputSourceIsSelectCapable) == true else {
+            trace?(.layoutSwitch, .mismatch, DiagnosticDetails(check: .sourceSelectable, matches: false)); return false
+        }
+        let began = DispatchTime.now().uptimeNanoseconds
+        let status = TISSelectInputSource(selected)
+        trace?(.layoutSwitch, status == noErr ? .passed : .switchFailed,
+            DiagnosticDetails(step: .sourceSelection, api: .selectInputSource, osStatus: status,
+                callMicroseconds: (DispatchTime.now().uptimeNanoseconds &- began) / 1_000))
+        guard status == noErr else { return false }
         refresh()
-        return currentSourceID == sourceID
+        let matched = currentSourceID == sourceID
+        trace?(.layoutSwitch, matched ? .passed : .mismatch, DiagnosticDetails(check: .sourceConfirmed, matches: matched))
+        return matched
     }
 
     private static func sourceID(_ source: TISInputSource) -> String? {

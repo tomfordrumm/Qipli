@@ -90,13 +90,13 @@ final class LayoutCorrectionCoordinator {
     }
 
     func handleTrigger(targetPID: pid_t, sources: [CorrectionSource], currentSourceID: String?,
-                       mayRun: Bool, trigger: CorrectionTrigger? = nil, completion: @escaping (LayoutCorrectionOutcome) -> Void) {
+                       mayRun: Bool, trigger: CorrectionTrigger? = nil, context: DiagnosticDetails? = nil, completion: @escaping (LayoutCorrectionOutcome) -> Void) {
         let diagnosticID = UUID()
         let started = DispatchTime.now().uptimeNanoseconds
         let diagnostics = self.diagnostics
-        let trace: @Sendable (DiagnosticStage, DiagnosticReason) -> Void = { stage, reason in
+        let trace = CorrectionDiagnosticTrace { stage, reason, details in
             diagnostics?.record(operation: diagnosticID, stage: stage, reason: reason,
-                elapsedMilliseconds: (DispatchTime.now().uptimeNanoseconds &- started) / 1_000_000)
+                elapsedMilliseconds: (DispatchTime.now().uptimeNanoseconds &- started) / 1_000_000, details: details)
         }
         let triggerReason: DiagnosticReason
         switch trigger {
@@ -104,13 +104,15 @@ final class LayoutCorrectionCoordinator {
         case .shortcut: triggerReason = .shortcutTrigger
         case nil: triggerReason = .started
         }
-        trace(.trigger, triggerReason)
-        guard mayRun else { trace(.admission, .inputBusy); invalidate(); completion(.denied("Another Qipli input action is active.")); return }
-        guard operationID == nil else { trace(.admission, .operationBusy); completion(.denied("A correction is already in progress.")); return }
+        trace(.trigger, triggerReason, context)
+        guard mayRun else { trace(.admission, .inputBusy); trace(.finished, .denied); invalidate(); completion(.denied("Another Qipli input action is active.")); return }
+        guard operationID == nil else { trace(.admission, .operationBusy); trace(.finished, .denied); completion(.denied("A correction is already in progress.")); return }
         let eligible = sources.filter(\.isEligible).sorted { $0.id < $1.id }
         guard eligible.count >= 2, eligible.contains(where: { $0.id == currentSourceID }),
               !ledger.isCompositionUncertain() else {
-            trace(.admission, .unsupportedSources)
+            trace(.admission, .unsupportedSources, DiagnosticDetails(sourceCount: eligible.count,
+                sourceIndex: eligible.firstIndex { $0.id == currentSourceID }, compositionUncertain: ledger.isCompositionUncertain()))
+            trace(.finished, .denied)
             invalidate(); completion(.denied("Use at least two supported static keyboard layouts.")); return
         }
         let id = UUID(); operationID = id
@@ -118,36 +120,52 @@ final class LayoutCorrectionCoordinator {
         let inputEpoch = ledger.snapshot().generation
         let gateEpoch = gate.snapshot()
         let prior = unexpiredCapsule()
+        let metadata = ledger.snapshot()
+        let now = DispatchTime.now().uptimeNanoseconds
+        trace(.admission, .passed, DiagnosticDetails(remainingMilliseconds: deadline.remainingMilliseconds,
+            sourceCount: eligible.count, sourceIndex: eligible.firstIndex { $0.id == currentSourceID },
+            wordUnits: metadata.wordUTF16Units, trailingSpaces: metadata.trailingSpaces,
+            wordAgeMilliseconds: metadata.timestamp <= now ? (now - metadata.timestamp) / 1_000_000 : nil,
+            inputGeneration: inputEpoch, gateGeneration: gateEpoch,
+            blocked: ledger.isBlocked(), compositionUncertain: ledger.isCompositionUncertain()))
         let adapter = self.adapter, ledger = self.ledger, monitor = freshWordMonitor, gate = self.gate
         Self.worker.async { [weak self] in
             let result = Self.perform(adapter: adapter, ledger: ledger, monitor: monitor, gate: gate,
                 gateEpoch: gateEpoch, inputEpoch: inputEpoch, deadline: deadline, prior: prior,
                 pid: targetPID, sources: eligible, currentSourceID: currentSourceID, trace: trace)
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.operationID == id else { return }
+                guard let self, self.operationID == id else { trace(.finished, .cancelled); return }
                 self.operationID = nil
                 guard self.gate.snapshot() == gateEpoch, self.ledger.snapshot().generation == inputEpoch else {
-                    trace(.finished, .contextChanged)
+                    trace(.finished, .contextChanged, DiagnosticDetails(
+                        inputGeneration: self.ledger.snapshot().generation, gateGeneration: self.gate.snapshot()))
                     self.invalidate(); completion(.failed("The input context changed; correction stopped.")); return
                 }
                 switch result {
-                case let .failure(outcome): self.invalidate(); completion(outcome)
+                case let .failure(outcome):
+                    if case .denied = outcome { trace(.finished, .denied) }
+                    else { trace(.finished, .failed) }
+                    self.invalidate(); completion(outcome)
                 case let .success(next):
                     self.freshWordMonitor?.invalidate()
                     self.sourceCatalog?.refresh()
                     guard self.gate.snapshot() == gateEpoch,
                           self.sourceCatalog == nil || self.sourceCatalog?.currentSourceID == currentSourceID,
                           (try? deadline.check()) != nil else {
-                        trace(.layoutSwitch, .switchContextChanged)
+                        trace(.layoutSwitch, .switchContextChanged, DiagnosticDetails(
+                            check: .currentSource, remainingMilliseconds: deadline.remainingMilliseconds, matches: self.sourceCatalog == nil || self.sourceCatalog?.currentSourceID == currentSourceID,
+                            gateGeneration: self.gate.snapshot()))
+                        trace(.finished, .failed)
                         self.invalidate()
                         completion(.failed("Text corrected, but the input context changed before layout switching.")); return
                     }
                     // Publish before select: its synchronous catalog refresh can recognize this own switch.
                     self.install(next)
                     trace(.layoutSwitch, .started)
-                    let switched = self.selectSource?(next.currentSourceID) ?? self.sourceCatalog?.select(next.currentSourceID) ?? false
+                    let switched = self.selectSource?(next.currentSourceID) ?? self.sourceCatalog?.select(next.currentSourceID, trace: trace) ?? false
                     guard switched else {
                         trace(.layoutSwitch, .switchFailed)
+                        trace(.finished, .failed)
                         self.invalidate()
                         completion(.failed("Text corrected, but the keyboard layout could not be switched.")); return
                     }
@@ -186,27 +204,36 @@ final class LayoutCorrectionCoordinator {
         monitor: CorrectionFreshWordProofProviding?, gate: CorrectionOperationGate, gateEpoch: UInt64,
         inputEpoch: UInt64, deadline: CorrectionAXDeadline, prior: CycleCapsule?, pid: pid_t,
         sources: [CorrectionSource], currentSourceID: String?,
-        trace: @escaping @Sendable (DiagnosticStage, DiagnosticReason) -> Void) -> WorkerResult {
+        trace: CorrectionDiagnosticTrace) -> WorkerResult {
         let isFresh: () -> Bool = {
             let now = DispatchTime.now().uptimeNanoseconds
             if let prior, now &- prior.lastUsedAt >= 5_000_000_000 || now &- prior.beganAt >= 30_000_000_000 {
+                trace(.validation, .mismatch, DiagnosticDetails(check: .cycleAge, matches: false))
                 return false
             }
-            return gate.snapshot() == gateEpoch && ledger.snapshot().generation == inputEpoch
-                && !ledger.isCompositionUncertain()
+            let gateMatches = gate.snapshot() == gateEpoch
+            let inputMatches = ledger.snapshot().generation == inputEpoch
+            let certain = !ledger.isCompositionUncertain()
+            if !gateMatches { trace(.validation, .mismatch, DiagnosticDetails(check: .gateEpoch, matches: false)) }
+            if !inputMatches { trace(.validation, .mismatch, DiagnosticDetails(check: .inputEpoch, matches: false)) }
+            if !certain { trace(.validation, .mismatch, DiagnosticDetails(check: .compositionCertain, matches: false)) }
+            return gateMatches && inputMatches && certain
         }
         adapter.setDiagnosticTrace(trace)
         defer { adapter.setDiagnosticTrace(nil) }
         var stage = DiagnosticStage.capture
         func enter(_ next: DiagnosticStage) { stage = next; trace(next, .started) }
         func require(_ condition: Bool, _ reason: DiagnosticReason) throws {
-            guard condition else { trace(stage, reason); throw CorrectionAXError.stale }
+            trace(stage, condition ? .passed : reason, DiagnosticDetails(check: DiagnosticCheck(rawValue: reason.rawValue), matches: condition))
+            guard condition else { throw CorrectionAXError.stale }
         }
         do {
             enter(.capture)
             try deadline.check()
             guard isFresh() else { throw CorrectionAXError.stale }
             var target = try adapter.capture(pid: pid, deadline: deadline)
+            trace(.capture, .passed, DiagnosticDetails(selectionLocation: target.selection.location,
+                selectionLength: target.selection.length, characterCount: target.characterCount))
             let metadata = ledger.snapshot()
             guard isFresh() else { throw CorrectionAXError.stale }
             let range: CFRange, seed: String, expected: String, originID: String
@@ -217,20 +244,29 @@ final class LayoutCorrectionCoordinator {
             if let prior {
                 enter(.cycle)
                 // A changed cycle target is refused, never reinterpreted as a new operation.
-                guard prior.sourceIDs == ids, prior.currentSourceID == currentSourceID,
-                      prior.target.pid == pid, CFEqual(prior.target.element, target.element),
-                      equal(prior.target.selection, target.selection),
-                      prior.target.characterCount == target.characterCount,
-                      now &- prior.lastUsedAt < 5_000_000_000,
-                      now &- prior.beganAt < 30_000_000_000,
-                      try adapter.read(target, range: prior.range, deadline: deadline) == prior.expectedText,
-                      isFresh() else { throw CorrectionAXError.stale }
+                func cycleCheck(_ condition: Bool, _ check: DiagnosticCheck) throws {
+                    trace(.cycle, condition ? .passed : .mismatch, DiagnosticDetails(check: check, matches: condition))
+                    guard condition else { throw CorrectionAXError.stale }
+                }
+                try cycleCheck(prior.sourceIDs == ids, .cycleSources)
+                try cycleCheck(prior.currentSourceID == currentSourceID, .cycleSource)
+                try cycleCheck(prior.target.pid == pid && CFEqual(prior.target.element, target.element), .cycleTarget)
+                try cycleCheck(equal(prior.target.selection, target.selection), .cycleRange)
+                try cycleCheck(prior.target.characterCount == target.characterCount, .countMatches)
+                try cycleCheck(now &- prior.lastUsedAt < 5_000_000_000 && now &- prior.beganAt < 30_000_000_000, .cycleAge)
+                trace(.checkpoint, .started, DiagnosticDetails(step: .cycleRead))
+                try cycleCheck(try adapter.read(target, range: prior.range, deadline: deadline) == prior.expectedText, .cycleText)
+                guard isFresh() else { throw CorrectionAXError.stale }
                 range = prior.range; seed = prior.seedText; expected = prior.expectedText
                 originID = prior.originSourceID; keepSelected = prior.keepSelected; beganAt = prior.beganAt
             } else if target.selection.length > 0 {
                 enter(.selection)
-                guard target.selection.length <= LayoutCorrectionLimits.maximumTextUTF16Units else { throw CorrectionAXError.limit }
+                guard target.selection.length <= LayoutCorrectionLimits.maximumTextUTF16Units else {
+                    trace(.selection, .limit, DiagnosticDetails(expected: LayoutCorrectionLimits.maximumTextUTF16Units,
+                        observed: target.selection.length)); throw CorrectionAXError.limit
+                }
                 range = target.selection
+                trace(.checkpoint, .started, DiagnosticDetails(step: .selectedRead))
                 seed = try adapter.read(target, range: range, deadline: deadline)
                 expected = seed
                 originID = try LayoutCorrectionMapper.origin(for: seed, from: sources, activeSourceID: currentSourceID).id
@@ -238,7 +274,8 @@ final class LayoutCorrectionCoordinator {
             } else {
                 enter(.wordProof)
                 target = try adapter.capture(pid: pid, deadline: deadline)
-                guard target.selection.length == 0, isFresh() else { throw CorrectionAXError.stale }
+                try require(target.selection.length == 0, .contextChanged)
+                guard isFresh() else { throw CorrectionAXError.stale }
                 try require(!ledger.isBlocked(), .wordBlocked)
                 try require(metadata.wordUTF16Units > 0 && metadata.wordUTF16Units <= LayoutCorrectionLimits.maximumTextUTF16Units, .wordMissing)
                 try require(metadata.trailingSpaces <= 8, .trailingSpaces)
@@ -251,25 +288,32 @@ final class LayoutCorrectionCoordinator {
                 try require(target.selection.location >= length + spaces, .caretBoundary)
                 range = CFRange(location: target.selection.location - length - spaces, length: length)
                 let spaceRange = CFRange(location: range.location + length, length: spaces)
+                trace(.checkpoint, .started, DiagnosticDetails(step: .wordSpaceRead))
                 try require(try adapter.read(target, range: spaceRange, deadline: deadline) == String(repeating: " ", count: spaces), .spaceBoundary)
                 // Old token prefixes and insertion in the middle of a token are excluded.
                 if range.location > 0 {
+                    trace(.checkpoint, .started, DiagnosticDetails(step: .wordLeftRead))
                     let left = try adapter.read(target, range: CFRange(location: range.location - 1, length: 1), deadline: deadline)
                     try require(left.allSatisfy(\.isWhitespace), .leftBoundary)
                 }
                 if target.selection.location < target.characterCount {
+                    trace(.checkpoint, .started, DiagnosticDetails(step: .wordRightRead))
                     let right = try adapter.read(target, range: CFRange(location: target.selection.location, length: 1), deadline: deadline)
                     try require(right.allSatisfy(\.isWhitespace), .rightBoundary)
                 }
+                trace(.checkpoint, .started, DiagnosticDetails(step: .wordRead))
                 seed = try adapter.read(target, range: range, deadline: deadline)
                 try require(!seed.contains(where: \.isWhitespace) && isFresh(), .wordBoundary)
                 expected = seed; originID = metadata.sourceID; keepSelected = false; beganAt = now
             }
             guard let currentIndex = sources.firstIndex(where: { $0.id == (prior?.currentSourceID ?? originID) }) else {
+                trace(.validation, .mismatch, DiagnosticDetails(check: .currentSource, matches: false))
                 throw CorrectionAXError.unsupported
             }
             enter(.mapping)
             let destination = sources[(currentIndex + 1) % sources.count].id
+            trace(.mapping, .started, DiagnosticDetails(sourceCount: sources.count, sourceIndex: currentIndex,
+                destinationIndex: (currentIndex + 1) % sources.count))
             let mapped: CorrectionMapping
             do {
                 mapped = try LayoutCorrectionMapper.map(seed, from: sources, activeSourceID: originID, to: destination)
@@ -277,7 +321,10 @@ final class LayoutCorrectionCoordinator {
                 // A complete cycle restores the original seed, which naturally maps to itself.
                 mapped = CorrectionMapping(sourceID: originID, text: seed)
             }
-            guard mapped.sourceID == originID, isFresh() else { throw CorrectionAXError.stale }
+            guard mapped.sourceID == originID, isFresh() else {
+                trace(.validation, .mismatch, DiagnosticDetails(check: .mappingSource)); throw CorrectionAXError.stale
+            }
+            trace(.mapping, .passed, DiagnosticDetails(expected: seed.utf16.count, observed: mapped.text.utf16.count))
             enter(.replacement)
             let replacement = try adapter.replace(target, range: range, expectedText: expected,
                 replacement: mapped.text, keepSelected: keepSelected, deadline: deadline, isFresh: isFresh)

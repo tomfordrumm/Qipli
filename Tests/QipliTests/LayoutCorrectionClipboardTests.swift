@@ -48,6 +48,30 @@ final class LayoutCorrectionClipboardTests: XCTestCase {
         XCTAssertEqual(writes.count, registeredCount)
     }
 
+    func testDiagnosticsCorrelatesRestoreAndNewerCopyWithoutClipboardContent() throws {
+        let board = board()
+        defer { board.releaseGlobally() }
+        var records: [(DiagnosticReason, DiagnosticDetails?)] = []
+        // Clipboard lease is MainActor-owned, including restore callbacks.
+        let collector = ClipboardDiagnosticCollector()
+        let trace = CorrectionDiagnosticTrace { reasonStage, reason, details in collector.append(reasonStage, reason, details) }
+        board.clearContents(); board.setString("synthetic-private-original", forType: .string)
+        let first = try CorrectionClipboardLease(text: "synthetic-private-replacement", pasteboard: board,
+            registerSelfWrite: { _ in }, trace: trace)
+        first.finish(dispatched: true, confirmed: true)
+        records = collector.snapshot
+        XCTAssertTrue(records.contains { $0.0 == .restored && $0.1?.step == .clipboardRestore })
+        let second = try CorrectionClipboardLease(text: "synthetic-private-replacement", pasteboard: board,
+            registerSelfWrite: { _ in }, trace: trace)
+        board.clearContents(); board.setString("synthetic-newer-copy", forType: .string)
+        second.restore()
+        XCTAssertTrue(collector.snapshot.contains { $0.0 == .restoreSkipped && $0.1?.check == .clipboardOwned })
+        let data = try JSONEncoder().encode(collector.snapshot.compactMap { $0.1 })
+        let encoded = String(decoding: data, as: UTF8.self)
+        XCTAssertFalse(encoded.contains("synthetic-private"))
+        XCTAssertFalse(encoded.contains("synthetic-newer"))
+    }
+
     func testEmptyClipboardIsRestoredToEmpty() throws {
         let board = board()
         defer { board.releaseGlobally() }
@@ -116,4 +140,13 @@ final class LayoutCorrectionClipboardTests: XCTestCase {
 
 private final class UnavailableCorrectionDataProvider: NSObject, NSPasteboardItemDataProvider {
     func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {}
+}
+
+private final class ClipboardDiagnosticCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var records: [(DiagnosticReason, DiagnosticDetails?)] = []
+    var snapshot: [(DiagnosticReason, DiagnosticDetails?)] { lock.withLock { records } }
+    func append(_ stage: DiagnosticStage, _ reason: DiagnosticReason, _ details: DiagnosticDetails?) {
+        lock.withLock { records.append((reason, details)) }
+    }
 }

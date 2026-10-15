@@ -59,7 +59,7 @@ final class LocalDiagnosticsTests: XCTestCase {
         writer.record(operation: id, stage: .replacement, reason: .deadline, elapsedMilliseconds: 42)
         writer.flush()
         let record = try XCTUnwrap(records().first { $0["operation"] as? String == id.uuidString })
-        XCTAssertEqual(Set(record.keys), Set(["timestamp", "session", "operation", "version", "build", "stage", "reason", "elapsedMilliseconds"]))
+        XCTAssertEqual(Set(record.keys), Set(["timestamp", "session", "operation", "version", "build", "stage", "reason", "elapsedMilliseconds", "schemaVersion", "sequence"]))
         XCTAssertEqual(record["stage"] as? String, "replacement")
         XCTAssertEqual(record["reason"] as? String, "deadline")
         XCTAssertEqual(record["elapsedMilliseconds"] as? Int, 42)
@@ -67,6 +67,63 @@ final class LocalDiagnosticsTests: XCTestCase {
         let fileAttributes = try FileManager.default.attributesOfItem(atPath: root.appendingPathComponent("diagnostics-0.jsonl").path)
         XCTAssertEqual((directoryAttributes[.posixPermissions] as? NSNumber)?.intValue, 0o700)
         XCTAssertEqual((fileAttributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+    }
+
+    func testDetailedSchemaPreservesEvidenceAndDecodesOldRecords() throws {
+        let writer = logger()
+        enable(writer)
+        let id = UUID()
+        writer.record(operation: id, stage: .ax, reason: .axFailure, elapsedMilliseconds: 15,
+            details: DiagnosticDetails(step: .read, api: .copyStringForRange, attribute: .stringForRange,
+                check: .readLength, axError: -25204, callMicroseconds: 250, remainingMilliseconds: 485,
+                rangeLocation: 10, rangeLength: 3, expected: 3, observed: 2))
+        writer.record(operation: id, stage: .finished, reason: .failed)
+        writer.flush()
+        let record = try XCTUnwrap(records().first { $0["reason"] as? String == "axFailure" })
+        XCTAssertEqual(record["schemaVersion"] as? Int, 2)
+        let details = try XCTUnwrap(record["details"] as? [String: Any])
+        XCTAssertEqual(Set(details.keys), Set(["step", "api", "attribute", "check", "axError", "callMicroseconds",
+            "remainingMilliseconds", "rangeLocation", "rangeLength", "expected", "observed"]))
+        XCTAssertEqual(details["axError"] as? Int, -25204)
+        let numbers = try records().compactMap { $0["sequence"] as? Int }
+        XCTAssertEqual(Set(numbers).count, numbers.count)
+        let old = """
+        {"timestamp":"2026-10-15T11:00:00Z","session":"00000000-0000-0000-0000-000000000001","version":"1.0.14","build":"15","stage":"wordProof","reason":"unavailable"}
+        """
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(DiagnosticRecord.self, from: Data(old.utf8))
+        XCTAssertNil(decoded.schemaVersion)
+        XCTAssertNil(decoded.details)
+    }
+
+    func testOverflowRetainsTerminalConcreteCauseWithoutLaterInput() throws {
+        let clock = BlockingDiagnosticClock()
+        let writer = LocalDiagnostics(defaults: defaults, directory: root, maximumPending: 1, now: { clock.date() })
+        let enabled = expectation(description: "enabled")
+        writer.setEnabled(true) { _ in enabled.fulfill() }
+        XCTAssertEqual(clock.entered.wait(timeout: .now() + 3), .success)
+        let operation = UUID()
+        let trace = CorrectionDiagnosticTrace { stage, reason, details in
+            writer.record(operation: operation, stage: stage, reason: reason, details: details)
+        }
+        trace(.trigger, .started)
+        trace(.ax, .axFailure, DiagnosticDetails(step: .read, api: .copyStringForRange,
+            attribute: .stringForRange, axError: -25204))
+        // Generic unwind must not overwrite the specific cause.
+        trace(.checkpoint, .unavailable, DiagnosticDetails(step: .read))
+        trace(.wordProof, .unavailable)
+        trace(.finished, .failed)
+        clock.release.signal()
+        wait(for: [enabled], timeout: 3)
+        writer.flush()
+        let rows = try records()
+        let final = try XCTUnwrap(rows.first { $0["stage"] as? String == "finished" })
+        let details = try XCTUnwrap(final["details"] as? [String: Any])
+        let cause = try XCTUnwrap(details["lastFailure"] as? [String: Any])
+        XCTAssertEqual(cause["api"] as? String, "copyStringForRange")
+        XCTAssertEqual(cause["axError"] as? Int, -25204)
+        let loss = try XCTUnwrap(rows.first { $0["reason"] as? String == "dropped" })
+        XCTAssertEqual((loss["details"] as? [String: Any])?["droppedRecords"] as? Int, 3)
     }
 
     func testRotationBoundsEveryFileAndTotalStorage() throws {
@@ -151,6 +208,8 @@ final class LocalDiagnosticsTests: XCTestCase {
         wait(for: [enabled], timeout: 3)
         writer.flush()
         XCTAssertEqual(try records().filter { $0["stage"] as? String == "trigger" }.count, 1)
+        let overflow = try XCTUnwrap(records().first { $0["reason"] as? String == "dropped" })
+        XCTAssertEqual((overflow["details"] as? [String: Any])?["droppedRecords"] as? Int, 99)
     }
 
     func testDisableInvalidatesQueuedRecordsBeforeTheyReachDisk() throws {

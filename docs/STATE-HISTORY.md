@@ -304,3 +304,48 @@ GitHub read-only проверка подтвердила публикацию v1
 - Независимая проверка скачанных публичных files: SHA-256 ZIP/DMG PASS; tag stable и latest Qipli.dmg byte-identical versioned DMG. Приложение: 1.0.13/build14, strict/deep codesign PASS, stapler PASS, Gatekeeper accepted / Notarized Developer ID. Public executable не содержит LayoutCorrectionDiagnostics и диагностических string markers.
 - Public appcast: version1.0.13/build14, minimum14.0, immutable ZIP URL/length PASS; verify-sparkle-appcast --require-public PASS, Ed25519 signature независимо проверена публичным SUPublicEDKey из скачанного приложения через Node WebCrypto. Private key локально не использовался.
 - Installed update с сохранением History/favorites/Accessibility, clean-machine macOS14 и полная S037 matrix остаются открыты. Старые опубликованные tag/assets не менялись.
+
+
+## 2026-10-15: прежний snapshot перед разрешением публикации 1.0.15
+
+### Локальная диагностика и подготовка 1.0.14
+
+S038 `needs_verification`, D-054: Settings General → Diagnostics, default-off preference, Show/Clear Logs, bounded JSONL writer и correction stage/reason/transport traces без payload и app/source identities. Dev/Release logs разделены. Size ≤10 MiB, retention 7 дней при работающем приложении/следующем запуске. Disable/clear epoch, queue bound и unsafe-file tests пройдены.
+
+Финальный SwiftPM 345/345, universal unsigned Debug/Release, development-signed universal Dev 1.0.14/build15, strict/deep codesign, version/CI/release/privacy/readiness checks PASS. Native Light/Dark renders и отдельный scoped UI review пройдены; production-size scrolling, installed keyboard/VoiceOver/Finder opening и реальный correction smoke новой сборки остаются открытыми.
+
+Локальный release snapshot: `/private/tmp/qipli-1.0.14-candidate`; результаты и патчи: `dist/1.0.14-preparation/`. Включает все текущие изменения D-053/S031/S037 и S038. База свежего origin/main `4917a44`; GitHub проверен 2026-10-15: последняя версия 1.0.13/build14, открытых PR/незавершённого release run нет. Функциональная поставка подготовлена в ветке `feature/history-plain-paste-correction-feedback`; Config сохраняет 1.0.13/build14. Candidate version 1.0.14/build15 и notes подготовлены отдельным patch, поскольку release branch создаётся только после merge функционального PR в main. Пользователь 2026-10-15 разрешил функциональный PR в main и, после его слияния, отдельный Release 1.0.14 PR. Merge/tag/publication этим запросом не выполняются.
+
+Следующий шаг: unsigned CI функционального PR; после его слияния создать Release 1.0.14 PR с build15. Installed smoke Diagnostics и D-053 на подписанной Dev остаётся открытым. После merge подготовить release/1.0.14 от свежего origin/main с version-and-notes patch; подписанный public ZIP/DMG, Sparkle и остальные release gates проверяются существующим workflow.
+
+
+
+## Последний выпуск
+
+`v1.0.13`, build `14`, tag/main SHA `8be2a4c076896f08338b15e1d470b8e04fb4d5df`. [PR #31](https://github.com/tomfordrumm/Qipli/pull/31) удаляет временный logger, его вызовы и coordinator stage tracking; proof state и safety checks сохранены. [PR #32](https://github.com/tomfordrumm/Qipli/pull/32) содержит только version/build и release notes. Exact-SHA [main CI](https://github.com/tomfordrumm/Qipli/actions/runs/37460793779) и protected [release workflow](https://github.com/tomfordrumm/Qipli/actions/runs/37461443223) SUCCESS; Environment approval выполнил пользователь.
+
+Публичные ZIP/DMG SHA-256 PASS; стабильный и latest `Qipli.dmg` идентичны версионному DMG. Workflow проверил codesign, notarization/stapling и Gatekeeper; скачанное приложение независимо прошло strict/deep codesign, stapler и Gatekeeper. [Sparkle appcast](https://tomfordrumm.github.io/Qipli/appcast.xml): 1.0.13/build14, minimum macOS14.0, immutable ZIP URL и длина совпадают; Ed25519 подпись ZIP независимо проверена публичным ключом из приложения. Public executable logging marker scan PASS.
+
+Локальные gates patch: SwiftPM 325/325 без failures, version validator 8/8, project-version, CI/release contract 13/13, privacy и diff checks PASS; в Sources нет OSLog/Logger/LayoutCorrectionDiagnostics. ChatGPT word/space/Undo/clipboard принят пользователем до v1.0.12, correction behavior в v1.0.13 не меняется. Cross-app Settings focus, installed update и остальные открытые matrix не объявляются пройденными. Подробное release evidence находится в STATE-HISTORY.
+
+
+
+## Следующее действие
+
+Для кандидата 1.0.14/build15: дождаться merge функционального PR перед созданием release branch/PR; отдельно проверить Diagnostics и D-053 в подписанной Dev. Публикация кандидата не выполнялась.
+
+Установить опубликованное обновление 1.0.13 через Sparkle из предыдущей Release версии; проверить сохранение History/favorites и Accessibility после relaunch. Это отдельный installed-update gate, публикация его не закрывает.
+
+Для S037: основной ChatGPT word/space/Undo/clipboard smoke закрыт пользователем. Продолжить полную gesture/source/permission/focus/VoiceOver matrix, macOS14, 3+ sources и IME; проверить newer Copy и History/Stack suppression в установленном приложении.
+
+Провести S036 installed-app matrix на synthetic данных в development-signed Debug: TextEdit plain/rich, браузер, image target и Finder reference; мышь/клавиатура/Escape, отказ Accessibility, закрытый target, active Stack, VoiceOver и Light/Dark. Ожидается одна вставка полного payload в исходное приложение без открытия History при успехе.
+
+S034 закрыт по пользовательскому smoke acceptance и автоматическим проверкам. Его installed-app и signed-update проверки остаются delivery gates; отдельные release gates S014/S008, S031 и S032 остаются в общем порядке ниже.
+
+
+1. Проверить сброс History к первому элементу после прокрутки и повторного открытия; отдельно проверить custom shortcut/reset и обычное text field.
+2. Выполнить S032 installed-app visual/search/accessibility matrix, включая card reuse, selection-only update, URL-first search и exact `⇧Backspace`.
+3. Выполнить реальный Sparkle update для S031 с сохранением History.
+4. Выполнить clean-machine macOS14 install/launch и operational immutable-rerun gate S014. Выпуск v1.0.13 завершён, опубликованные tag/assets неизменяемы.
+
+Подробные исторические записи не являются обязательным operational-контекстом. Открывайте [`STATE-HISTORY.md`](STATE-HISTORY.md) только если нужно восстановить происхождение решения, старый verification result или release evidence.

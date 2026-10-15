@@ -15,6 +15,7 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
     var reactivationPreviousInterception: (() -> StackReactivationInputDisposition)?
     var finderCutPasteInterception: ((Bool) -> FinderCutPasteInputDisposition)?
     var onStatusChange: ((GlobalInputStatus) -> Void)?
+    weak var diagnostics: LocalDiagnostics?
     var onCorrectionTrigger: (() -> Void)?
     var onCorrectionInputInvalidation: (() -> Void)?
     private let correctionSettingsLock = NSLock()
@@ -33,7 +34,17 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
     private let historyHotKey = RegisteredHistoryHotKey()
     static let eventTapOptions: CGEventTapOptions = .defaultTap
     private(set) var status: GlobalInputStatus = .stopped {
-        didSet { onStatusChange?(status) }
+        didSet {
+            let reason: DiagnosticReason
+            switch status {
+            case .ready: reason = .listenerReady
+            case .stopped: reason = .listenerStopped
+            case .permissionRequired: reason = .permissionDenied
+            case .unavailable: reason = .listenerUnavailable
+            }
+            diagnostics?.record(stage: .inputListener, reason: reason)
+            onStatusChange?(status)
+        }
     }
 
     init(shortcutSnapshotProvider: @escaping () -> ShortcutSnapshot = { .defaults }) {
@@ -252,6 +263,7 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         case .keyUp:
             correctionGesture.keyUp()
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
+            diagnostics?.record(stage: .inputListener, reason: type == .tapDisabledByTimeout ? .tapTimeout : .tapDisabled)
             correctionLedger.resetWordMetadata()
             correctionLedger.markCompositionUncertain()
             correctionGesture.reset(flags: [.maskAlternate])
