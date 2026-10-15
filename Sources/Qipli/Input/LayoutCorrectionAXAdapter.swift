@@ -7,6 +7,10 @@ enum CorrectionAXError: Error, Equatable {
     case unavailable, unsupported, stale, limit, deadline, verification
 }
 
+enum LayoutCorrectionLimits {
+    static let maximumTextUTF16Units = 12_288
+}
+
 struct CorrectionAXDeadline: Sendable {
     private let expires: UInt64
     init(milliseconds: Double = 500) {
@@ -36,11 +40,16 @@ struct CorrectionAXReplacement: Sendable {
 }
 
 protocol LayoutCorrectionAXAdapting: AnyObject, Sendable {
+    func setDiagnosticTrace(_ trace: (@Sendable (DiagnosticStage, DiagnosticReason) -> Void)?)
     func capture(pid: pid_t, deadline: CorrectionAXDeadline) throws -> CorrectionAXTarget
     func matches(_ target: CorrectionAXTarget, deadline: CorrectionAXDeadline) throws -> Bool
     func read(_ target: CorrectionAXTarget, range: CFRange, deadline: CorrectionAXDeadline) throws -> String
     func replace(_ target: CorrectionAXTarget, range: CFRange, expectedText: String, replacement: String,
                  keepSelected: Bool, deadline: CorrectionAXDeadline, isFresh: () -> Bool) throws -> CorrectionAXReplacement
+}
+
+extension LayoutCorrectionAXAdapting {
+    func setDiagnosticTrace(_ trace: (@Sendable (DiagnosticStage, DiagnosticReason) -> Void)?) {}
 }
 
 /// Owned only on main. Payload never leaves memory, and newer external Copy wins.
@@ -105,8 +114,22 @@ final class CorrectionClipboardLease {
     }
 }
 
+private final class CorrectionDiagnosticTraceState: @unchecked Sendable {
+    let lock = NSLock()
+    var trace: (@Sendable (DiagnosticStage, DiagnosticReason) -> Void)?
+}
+
 /// Caller owns a serial background worker. The event tap never calls this adapter.
 final class LayoutCorrectionAXAdapter: LayoutCorrectionAXAdapting {
+    private let diagnosticTraceState = CorrectionDiagnosticTraceState()
+    private var diagnosticTrace: (@Sendable (DiagnosticStage, DiagnosticReason) -> Void)? {
+        diagnosticTraceState.lock.withLock { diagnosticTraceState.trace }
+    }
+
+    func setDiagnosticTrace(_ trace: (@Sendable (DiagnosticStage, DiagnosticReason) -> Void)?) {
+        diagnosticTraceState.lock.withLock { diagnosticTraceState.trace = trace }
+    }
+
     @MainActor private var registerPasteboardSelfWrite: ((Int) -> Void)?
 
     @MainActor
@@ -149,7 +172,7 @@ final class LayoutCorrectionAXAdapter: LayoutCorrectionAXAdapting {
     }
 
     func read(_ target: CorrectionAXTarget, range: CFRange, deadline: CorrectionAXDeadline) throws -> String {
-        guard range.length <= 4096, valid(range, count: target.characterCount) else { throw CorrectionAXError.limit }
+        guard range.length <= LayoutCorrectionLimits.maximumTextUTF16Units, valid(range, count: target.characterCount) else { throw CorrectionAXError.limit }
         if range.length == 0 { return "" }
         try admit(target.pid)
         let system = AXUIElementCreateSystemWide()
@@ -174,8 +197,8 @@ final class LayoutCorrectionAXAdapter: LayoutCorrectionAXAdapting {
         _ target: CorrectionAXTarget, range: CFRange, expectedText: String, replacement: String,
         keepSelected: Bool, deadline: CorrectionAXDeadline, isFresh: () -> Bool
     ) throws -> CorrectionAXReplacement {
-        guard range.length > 0, range.length <= 4096, expectedText.utf16.count == range.length,
-              !replacement.isEmpty, replacement.utf16.count <= 4096,
+        guard range.length > 0, range.length <= LayoutCorrectionLimits.maximumTextUTF16Units, expectedText.utf16.count == range.length,
+              !replacement.isEmpty, replacement.utf16.count <= LayoutCorrectionLimits.maximumTextUTF16Units,
               valid(range, count: target.characterCount) else { throw CorrectionAXError.limit }
         guard keepSelected ? equal(target.selection, range) :
             (target.selection.length == 0 && target.selection.location >= range.location + range.length)
@@ -191,13 +214,18 @@ final class LayoutCorrectionAXAdapter: LayoutCorrectionAXAdapting {
         // must remain untouched; use the already supported native Unicode event.
         // Never retry with another transport after dispatch.
         let lease: CorrectionClipboardLease?
+        diagnosticTrace?(.clipboardLease, .started)
         do {
             lease = try DispatchQueue.main.sync {
                 guard let register = self.registerPasteboardSelfWrite else { throw CorrectionAXError.unavailable }
                 return try CorrectionClipboardLease(text: replacement, deadline: deadline, registerSelfWrite: register)
             }
-        } catch CorrectionAXError.unavailable { lease = nil }
-          catch CorrectionAXError.limit { lease = nil }
+            diagnosticTrace?(.clipboardLease, .passed)
+        } catch CorrectionAXError.unavailable {
+            diagnosticTrace?(.clipboardLease, .unavailable); lease = nil
+        } catch CorrectionAXError.limit {
+            diagnosticTrace?(.clipboardLease, .limit); lease = nil
+        }
         guard let source = CGEventSource(stateID: .privateState),
               let down = CGEvent(keyboardEventSource: source, virtualKey: lease == nil ? 0 : CGKeyCode(kVK_ANSI_V), keyDown: true),
               let up = CGEvent(keyboardEventSource: source, virtualKey: lease == nil ? 0 : CGKeyCode(kVK_ANSI_V), keyDown: false)
@@ -239,11 +267,13 @@ final class LayoutCorrectionAXAdapter: LayoutCorrectionAXAdapting {
               isFresh() else { throw CorrectionAXError.stale }
         try admit(target.pid); try deadline.check()
         guard DispatchQueue.main.sync(execute: { lease?.isOwned() ?? true }), isFresh() else { throw CorrectionAXError.stale }
+        diagnosticTrace?(lease == nil ? .unicodePaste : .nativePaste, .started)
         down.postToPid(target.pid); up.postToPid(target.pid)
         dispatched = true
         let delta = replacement.utf16.count - range.length
         let newRange = CFRange(location: range.location, length: replacement.utf16.count)
         let expectedCaret = range.location + replacement.utf16.count
+        diagnosticTrace?(.postcondition, .started)
         var accepted: CorrectionAXTarget?
         // Wait only for acceptance, never re-send the keyboard events.
         while accepted == nil {
@@ -281,6 +311,7 @@ final class LayoutCorrectionAXAdapter: LayoutCorrectionAXAdapting {
             else { Thread.sleep(forTimeInterval: 0.005) }
         }
         guard let final else { throw CorrectionAXError.verification }
+        diagnosticTrace?(.postcondition, .passed)
         confirmed = true
         return CorrectionAXReplacement(target: final, range: newRange)
     }
@@ -295,7 +326,11 @@ final class LayoutCorrectionAXAdapter: LayoutCorrectionAXAdapting {
 
     private func admit(_ pid: pid_t) throws {
         guard pid > 0, pid != ProcessInfo.processInfo.processIdentifier,
-              AXIsProcessTrusted(), !IsSecureEventInputEnabled() else { throw CorrectionAXError.unavailable }
+              AXIsProcessTrusted(), !IsSecureEventInputEnabled() else {
+            if !AXIsProcessTrusted() { diagnosticTrace?(.admission, .permissionDenied) }
+            else if IsSecureEventInputEnabled() { diagnosticTrace?(.admission, .secureInput) }
+            throw CorrectionAXError.unavailable
+        }
     }
 
     private func configure(_ element: AXUIElement, _ deadline: CorrectionAXDeadline) throws {

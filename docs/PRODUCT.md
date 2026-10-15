@@ -137,7 +137,7 @@ Qipli — бесплатное open-source приложение для macOS. Т
 
 - text occurrence всегда сохраняет canonical plain string для поиска, preview, совместимости и Paste Stack;
 - если тот же pasteboard item предоставляет стандартные `public.rtf` и/или `public.html`, Qipli bounded-сохраняет их исходные bytes вместе с plain representation;
-- `Enter` и double-click из History вставляют сохранённые rich representations с plain fallback, а exact `⇧Enter` намеренно вставляет только plain text;
+- `Enter` и double-click из History вставляют сохранённые rich representations с plain fallback, а exact `⇧Enter` или Shift-double-click намеренно вставляет только plain text;
 - default `⌘⇧V` остаётся вызовом History и не превращается в команду plain paste;
 - если rich payload превышает safety limit или не может быть сохранён, допустимый plain text всё равно появляется в History без форматирования; старые entries не удаляются автоматически;
 - History не рендерит HTML/RTF и не индексирует markup: карточка и поиск используют только canonical plain text;
@@ -186,7 +186,7 @@ Qipli — бесплатное open-source приложение для macOS. Т
 2. Пользователь активирует поле назначения и нажимает `⌘⇧V`.
 3. Top Notch раскрывается сверху текущего экрана поверх текущего приложения, а встроенный поиск получает фокус.
 4. Пользователь вводит запрос или выбирает карточку стрелками.
-5. По `Enter` или double-click Qipli закрывает transient Top Notch, возвращается к ранее активному приложению и отправляет выбранную occurrence со всеми сохранёнными supported representations. Exact `⇧Enter` выполняет тот же путь только с canonical plain text.
+5. По `Enter` или double-click Qipli закрывает transient Top Notch, возвращается к ранее активному приложению и отправляет выбранную occurrence со всеми сохранёнными supported representations. Exact `⇧Enter` или Shift-double-click выполняет тот же путь только с canonical plain text.
 6. Если целевое приложение не принимает вставку, occurrence остаётся в истории и может быть выбрана повторно.
 
 ### PJ-002 — Последовательно перенести серию
@@ -241,7 +241,7 @@ Qipli — бесплатное open-source приложение для macOS. Т
 2. Qipli сохраняет canonical plain string и bounded allowlisted rich representations как одну occurrence; поиск и карточка используют только plain string.
 3. Пользователь открывает History прежним `⌘⇧V` и выбирает occurrence.
 4. `Enter` или double-click вставляет rich payload с plain fallback. Совместимое target-приложение выбирает поддерживаемое представление; Qipli не обещает pixel-perfect перенос между разными редакторами.
-5. `⇧Enter` вставляет только canonical plain text, даже если rich representations сохранены.
+5. `⇧Enter` или Shift-double-click вставляет только canonical plain text, даже если rich representations сохранены.
 6. Если rich bytes не были сохранены из-за лимита, occurrence остаётся доступной как plain-only. Если сохранённый rich asset позднее повреждён, default paste не деградирует молча: History остаётся открытой, а пользователь может явно выбрать `⇧Enter`.
 
 ## 4. Функциональные требования
@@ -285,7 +285,7 @@ Qipli — бесплатное open-source приложение для macOS. Т
 | FR-035 | Звезда слева над Search переключает History/Favorites в Top Notch; поиск действует внутри режима. Звезда карточки добавляет/снимает избранное, видна при hover/selection и постоянно у избранных. Категорий нет. | Пользователь 2026-09-08, D-042 |
 | FR-036 | Paste Stack использует Top Notch shell вместо отдельного перемещаемого окна: Start/Collect, ordered cards, reorder/direction, Next/Processing/Used, Reactivate, Cancel и auto-finish сохраняют существующие session/input contracts и nonactivating focus behavior. | Пользователь 2026-09-02 |
 | FR-037 | Text occurrence сохраняет exact canonical plain string и, когда source предоставляет их в том же pasteboard item, bounded raw `public.rtf`/`public.html` representations без преобразования markup или загрузки external resources. | Пользователь 2026-09-03 |
-| FR-038 | Для rich text `Enter` и double-click выполняют formatted History paste с plain fallback, а exact `⇧Enter` выполняет plain-only paste. Default `⌘⇧V` продолжает только открывать History. | Пользователь 2026-09-03 |
+| FR-038 | Для rich text `Enter` и double-click выполняют formatted History paste с plain fallback, а exact `⇧Enter` или Shift-double-click выполняет plain-only paste. Default `⌘⇧V` продолжает только открывать History. | Пользователь 2026-09-03 |
 | FR-039 | Если rich representation превышает safety limit или не может быть durably сохранена, Qipli сохраняет допустимую occurrence как plain-only, не удаляет существующую History и показывает bounded non-payload notice. | Пользователь 2026-09-03 |
 | FR-040 | History-карточки не показывают отдельную текстовую подпись типа. Иконка остаётся видимой, основной текст использует системный шрифт 13 pt, а VoiceOver продолжает сообщать тип, содержимое или состояние и selection. | Пользователь 2026-09-04 |
 | FR-041 | Image-карточка использует локальный thumbnail как full-bleed aspect-fill background; bounded metadata или состояние отображается на читаемой затемнённой подложке, а отсутствие thumbnail получает честный локальный fallback. | Пользователь 2026-09-04 |
@@ -464,7 +464,7 @@ Qipli — бесплатное open-source приложение для macOS. Т
 - Existing text history после migration сохраняет exact occurrences и поведение, а первая History page остаётся bounded независимо от общего числа retained entries.
 - Inline image переживает restart и повторно вставляется из History; URL/file/video occurrence находится по metadata и либо вставляется, либо показывает точную причину unavailable source.
 - Delete, expiry и Clear All удаляют Qipli-owned media bytes и thumbnails, но не меняют referenced source files.
-- Форматированный text fragment переживает restart, вставляется с supported formatting по `Enter`/double-click и как plain-only по `⇧Enter`; oversized rich representation не мешает сохранению canonical text.
+- Форматированный text fragment переживает restart, вставляется с supported formatting по `Enter`/double-click и как plain-only по `⇧Enter`/Shift-double-click; oversized rich representation не мешает сохранению canonical text.
 - Поиск `localhost` и аналогичный metadata query выводит typed URL matches раньше более свежих incidental text matches, не теряя остальные результаты и не меняя их содержимое.
 
 Числовые продуктовые KPI пока не заданы и не должны выдумываться при реализации.
@@ -551,12 +551,20 @@ D-044 расширяет прежний text-only Stack после S033. Огр�
 
 Новая отдельная post-MVP функция по запросу пользователя 2026-10-01. Подтверждены ручное действие, выделенный текст, последнее введённое слово, включая слово сразу перед пробелом, левый Option и использование раскладок, включённых в macOS. При трёх и более раскладках подтверждён переход по кругу того же фрагмента повторным Option. D-050 уточняет capability rules и способы замены; это не обещание совместимости со всеми редакторами/IME и не расширение автоматического clipboard capture.
 
-Допустимость определяется возможностями конкретного сфокусированного editable field через Accessibility, а не списком имён приложений. Qipli проверяет эти возможности и фактический результат для каждой операции; это не обещание поддержки всех полей или редакторов. Ошибки и причины отказа остаются inline в Settings; popup и системные уведомления не используются.
+Допустимость определяется возможностями конкретного сфокусированного editable field через Accessibility, а не списком имён приложений. Qipli проверяет эти возможности и фактический результат для каждой операции; это не обещание поддержки всех полей или редакторов. Ошибки и причины отказа доступны inline в Settings и в маленькой nonactivating верхней панели на три секунды; системные уведомления не используются.
 
 | ID | Требование |
 |---|---|
 | FR-053 | Явный глобальный хоткей преобразует выделенный редактируемый текст по физическому расположению клавиш исходной и следующей поддерживаемой системной раскладки. Выделение имеет приоритет; без выделения исправляется последнее введённое слово, также сразу после пробела, без изменения соседнего текста. |
 | FR-054 | Отдельное нажатие/отпускание левого Option исправляет текст между поддерживаемыми enabled/selectable keyboard layouts macOS. Пара RU/EN не зашивается. При двух sources переход между ними; при трёх и более переход по кругу, повторное нажатие переводит тот же фрагмент дальше до нового ввода/смены focus/selection. Settings управляет включением/trigger и показывает порядок обхода без сброса прежних shortcuts. После проверенной замены предложен переход на целевой input source; auto-repeat и modifier chords коррекцию не запускают. |
 | BR-039 | Чтение текста происходит только по явному действию из допустимого focused editable element. Secure/password/read-only/неопределённый element, ambiguous/unsupported content и stale range не допускают mutation. Нет автоматической коррекции, постоянного keyboard buffer, записи текста в History или замены всего поля ради одного диапазона. |
-| BR-040 | Операция сохраняет соседний текст, selection/caret и обычный single-step text Undo в targets, прошедших capability checks. Базовый путь сохраняет содержимое clipboard через ownership-checked temporary native paste transaction по D-052; более новая внешняя Copy не перезаписывается. Stack/Cut ownership не меняется. Dispatch не считается подтверждением замены; после mutation нет blind retry. При active Stack/pending Cut/Qipli-focused UI/in-flight input операция отказывается; ошибки и причины отказа показываются только inline в Settings, без popup или системных уведомлений. |
+| BR-040 | Операция сохраняет соседний текст, selection/caret и обычный single-step text Undo в targets, прошедших capability checks. Базовый путь сохраняет содержимое clipboard через ownership-checked temporary native paste transaction по D-052; более новая внешняя Copy не перезаписывается. Stack/Cut ownership не меняется. Dispatch не считается подтверждением замены; после mutation нет blind retry. При active Stack/pending Cut/Qipli-focused UI/in-flight input операция отказывается; ошибки и причины отказа показываются inline в Settings и в nonactivating верхней панели с анимацией раскрытия/сворачивания и таймером три секунды. Новый отказ обновляет сообщение/таймер; успех не открывает панель. Feedback не содержит пользовательского текста. |
 | NFR-037 | До реализации обязателен macOS platform probe для Option gesture, AX range, tagged replacement, native Undo, input-source mapping/switch и privacy admission. Чтение/время операции ограничены, превышение даёт отказ без усечения; текст операции не сохраняется, не логируется и не передаётся в сеть. Новые permissions и clipboard fallback без отдельного решения не добавляются. |
+
+## Локальная диагностика: S038
+
+| ID | Требование |
+|---|---|
+| FR-055 | Settings General позволяет включить локальную диагностику, открыть папку журналов и очистить её. По умолчанию диагностика выключена; выбор сохраняется после relaunch отдельно для Dev/Release. |
+| BR-041 | Журналы содержат только фиксированные события, коды этапов/отказов, время, случайные session/operation IDs, version/build и длительности. Запрещены payload, клавиши/символы, source IDs, приложения/окна, URL, paths и произвольные error descriptions. |
+| NFR-038 | Запись выполняется вне input/main thread с ограниченной очередью; максимум 10 MiB и 7 дней при работающем приложении. Нет сети/telemetry; выключение прекращает новые события, очистка не затрагивает History/clipboard. Ошибка журнала не мешает correction. |

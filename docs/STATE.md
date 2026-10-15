@@ -1,10 +1,20 @@
 # Qipli — текущее состояние проекта
 
-Последняя актуализация: 2026-10-06, опубликован и проверен v1.0.13/build14 без временной диагностики S037. Установленное Sparkle обновление остаётся отдельной проверкой.
+Последняя актуализация: 2026-10-15, S038 реализован и проверен локально; подготовлен кандидат 1.0.14/build15. Публичным остаётся v1.0.13/build14; установленное Sparkle обновление остаётся отдельной проверкой.
 
 Источник operational-статусов: этот файл. Исторические переходы и прежние verification snapshots находятся в [`STATE-HISTORY.md`](STATE-HISTORY.md).
 
 ## Текущее положение
+
+### Локальная диагностика и подготовка 1.0.14
+
+S038 `needs_verification`, D-054: Settings General → Diagnostics, default-off preference, Show/Clear Logs, bounded JSONL writer и correction stage/reason/transport traces без payload и app/source identities. Dev/Release logs разделены. Size ≤10 MiB, retention 7 дней при работающем приложении/следующем запуске. Disable/clear epoch, queue bound и unsafe-file tests пройдены.
+
+Финальный SwiftPM 345/345, universal unsigned Debug/Release, development-signed universal Dev 1.0.14/build15, strict/deep codesign, version/CI/release/privacy/readiness checks PASS. Native Light/Dark renders и отдельный scoped UI review пройдены; production-size scrolling, installed keyboard/VoiceOver/Finder opening и реальный correction smoke новой сборки остаются открытыми.
+
+Локальный release snapshot: `/private/tmp/qipli-1.0.14-candidate`; результаты и патчи: `dist/1.0.14-preparation/`. Включает все текущие изменения D-053/S031/S037 и S038. База свежего origin/main `4917a44`; GitHub проверен 2026-10-15: последняя версия 1.0.13/build14, открытых PR/незавершённого release run нет. Функциональная поставка подготовлена в ветке `feature/history-plain-paste-correction-feedback`; Config сохраняет 1.0.13/build14. Candidate version 1.0.14/build15 и notes подготовлены отдельным patch, поскольку release branch создаётся только после merge функционального PR в main. Пользователь 2026-10-15 разрешил функциональный PR в main и, после его слияния, отдельный Release 1.0.14 PR. Merge/tag/publication этим запросом не выполняются.
+
+Следующий шаг: unsigned CI функционального PR; после его слияния создать Release 1.0.14 PR с build15. Installed smoke Diagnostics и D-053 на подписанной Dev остаётся открытым. После merge подготовить release/1.0.14 от свежего origin/main с version-and-notes patch; подписанный public ZIP/DMG, Sparkle и остальные release gates проверяются существующим workflow.
 
 ### Qipli Dev identity
 
@@ -20,6 +30,8 @@
 - S008 остаётся `blocked` до закрытия release verification matrix, связанной с S014.
 
 ## Новая запланированная работа
+
+Локальное уточнение 2026-10-08, ветка `feature/history-plain-paste-correction-feedback`: Shift-double-click plain paste, S037 ceiling 12 288 UTF-16 и transient error panel на три секунды реализованы по D-053. SwiftPM 333/333, signed universal Debug/strict-deep codesign, unsigned universal Release, version/privacy/diff checks PASS. Owned NSTextView 12 288: полная замена, сохранение context/selection, native Undo и clipboard PASS отдельно для native paste и Unicode fallback. Real mouseUp callback и notice timer/races/layout проверены. Версия/build 1.0.13/14 не менялись; опубликованное приложение не обновлено. Следующее действие: installed user smoke Shift-double-click, длинного выделения и анимации ошибки в Dev; S037 остаётся needs_verification.
 
 S037 `needs_verification`: реализация on-demand bounded capture по D-052 доставлена в v1.0.12. Полный SwiftPM 325/325, signed universal Debug/unsigned Release и owned NSTextView word+0/3 spaces/selection/native Undo PASS. Пользователь подтвердил новую Dev в ChatGPT: исправление слова без выделения без пробела и после пробелов, один ⌘Z и сохранение clipboard. Дополнительные sources, permission/focus races, VoiceOver/macOS14 и установленное Sparkle обновление остаются открыты. Подробности в Implementation report S037.
 
@@ -110,6 +122,7 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 | S035 | Вырезание файлов с индикацией в чёлке | `needs_verification` | S033, S025; installed Finder/accessibility/display matrix и окончательное подтверждение D-046 |
 | S036 | Пять последних записей History в меню | `needs_verification` | реализация и automated checks; installed-app typed target/keyboard/VoiceOver/Light-Dark matrix, release gate S031 сохранён |
 | S037 | Исправление раскладки по хоткею | `needs_verification` | опубликован v1.0.13 без временных логов; ChatGPT word/space/Undo/clipboard принят; полная sources/permissions/focus/VoiceOver/macOS14 matrix открыта |
+| S038 | Opt-in локальная диагностика | `needs_verification` | automated/build/UI render PASS; installed Settings/VoiceOver/Finder и correction smoke открыты |
 
 ## Блокеры и recheck points
 
@@ -160,6 +173,8 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 - 2026-09-04: `v1.0.8` signed/notarized public release независимо проверен; installed update остаётся отдельным gate S031.
 
 ## Следующее действие
+
+Для кандидата 1.0.14/build15: дождаться merge функционального PR перед созданием release branch/PR; отдельно проверить Diagnostics и D-053 в подписанной Dev. Публикация кандидата не выполнялась.
 
 Установить опубликованное обновление 1.0.13 через Sparkle из предыдущей Release версии; проверить сохранение History/favorites и Accessibility после relaunch. Это отдельный installed-update gate, публикация его не закрывает.
 

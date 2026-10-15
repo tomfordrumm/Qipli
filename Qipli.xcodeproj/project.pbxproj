@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        DA0100000000000000000001 /* LocalDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0200000000000000000001 /* LocalDiagnostics.swift */; };
 		A00100000000000000000001 /* QipliAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000001 /* QipliAppDelegate.swift */; };
 		A00100000000000000000002 /* ApplicationShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000002 /* ApplicationShell.swift */; };
 		A00100000000000000000003 /* AccessibilityPermissionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000003 /* AccessibilityPermissionService.swift */; };
@@ -82,6 +83,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+        DA0200000000000000000001 /* LocalDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDiagnostics.swift; sourceTree = "<group>"; };
 		A00200000000000000000001 /* QipliAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QipliAppDelegate.swift; sourceTree = "<group>"; };
 		A00200000000000000000002 /* ApplicationShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationShell.swift; sourceTree = "<group>"; };
 		A00200000000000000000003 /* AccessibilityPermissionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityPermissionService.swift; sourceTree = "<group>"; };
@@ -325,6 +327,7 @@
 				A00200000000000000000031 /* ShortcutPreferences.swift */,
 				A00200000000000000000032 /* LaunchAtLoginService.swift */,
 				A00200000000000000000033 /* SettingsViewModel.swift */,
+                DA0200000000000000000001 /* LocalDiagnostics.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -480,6 +483,7 @@
 				A00100000000000000000031 /* ShortcutPreferences.swift in Sources */,
 				A00100000000000000000032 /* LaunchAtLoginService.swift in Sources */,
 				A00100000000000000000033 /* SettingsViewModel.swift in Sources */,
+                DA0100000000000000000001 /* LocalDiagnostics.swift in Sources */,
 				A00100000000000000000034 /* SettingsWindowController.swift in Sources */,
 				A00100000000000000000036 /* OnboardingCoordinator.swift in Sources */,
 				A00100000000000000000037 /* OnboardingWindowController.swift in Sources */,

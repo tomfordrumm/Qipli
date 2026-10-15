@@ -29,7 +29,11 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         if CommandLine.arguments.contains("--fixture") { showFixture(); return }
         guard AXIsProcessTrusted() else { finish("nativePaste=SKIPPED accessibility=false"); return }
-        adapter.configurePasteboard { [weak self] _ in self?.selfWrites += 1 }
+        // Omitting the optional registration exercises the production Unicode
+        // fallback without changing the user's clipboard to force a failure.
+        if !CommandLine.arguments.contains("--unicode-only") {
+            adapter.configurePasteboard { [weak self] _ in self?.selfWrites += 1 }
+        }
         clipboardBefore = snapshot()
         launchFixture()
     }
@@ -61,7 +65,7 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
         editor.setAccessibilityIdentifier("qipli.s037.owned-native-paste")
         let fixtureCase = CommandLine.arguments.last.flatMap(Int.init) ?? 0
         let fixtureSpaces = fixtureCase == 1 ? 0 : 3
-        editor.string = "fixture-before ghbdtn" + String(repeating: " ", count: fixtureSpaces) + " fixture-after"
+        editor.string = "fixture-before " + (fixtureCase == 3 ? String(repeating: "ghbdtn", count: 2048) : "ghbdtn") + String(repeating: " ", count: fixtureSpaces) + " fixture-after"
         window.contentView?.addSubview(editor)
         let main = NSMenu()
         let appItem = NSMenuItem(); let appMenu = NSMenu()
@@ -83,9 +87,11 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
             finish("nativePaste=FAIL ownedFixtureFocus=false"); return
         }
         let spaces = caseIndex == 1 ? 0 : 3
-        let selected = caseIndex == 2
-        let seed = "fixture-before ghbdtn" + String(repeating: " ", count: spaces) + " fixture-after"
-        let expected = "fixture-before привет" + String(repeating: " ", count: spaces) + " fixture-after"
+        let selected = caseIndex >= 2
+        let sourceText = caseIndex == 3 ? String(repeating: "ghbdtn", count: 2048) : "ghbdtn"
+        let correctedText = caseIndex == 3 ? String(repeating: "привет", count: 2048) : "привет"
+        let seed = "fixture-before " + sourceText + String(repeating: " ", count: spaces) + " fixture-after"
+        let expected = "fixture-before " + correctedText + String(repeating: " ", count: spaces) + " fixture-after"
         let pid = fixture.processIdentifier
         let application = AXUIElementCreateApplication(pid)
         var raw: CFTypeRef?
@@ -95,7 +101,7 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
         var identifier: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXIdentifierAttribute as CFString, &identifier) == .success,
               identifier as? String == "qipli.s037.owned-native-paste" else { finish("nativePaste=FAIL fixtureIdentity=false"); return }
-        var range = selected ? CFRange(location: 15, length: 6) : CFRange(location: 21 + spaces, length: 0)
+        var range = selected ? CFRange(location: 15, length: sourceText.utf16.count) : CFRange(location: 21 + spaces, length: 0)
         guard let value = AXValueCreate(.cfRange, &range),
               AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, value) == .success else {
             finish("nativePaste=FAIL fixtureSelection=false"); return
@@ -123,16 +129,30 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
         }
     }
 
+    private nonisolated static func matchesText(_ text: String, target: CorrectionAXTarget,
+        adapter: LayoutCorrectionAXAdapter, deadline: CorrectionAXDeadline) throws -> Bool {
+        let value = text as NSString
+        var offset = 0
+        while offset < value.length {
+            let length = min(4096, value.length - offset)
+            guard try adapter.read(target, range: CFRange(location: offset, length: length), deadline: deadline)
+                == value.substring(with: NSRange(location: offset, length: length)) else { return false }
+            offset += length
+        }
+        return true
+    }
+
     private func verifyAndUndo(pid: pid_t, element: AXUIElement, seed: String, expected: String, spaces: Int, selected: Bool) {
         let adapter = self.adapter
         let index = caseIndex
+        let selectedLength = index == 3 ? 12_288 : 6
         DispatchQueue(label: "qipli.s037.native-paste-verification").async { [weak self] in
             var verificationStage = "afterCorrection"
             do {
                 let target = try adapter.capture(pid: pid, deadline: CorrectionAXDeadline())
                 guard CFEqual(element, target.element), target.characterCount == expected.utf16.count,
-                      try adapter.read(target, range: CFRange(location: 0, length: expected.utf16.count), deadline: CorrectionAXDeadline()) == expected,
-                      target.selection.location == (selected ? 15 : 21 + spaces), target.selection.length == (selected ? 6 : 0)
+                      try Self.matchesText(expected, target: target, adapter: adapter, deadline: CorrectionAXDeadline()),
+                      target.selection.location == (selected ? 15 : 21 + spaces), target.selection.length == (selected ? selectedLength : 0)
                 else { throw CorrectionAXError.verification }
                 verificationStage = "undo"
                 guard let source = CGEventSource(stateID: .combinedSessionState) else { throw CorrectionAXError.unavailable }
@@ -149,7 +169,7 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
                     let undone = try adapter.capture(pid: pid, deadline: undoDeadline)
                     guard CFEqual(element, undone.element) else { throw CorrectionAXError.verification }
                     undoVerified = try undone.characterCount == seed.utf16.count &&
-                        (adapter.read(undone, range: CFRange(location: 0, length: seed.utf16.count), deadline: undoDeadline)) == seed
+                        Self.matchesText(seed, target: undone, adapter: adapter, deadline: undoDeadline)
                     if !undoVerified { Thread.sleep(forTimeInterval: 0.01) }
                 }
                 DispatchQueue.main.async {
@@ -158,14 +178,14 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
                     guard self.same(self.clipboardBefore, after) else { self.finish("nativePaste=FAIL clipboardRestore=false"); return }
                     self.lines.append("case=\(index) PASS spaces=\(spaces) selected=\(selected) transport=\(self.selfWrites == 0 ? "unicode" : "paste") nativeUndo=true caret=true clipboardRestore=true preinputMonitor=false")
                     self.caseIndex += 1
-                    if self.caseIndex < 3 {
+                    if self.caseIndex < 4 {
                         self.fixture?.terminate(); self.fixture = nil
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.launchFixture() }
                     }
-                    else { self.finish("nativePaste=PASS cases=3 selfWriteRegistrations=\(self.selfWrites) sourceSwitch=mock noPayloadLog=true") }
+                    else { self.finish("nativePaste=PASS cases=4 selfWriteRegistrations=\(self.selfWrites) sourceSwitch=mock noPayloadLog=true") }
                 }
             } catch {
-                DispatchQueue.main.async { self?.finish("nativePaste=FAIL case=\(index) stage=\(verificationStage) verificationError=\(CorrectionDiagnosticCode.error(error).rawValue)") }
+                DispatchQueue.main.async { self?.finish("nativePaste=FAIL case=\(index) stage=\(verificationStage) verificationError=true") }
             }
         }
     }

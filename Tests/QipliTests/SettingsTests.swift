@@ -240,6 +240,37 @@ final class CustomShortcutInputTests: XCTestCase {
 
 @MainActor
 final class SettingsViewModelTests: XCTestCase {
+    func testDiagnosticsToggleClearAndFailureState() async throws {
+        let suite = "QipliSettingsDiagnostics.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let logger = LocalDiagnostics(defaults: defaults, directory: root)
+        let model = SettingsViewModel(shortcutPreferences: ShortcutPreferences(defaults: defaults),
+            launchAtLoginService: FakeLaunchAtLoginService(status: .notRegistered), diagnostics: logger)
+        XCTAssertFalse(model.diagnosticsEnabled)
+        model.setDiagnosticsEnabled(true)
+        for _ in 0..<100 where model.diagnosticsBusy { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(model.diagnosticsEnabled)
+        XCTAssertNil(model.diagnosticsError)
+        model.clearDiagnosticLogs()
+        for _ in 0..<100 where model.diagnosticsBusy { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertFalse(model.diagnosticsBusy)
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: root.path).isEmpty)
+        model.setDiagnosticsEnabled(false)
+        for _ in 0..<100 where model.diagnosticsBusy { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertFalse(model.diagnosticsEnabled)
+        try FileManager.default.removeItem(at: root)
+        try Data("synthetic blocked folder".utf8).write(to: root)
+        model.setDiagnosticsEnabled(true)
+        for _ in 0..<100 where model.diagnosticsBusy { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertFalse(model.diagnosticsBusy)
+        XCTAssertNotNil(model.diagnosticsError)
+    }
+
     func testLaunchAtLoginUsesSystemStatusForEnableDisableAndExternalRefresh() {
         let context = makeViewModel(status: .notRegistered)
         defer { context.cleanup() }

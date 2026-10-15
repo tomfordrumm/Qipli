@@ -53,6 +53,7 @@
 - `docs/slices/S036-recent-history-menu.md` — пять последних записей под History в status menu и немедленная typed вставка в исходное приложение.
 
 - `docs/slices/S037-manual-layout-correction.md` — ручное исправление выделения или последнего слова левым Option, системные раскладки и циклическое преобразование; до реализации требуется macOS platform probe.
+- `docs/slices/S038-local-diagnostics.md` — выключенная по умолчанию локальная диагностика, Settings, ротация и payload-free correction traces.
 
 ### Подход к поставке
 

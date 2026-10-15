@@ -31,7 +31,7 @@ covers:
 - При двух допустимых sources хоткей переключает между ними; при трёх и более, по подтверждённому выбору пользователя, переводит по кругу. Повторный хоткей работает на том же исправленном диапазоне до нового ввода/смены focus/selection, а не случайно на его последнем слове. Для этого допустим только краткоживущий operation snapshot, не общий keyboard buffer. Порядок источников фиксируется до реализации и виден в Settings: TIS enumeration order не считать доказательством UI order macOS. Не читать недокументированные системные preferences ради порядка. Изменение enabled списка инвалидирует snapshot и пересчитывает цикл.
 - После проверенной замены предлагается переключать input source на целевой, чтобы продолжать ввод. Если источник выключен/недоступен, не включать его автоматически. Ошибка переключения после успешной замены сообщается отдельно, без повторной замены.
 - Выделенный фрагмент остаётся выделенным; в сценарии слова сохраняется позиция курсора после исправленного слова и прежних пробелов. Повторное явное нажатие может исправить диапазон обратно. Auto-repeat не запускает повторную операцию. Нативный `⌘Z` отменяет изменение текста одним действием в поддерживаемом редакторе; восстановление input source через Undo не обещается.
-- Допуск определяется проверкой Accessibility-возможностей конкретного focused editable field, без allowlist по имени приложения и без обещания совместимости всех полей. Ошибки/причины отказа остаются inline в Settings. Нет popup, системного уведомления, нового окна или постоянно видимой панели; feedback не содержит текста пользователя.
+- Допуск определяется проверкой Accessibility-возможностей конкретного focused editable field, без allowlist по имени приложения и без обещания совместимости всех полей. Ошибки/причины отказа остаются inline в Settings и показываются в nonactivating верхней панели на три секунды с раскрытием/сворачиванием по D-053; feedback не содержит текста пользователя.
 
 ## Приватность и взаимодействие с Qipli
 
@@ -39,7 +39,7 @@ covers:
 
 Текст читается только по явному хоткею из текущего допустимого editable element. Постоянный буфер набранных символов, журнал клавиш и сохранение текста отсутствуют. Текст операции живёт только в памяти и освобождается после завершения/отмены. Secure Input, secure/password element, read-only element и неопределённый focus исключают операцию до чтения payload. Existing History password-field opener этим ограничением не меняется.
 
-Явная correction может временно использовать system clipboard по D-052: bounded in-memory snapshot, exact-count self-write suppression, ownership-checked restore; newer external Copy сохраняется. Если snapshot недоступен/oversized, single Unicode transport оставляет clipboard нетронутым. History/Stack items не создаются, used-state не меняется. При active Stack, pending Finder Cut, Qipli-focused UI или другой in-flight Qipli input operation операция отклоняется, а результат остаётся inline в Settings. Ordinary `⌘V`, `⌘X`, `Esc` и все чужие shortcuts сохраняют свои существующие owners.
+Явная correction может временно использовать system clipboard по D-052: bounded in-memory snapshot, exact-count self-write suppression, ownership-checked restore; newer external Copy сохраняется. Если snapshot недоступен/oversized, single Unicode transport оставляет clipboard нетронутым. History/Stack items не создаются, used-state не меняется. При active Stack, pending Finder Cut, Qipli-focused UI или другой in-flight Qipli input operation операция отклоняется, а результат показывается inline в Settings и в transient панели по D-053. Ordinary `⌘V`, `⌘X`, `Esc` и все чужие shortcuts сохраняют свои существующие owners.
 
 ## Вне scope
 
@@ -242,3 +242,13 @@ Production Shell больше не создаёт/start monitor до набор�
 
 
 Удаление диагностики опубликовано в v1.0.13/build14, tag8be2a4c. Source scan и logging marker scan публичного executable PASS; signing/notarization/Gatekeeper и Sparkle PASS. Подробные workflow/PR pointers и public artifact checks находятся в STATE-HISTORY, актуальные открытые gates в STATE.
+
+### Уточнение 2026-10-08: длинные выделения и видимый отказ
+
+Пользователь разрешил увеличить selected/replacement ceiling втрое до 12 288 UTF-16 units и показывать отказ/ошибку correction в маленькой верхней панели в стиле Finder Cut. Панель не меняет focus или input ownership, раскрывается и сворачивается через три секунды; новая ошибка обновляет сообщение и timer. Успех не показывает панель. Контекст ≤256 и deadline 500 ms сохраняются.
+
+Acceptance: выделение 12 288 преобразуется полностью с сохранением соседнего текста/selection и single native Undo в owned fixture; 12 289 отклоняется до payload read/mutation. Denied/failed показывают только фиксированное безопасное сообщение; completed не показывает notice. Повторный notice не закрывается старым timer/animation callback; closeAll отменяет timer. Дополнительные реальные редакторы проверяются отдельно.
+
+Implementation report 2026-10-08: ceiling централизован в LayoutCorrectionLimits и применяется к selection, word, AX read и replacement. Отказ выше нового ceiling до payload read/mutation проверен synthetic regression. Shell передаёт denied/failed одновременно в Settings и отдельную notice presentation. Панель использует existing compact nonactivating NSPanel, safe-area geometry и TopNotch mask; mouse events проходят target. Generation token защищает timer/completion, task отменяется closeAll, completed не открывает сообщение, Reduce Motion использует fade.
+
+Verification: full SwiftPM 333/333 без failures/skips; actual AppKit card mouseUp plain/rich callback, 3-second timer, old timer/animation и fixed 440×108 notice layout PASS. Signed universal Debug, strict/deep codesign, unsigned universal Release, version/privacy/diff checks PASS. Двухпроцессный development-signed native probe: cases word+3 spaces, word+0 spaces, small selection, 12 288 selection PASS отдельно для native paste и Unicode-only transport. В long case exact selected range, все соседние символы, one native Undo и исходный clipboard сохранены; source switch mock. Probe Unicode-only не настраивает optional pasteboard registration, поэтому выбирает production fallback без mutation clipboard. Installed global gesture/real-editor/visual animation acceptance не объявляется. Published v1.0.13/build14 не менялся.
