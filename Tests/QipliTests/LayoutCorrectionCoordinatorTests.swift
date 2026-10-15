@@ -127,6 +127,65 @@ final class LayoutCorrectionCoordinatorTests: XCTestCase {
         XCTAssertEqual(ax.replacements, 0)
     }
 
+    func testExpandedSelectionLimitPreservesContextAndSelectedRange() async {
+        let seed = String(repeating: "a", count: 12_288)
+        let ax = CorrectionFakeAX("d " + seed + " d", selection: CFRange(location: 2, length: seed.utf16.count))
+        let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: CorrectionInputLedger(), selectSource: { _ in true })
+        let result = await trigger(coordinator, current: "A")
+        XCTAssertEqual(result, .completed(sourceID: "B"))
+        XCTAssertEqual(ax.text, "d " + String(repeating: "b", count: 12_288) + " d")
+        XCTAssertEqual(ax.target.selection.location, 2)
+        XCTAssertEqual(ax.target.selection.length, 12_288)
+        XCTAssertEqual(ax.replacements, 1)
+    }
+
+    func testAboveExpandedSelectionLimitRefusesBeforePayloadRead() async {
+        let seed = String(repeating: "a", count: 12_289)
+        let ax = CorrectionFakeAX(seed, selection: CFRange(location: 0, length: seed.utf16.count))
+        let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: CorrectionInputLedger(), selectSource: { _ in true })
+        let result = await trigger(coordinator, current: "A")
+        XCTAssertEqual(result, .failed("Select up to 12,288 characters for layout correction."))
+        XCTAssertEqual(ax.reads, 0)
+        XCTAssertEqual(ax.replacements, 0)
+        XCTAssertEqual(ax.text, seed)
+    }
+
+    func testDiagnosticsCorrelatesSuccessBusyAndWordFailureWithoutPayload() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let suite = "CorrectionDiagnosticTest.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            defaults.removePersistentDomain(forName: suite)
+        }
+        defaults.set(true, forKey: LocalDiagnostics.preferenceKey)
+        let logger = LocalDiagnostics(defaults: defaults, directory: root)
+        let ax = CorrectionFakeAX("a", selection: CFRange(location: 0, length: 1))
+        let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: CorrectionInputLedger(),
+            selectSource: { _ in true }, diagnostics: logger)
+        let success = await trigger(coordinator, current: "A")
+        XCTAssertEqual(success, .completed(sourceID: "B"))
+        _ = await trigger(coordinator, current: "B", mayRun: false)
+        ax.target = CorrectionAXTarget(pid: 77, element: ax.target.element,
+            selection: CFRange(location: 1, length: 0), characterCount: 1)
+        _ = await trigger(coordinator, current: "B")
+        logger.flush()
+        let data = try Data(contentsOf: root.appendingPathComponent("diagnostics-0.jsonl"))
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let records = try data.split(separator: 0x0A).map { try decoder.decode(DiagnosticRecord.self, from: Data($0)) }
+        let completed = try XCTUnwrap(records.first { $0.reason == .completed })
+        let steps = records.filter { $0.operation == completed.operation }
+        XCTAssertTrue(steps.contains { $0.stage == .trigger })
+        XCTAssertTrue(steps.contains { $0.stage == .selection })
+        XCTAssertTrue(steps.contains { $0.stage == .replacement })
+        XCTAssertTrue(steps.contains { $0.stage == .layoutSwitch })
+        XCTAssertTrue(records.contains { $0.reason == .inputBusy })
+        XCTAssertTrue(records.contains { $0.stage == .wordProof && $0.reason == .wordMissing })
+        XCTAssertEqual(Set(records.compactMap(\.operation)).count, 3)
+        XCTAssertEqual(Set(records.map(\.session)).count, 1)
+        XCTAssertTrue(steps.allSatisfy { $0.elapsedMilliseconds != nil })
+    }
+
     private var sources: [CorrectionSource] {
         let zero = CorrectionPhysicalKey(keyCode: 0, level: 0)
         let one = CorrectionPhysicalKey(keyCode: 1, level: 0)

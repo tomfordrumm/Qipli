@@ -236,6 +236,28 @@ private struct GeneralSettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            Section("Diagnostics") {
+                Toggle("Enable local diagnostic logging", isOn: Binding(
+                    get: { viewModel.diagnosticsEnabled },
+                    set: { viewModel.setDiagnosticsEnabled($0) }
+                ))
+                .disabled(viewModel.diagnosticsBusy)
+                Text("Records operation steps and error codes on this Mac. Clipboard content and typed text are never logged. Keeps up to 10 MiB for 7 days. Nothing is uploaded.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Button("Show Logs…") { viewModel.showDiagnosticLogs() }
+                    Button("Clear Logs", role: .destructive) { viewModel.clearDiagnosticLogs() }
+                    if viewModel.diagnosticsBusy { ProgressView().controlSize(.small) }
+                }
+                .disabled(viewModel.diagnosticsBusy)
+                if let error = viewModel.diagnosticsError {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
             Section("Onboarding") {
                 Button("Show Onboarding Again", action: showOnboarding)
                 Text("Review Qipli's privacy, permission, login, and shortcut setup without resetting your choices.")

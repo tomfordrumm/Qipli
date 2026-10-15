@@ -115,3 +115,9 @@ Verification:
 ### Уточнение D-041 (2026-09-07)
 
 Rich quota использует incremental asset accounting с reconciliation после failure/cleanup/restart. Unfiltered History читает persisted display projection и не декодирует rich manifest/canonical text ради карточки. Exact rich/plain paste и plain fallback при rich persistence overflow сохранены; отдельный bounded capture queue admission может отклонить новую occurrence с notice при перегрузке.
+
+### Уточнение 2026-10-08: Shift-double-click
+
+FR-038: удерживаемый Shift при double-click передаёт plainText mode через полный mouse callback path. Unmodified double-click остаётся rich; Shift-Enter сохраняется. Acceptance: event modifiers не теряются между card view, collection coordinator и PanelController; plain text payload исключает RTF/HTML.
+
+Implementation report 2026-10-08: mouseUp event modifiers выбирают plain/rich mode и передаются через collection coordinator, SwiftUI shelf и PanelController в существующий History paste executor. Actual AppKit mouseUp regression проверяет single-click без вставки, Shift-double-click plain и ordinary double-click rich. Full SwiftPM 333/333 и обе universal app builds PASS. Installed formatted-text target smoke остаётся отдельной проверкой; релиз не опубликован.

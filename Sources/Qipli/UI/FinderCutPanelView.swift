@@ -174,3 +174,86 @@ struct FinderCutPanelView: View {
         return sessionController.statusTitle
     }
 }
+
+/// Transient correction feedback shares the compact Top Notch surface without
+/// borrowing Finder Cut's session, ownership, or cancellation callbacks.
+@MainActor
+final class LayoutCorrectionNoticeModel: ObservableObject {
+    @Published private(set) var message: String?
+    @Published private(set) var topInset: CGFloat = 0
+    @Published private(set) var width: CGFloat = 440
+    private(set) var generation = 0
+    private(set) var isDismissing = false
+    private var dismissalTask: Task<Void, Never>?
+    var onDismiss: ((Int) -> Void)?
+
+    @discardableResult
+    func show(_ outcome: LayoutCorrectionOutcome) -> Bool {
+        let text: String
+        switch outcome {
+        case .completed: return false
+        case let .denied(value), let .failed(value): text = value
+        }
+        dismissalTask?.cancel()
+        generation &+= 1
+        message = text
+        isDismissing = false
+        let token = generation
+        dismissalTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            self?.expire(token: token)
+        }
+        return true
+    }
+
+    func setGeometry(width: CGFloat, topInset: CGFloat) {
+        self.width = width
+        self.topInset = topInset
+    }
+
+    func expire(token: Int) {
+        guard generation == token, message != nil, !isDismissing else { return }
+        isDismissing = true
+        onDismiss?(token)
+    }
+
+    func finishDismissal(token: Int) {
+        guard generation == token, isDismissing else { return }
+        close()
+    }
+
+    func close() {
+        dismissalTask?.cancel()
+        dismissalTask = nil
+        generation &+= 1
+        message = nil
+        isDismissing = false
+    }
+}
+
+struct LayoutCorrectionNoticeView: View {
+    @ObservedObject var model: LayoutCorrectionNoticeModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer().frame(height: model.topInset)
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.yellow)
+                    .accessibilityHidden(true)
+                Text(model.message ?? "")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 76)
+        }
+        .frame(width: model.width, height: model.topInset + 76)
+        .environment(\.colorScheme, .dark)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Layout correction")
+        .accessibilityValue(model.message ?? "")
+    }
+}

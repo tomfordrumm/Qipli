@@ -1,5 +1,6 @@
 import AppKit
 import XCTest
+import SwiftUI
 @testable import Qipli
 
 final class TopNotchHistoryShelfTests: XCTestCase {
@@ -622,5 +623,101 @@ final class TopNotchHistoryShelfTests: XCTestCase {
                 XCTAssertNil(result)
             }
         }
+    }
+}
+
+@MainActor
+final class LayoutCorrectionNoticeTests: XCTestCase {
+    func testNewErrorSurvivesOldTimerAndAnimationCompletion() {
+        let model = LayoutCorrectionNoticeModel()
+        var expired: [Int] = []
+        model.onDismiss = { expired.append($0) }
+        XCTAssertTrue(model.show(.failed("The focused text field is unavailable.")))
+        let first = model.generation
+        model.expire(token: first)
+        XCTAssertEqual(expired, [first])
+        XCTAssertTrue(model.show(.denied("Another Qipli input action is active.")))
+        let second = model.generation
+        model.finishDismissal(token: first)
+        model.expire(token: first)
+        XCTAssertNotNil(model.message)
+        XCTAssertFalse(model.isDismissing)
+        model.expire(token: second)
+        XCTAssertEqual(expired, [first, second])
+        model.finishDismissal(token: second)
+        XCTAssertNil(model.message)
+    }
+
+    func testNoticeTimerRequestsDismissalAfterThreeSeconds() async {
+        let model = LayoutCorrectionNoticeModel()
+        let start = DispatchTime.now().uptimeNanoseconds
+        let done = expectation(description: "notice expired")
+        model.onDismiss = { token in
+            XCTAssertEqual(token, model.generation)
+            XCTAssertGreaterThanOrEqual(DispatchTime.now().uptimeNanoseconds - start, 3_000_000_000)
+            done.fulfill()
+        }
+        model.show(.failed("The focused text field is unavailable."))
+        await fulfillment(of: [done], timeout: 5)
+        XCTAssertTrue(model.isDismissing)
+        model.close()
+    }
+
+    func testSuccessDoesNotOpenNoticeAndCloseInvalidatesTimer() {
+        let model = LayoutCorrectionNoticeModel()
+        XCTAssertFalse(model.show(.completed(sourceID: "fixture")))
+        XCTAssertNil(model.message)
+        model.show(.failed("The text field did not respond in time."))
+        let token = model.generation
+        model.close()
+        model.expire(token: token)
+        XCTAssertNil(model.message)
+        XCTAssertFalse(model.isDismissing)
+    }
+
+    func testNoticeRendersWithLongestFixedMessage() throws {
+        let model = LayoutCorrectionNoticeModel()
+        model.show(.failed("Text corrected, but the input context changed before layout switching."))
+        model.setGeometry(width: 440, topInset: 32)
+        let view = NSHostingView(rootView: LayoutCorrectionNoticeView(model: model))
+        view.frame = NSRect(x: 0, y: 0, width: 440, height: 108)
+        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.backgroundColor = .black
+        window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        XCTAssertEqual(view.bounds.size, NSSize(width: 440, height: 108))
+        XCTAssertLessThanOrEqual(view.fittingSize.height, 108)
+        if let path = ProcessInfo.processInfo.environment["QIPLI_NOTICE_PREVIEW_PATH"],
+           let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        }
+        model.close()
+        window.close()
+    }
+
+    func testRealCardMouseUpPreservesShiftThroughCallback() throws {
+        let item = TopNotchHistoryCollectionItem()
+        _ = item.view
+        var modes: [HistoryPasteMode] = []
+        item.configure(card: TopNotchHistoryCardDescriptor(id: UUID(), isFavorite: false,
+            kind: .text, title: "Text", detail: "synthetic fixture", accessibilityLabel: "Text"),
+            thumbnailData: nil, isSelected: true, requestThumbnail: {},
+            doubleClick: { modes.append($0) }, toggleFavorite: { _ in })
+        for (count, flags) in [(1, NSEvent.ModifierFlags.shift), (2, .shift), (2, [])] {
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseUp, location: .zero,
+                modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
+                eventNumber: 1, clickCount: count, pressure: 0))
+            item.view.mouseUp(with: event)
+        }
+        XCTAssertEqual(modes, [.plainText, .rich])
+    }
+
+    func testShiftMousePasteSelectsPlainText() {
+        XCTAssertEqual(HistoryCardPasteAdmission.mode(for: .shift), .plainText)
+        XCTAssertEqual(HistoryCardPasteAdmission.mode(for: [.shift, .capsLock]), .plainText)
+        XCTAssertEqual(HistoryCardPasteAdmission.mode(for: []), .rich)
+        XCTAssertEqual(HistoryCardPasteAdmission.mode(for: .capsLock), .rich)
     }
 }

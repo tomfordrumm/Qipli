@@ -22,6 +22,10 @@ final class PanelController {
     private var historyPanel: NSPanel?
     private var stackPanel: NSPanel?
     private var finderCutPanel: NSPanel?
+    private let correctionNotice = LayoutCorrectionNoticeModel()
+    private var correctionNoticePanel: NSPanel?
+    private weak var correctionNoticeSurface: TopNotchHistorySurfaceView?
+    private var correctionNoticeScreen: NSScreen?
     private weak var stackSurface: TopNotchHistorySurfaceView?
     private weak var finderCutSurface: TopNotchHistorySurfaceView?
     private var stackTopNotchScreen: NSScreen?
@@ -67,6 +71,9 @@ final class PanelController {
         }
         finderCutPresentation.onDismiss = { [weak self] token in
             self?.dismissFinderCutPanel(token: token)
+        }
+        correctionNotice.onDismiss = { [weak self] token in
+            self?.dismissCorrectionNotice(token: token)
         }
         screenParametersObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -198,6 +205,78 @@ final class PanelController {
         }
     }
 
+    func showLayoutCorrectionOutcome(_ outcome: LayoutCorrectionOutcome) {
+        let wasVisible = correctionNoticePanel?.isVisible == true
+        guard correctionNotice.show(outcome) else { return }
+        let panel: NSPanel
+        if let existing = correctionNoticePanel { panel = existing }
+        else {
+            let (created, surface) = makeCompactPanel {
+                LayoutCorrectionNoticeView(model: self.correctionNotice)
+            }
+            correctionNoticePanel = created
+            correctionNoticeSurface = surface
+            created.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 4)
+            panel = created
+        }
+        correctionNoticeScreen = connectedScreen(preferred:
+            frontmostApplicationCapture.capturePriorApplication()?.preferredScreen)
+        let compact = configureCorrectionNoticeFrame()
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if reduceMotion {
+            correctionNoticeSurface?.prepareForExpandedPresentation(preservingContentAlpha: wasVisible)
+        } else {
+            correctionNoticeSurface?.animateStackReveal(from: compact, duration: 0.22, reversing: wasVisible)
+        }
+        panel.ignoresMouseEvents = true
+        panel.orderFrontRegardless()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = reduceMotion ? 0.10 : 0.22
+            correctionNoticeSurface?.animateContentAlpha(to: 1)
+        }
+    }
+
+    @discardableResult
+    private func configureCorrectionNoticeFrame() -> CGRect {
+        guard let panel = correctionNoticePanel else { return .zero }
+        correctionNoticeScreen = connectedScreen(preferred: correctionNoticeScreen)
+        let geometry = stackCompactGeometry(for: correctionNoticeScreen)
+        let visible = correctionNoticeScreen?.visibleFrame ?? screenProvider.currentVisibleFrame()
+        let width = min(visible.width, max(440, geometry.panelFrame.width))
+        let frame = NSRect(x: min(max(geometry.panelFrame.midX - width / 2, visible.minX), visible.maxX - width),
+                           y: geometry.panelFrame.minY - 76,
+                           width: width, height: geometry.panelFrame.height + 76)
+        correctionNotice.setGeometry(width: width, topInset: geometry.panelFrame.height)
+        panel.setFrame(frame, display: false)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let collapsed = TopNotchHistoryGeometry.collapsedFrame(
+            from: frame,
+            safeAreaInsets: correctionNoticeScreen?.safeAreaInsets ?? NSEdgeInsets(),
+            auxiliaryTopLeftArea: correctionNoticeScreen?.auxiliaryTopLeftArea,
+            auxiliaryTopRightArea: correctionNoticeScreen?.auxiliaryTopRightArea
+        )
+        return topNotchCompactRect(collapsedFrame: collapsed, expandedFrame: frame)
+    }
+
+    private func dismissCorrectionNotice(token: Int) {
+        guard let panel = correctionNoticePanel, correctionNotice.generation == token,
+              correctionNotice.isDismissing else { return }
+        let compact = configureCorrectionNoticeFrame()
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if !reduceMotion { correctionNoticeSurface?.animateStackCollapse(to: compact, duration: 0.18) }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = reduceMotion ? 0.10 : 0.18
+            correctionNoticeSurface?.animateContentAlpha(to: 0)
+        } completionHandler: { [weak self, weak panel] in
+            Task { @MainActor [weak self, weak panel] in
+                guard let self, self.correctionNotice.generation == token,
+                      self.correctionNotice.isDismissing else { return }
+                panel?.orderOut(nil)
+                self.correctionNotice.finishDismissal(token: token)
+            }
+        }
+    }
+
     func dismissFinderCutPanel() {
         guard finderCutPresentation.state != .hidden else { return }
         finderCutPresentation.requestDismissal()
@@ -224,7 +303,8 @@ final class PanelController {
         historyPresentation.close(panel: historyPanel)
         stackPresentation.close()
         finderCutPresentation.close()
-        [historyPanel, stackPanel, finderCutPanel].forEach { $0?.close() }
+        correctionNotice.close()
+        [historyPanel, stackPanel, finderCutPanel, correctionNoticePanel].forEach { $0?.close() }
     }
 
     private func pasteHistoryEntry(_ entry: HistoryEntry, mode: HistoryPasteMode = .rich) {
@@ -427,7 +507,7 @@ final class PanelController {
                 permissionService: self.permissionService,
                 layoutModel: self.topNotchLayoutModel,
                 openAccessibilitySettings: self.openAccessibilitySettings,
-                pasteEntry: { [weak self] id in self?.requestPasteHistoryEntry(id: id) },
+                pasteEntry: { [weak self] id, mode in self?.requestPasteHistoryEntry(id: id, mode: mode) },
                 close: { [weak self] in self?.cancelHistory() },
                 interactionBridge: self.topNotchInteractionBridge
             )
@@ -887,6 +967,10 @@ final class PanelController {
     }
 
     private func refreshVisibleTopNotchFrame() {
+        if correctionNoticePanel?.isVisible == true, !correctionNotice.isDismissing {
+            configureCorrectionNoticeFrame()
+            correctionNoticeSurface?.prepareForExpandedPresentation(preservingContentAlpha: true)
+        }
         if historyPresentation.isVisible, let panel = historyPanel, panel.isVisible {
             topNotchLayoutModel.topContentInset = topNotchSafeAreaInset(for: historyPasteTarget)
             panel.setFrame(topNotchFrame(for: panel, target: historyPasteTarget), display: true)

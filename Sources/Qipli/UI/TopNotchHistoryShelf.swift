@@ -789,7 +789,7 @@ struct TopNotchHistoryShelfView: View {
     @ObservedObject var permissionService: AccessibilityPermissionService
     @ObservedObject var layoutModel: TopNotchHistoryLayoutModel
     let openAccessibilitySettings: () -> Void
-    let pasteEntry: (UUID) -> Void
+    let pasteEntry: (UUID, HistoryPasteMode) -> Void
     let close: () -> Void
     let interactionBridge: TopNotchHistoryInteractionBridge
     @FocusState private var searchIsFocused: Bool
@@ -944,9 +944,9 @@ struct TopNotchHistoryShelfView: View {
                     thumbnailData: viewModel.thumbnailData(for:),
                     requestThumbnail: viewModel.requestThumbnail(forEntryID:),
                     selectEntry: viewModel.select,
-                    pasteEntry: { id in
+                    pasteEntry: { id, mode in
                         guard canPaste else { return }
-                        pasteEntry(id)
+                        pasteEntry(id, mode)
                     },
                     toggleFavorite: { id, isFavorite in
                         Task { @MainActor in await viewModel.setFavorite(id: id, isFavorite: isFavorite) }
@@ -1045,7 +1045,7 @@ struct TopNotchHistoryCollectionView: NSViewRepresentable {
     let thumbnailData: (UUID) -> Data?
     let requestThumbnail: (UUID) -> Void
     let selectEntry: (UUID) -> Void
-    let pasteEntry: (UUID) -> Void
+    let pasteEntry: (UUID, HistoryPasteMode) -> Void
     let toggleFavorite: (UUID, Bool) -> Void
     let loadMore: () -> Void
 
@@ -1177,7 +1177,7 @@ struct TopNotchHistoryCollectionView: NSViewRepresentable {
                 thumbnailData: parent.thumbnailData(card.id),
                 isSelected: indexPath.item == parent.cards.firstIndex(where: { $0.id == parent.selectedEntryID }),
                 requestThumbnail: { [weak self] in self?.parent.requestThumbnail(card.id) },
-                doubleClick: { [weak self] in self?.parent.pasteEntry(card.id) },
+                doubleClick: { [weak self] mode in self?.parent.pasteEntry(card.id, mode) },
                 toggleFavorite: { [weak self] isFavorite in
                     self?.parent.toggleFavorite(card.id, isFavorite)
                 }
@@ -1203,7 +1203,7 @@ struct TopNotchHistoryCollectionView: NSViewRepresentable {
     }
 }
 
-private final class TopNotchHistoryCollectionItem: NSCollectionViewItem {
+final class TopNotchHistoryCollectionItem: NSCollectionViewItem {
     static let identifier = NSUserInterfaceItemIdentifier("TopNotchHistoryCollectionItem")
     private let cardView = TopNotchHistoryCardView()
 
@@ -1218,7 +1218,7 @@ private final class TopNotchHistoryCollectionItem: NSCollectionViewItem {
         thumbnailData: Data?,
         isSelected: Bool,
         requestThumbnail: @escaping () -> Void,
-        doubleClick: @escaping () -> Void,
+        doubleClick: @escaping (HistoryPasteMode) -> Void,
         toggleFavorite: @escaping (Bool) -> Void
     ) {
         cardView.configure(
@@ -1462,7 +1462,7 @@ private final class TopNotchHistoryCardView: NSView {
     private var imageDetailBottomConstraint: NSLayoutConstraint!
     private var isImageCard = false
     private var requestThumbnail: (() -> Void)?
-    private var doubleClick: (() -> Void)?
+    private var doubleClick: ((HistoryPasteMode) -> Void)?
     private var toggleFavorite: ((Bool) -> Void)?
     private var isFavorite = false
     private var isSelected = false
@@ -1483,7 +1483,7 @@ private final class TopNotchHistoryCardView: NSView {
         thumbnailData: Data?,
         isSelected: Bool,
         requestThumbnail: @escaping () -> Void,
-        doubleClick: @escaping () -> Void,
+        doubleClick: @escaping (HistoryPasteMode) -> Void,
         toggleFavorite: @escaping (Bool) -> Void
     ) {
         detailLabel.stringValue = card.detail
@@ -1562,7 +1562,7 @@ private final class TopNotchHistoryCardView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         super.mouseUp(with: event)
-        if event.clickCount == 2 { doubleClick?() }
+        if event.clickCount == 2 { doubleClick?(HistoryCardPasteAdmission.mode(for: event.modifierFlags)) }
     }
 
     private func configureView() {
@@ -1655,5 +1655,12 @@ enum HistoryKeyboardActionScheduler {
         RunLoop.main.perform(inModes: [.common]) {
             action()
         }
+    }
+}
+
+/// Mouse paste keeps the same plain/rich payload contract as Shift-Return.
+enum HistoryCardPasteAdmission {
+    static func mode(for modifiers: NSEvent.ModifierFlags) -> HistoryPasteMode {
+        modifiers.contains(.shift) ? .plainText : .rich
     }
 }

@@ -3,7 +3,7 @@ import XCTest
 @testable import Qipli
 
 final class LayoutCorrectionAXAdmissionTests: XCTestCase {
-    private func target(selection: CFRange = CFRange(location: 0, length: 1), count: Int = 5000) -> CorrectionAXTarget {
+    private func target(selection: CFRange = CFRange(location: 0, length: 1), count: Int = 15000) -> CorrectionAXTarget {
         let pid = ProcessInfo.processInfo.processIdentifier
         return CorrectionAXTarget(pid: pid, element: AXUIElementCreateApplication(pid),
                                   selection: selection, characterCount: count)
@@ -18,8 +18,8 @@ final class LayoutCorrectionAXAdmissionTests: XCTestCase {
 
     func testOversizedOrOverflowingRangesAreRejectedBeforeTargetAdmission() {
         let adapter = LayoutCorrectionAXAdapter()
-        for range in [CFRange(location: 0, length: 4097), CFRange(location: -1, length: 6),
-                      CFRange(location: Int.max, length: 6), CFRange(location: 4999, length: Int.max)] {
+        for range in [CFRange(location: 0, length: 12_289), CFRange(location: -1, length: 6),
+                      CFRange(location: Int.max, length: 6), CFRange(location: 14999, length: Int.max)] {
             XCTAssertThrowsError(try adapter.read(target(), range: range, deadline: CorrectionAXDeadline())) {
                 XCTAssertEqual($0 as? CorrectionAXError, .limit)
             }
@@ -29,7 +29,7 @@ final class LayoutCorrectionAXAdmissionTests: XCTestCase {
     func testReplacementLimitIsCheckedBeforeAnySelectionMutation() {
         XCTAssertThrowsError(try LayoutCorrectionAXAdapter().replace(target(),
             range: CFRange(location: 0, length: 1), expectedText: "a",
-            replacement: String(repeating: "x", count: 4097), keepSelected: true,
+            replacement: String(repeating: "x", count: 12_289), keepSelected: true,
             deadline: CorrectionAXDeadline(), isFresh: { true })) {
             XCTAssertEqual($0 as? CorrectionAXError, .limit)
         }

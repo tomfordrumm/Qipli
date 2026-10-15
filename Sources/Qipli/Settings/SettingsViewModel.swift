@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -22,6 +23,11 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var correctionSources: [CorrectionSourceDescriptor]
     @Published private(set) var correctionError: String?
 
+    @Published private(set) var diagnosticsEnabled: Bool
+    @Published private(set) var diagnosticsBusy = false
+    @Published private(set) var diagnosticsError: String?
+    private let diagnostics: LocalDiagnostics?
+
     private let shortcutPreferences: ShortcutPreferences
     private let launchAtLoginService: LaunchAtLoginServicing
     private let secureUpdater: SecureUpdaterServicing
@@ -35,9 +41,12 @@ final class SettingsViewModel: ObservableObject {
         launchAtLoginService: LaunchAtLoginServicing,
         secureUpdater: SecureUpdaterServicing? = nil,
         correctionPreferences: LayoutCorrectionPreferences? = nil,
-        correctionSourceCatalog: LayoutCorrectionSourceCatalog? = nil
+        correctionSourceCatalog: LayoutCorrectionSourceCatalog? = nil,
+        diagnostics: LocalDiagnostics? = nil
     ) {
         let resolvedSecureUpdater = secureUpdater ?? UnavailableSecureUpdater()
+        self.diagnostics = diagnostics
+        diagnosticsEnabled = diagnostics?.isEnabled ?? false
         self.shortcutPreferences = shortcutPreferences
         self.launchAtLoginService = launchAtLoginService
         self.secureUpdater = resolvedSecureUpdater
@@ -104,6 +113,8 @@ final class SettingsViewModel: ObservableObject {
     }
 
     func refresh(inputStatus: GlobalInputStatus? = nil) {
+        diagnosticsEnabled = diagnostics?.isEnabled ?? false
+        diagnosticsError = diagnostics?.hasFailure == true ? "Qipli could not write diagnostic logs. Check folder access or free disk space, then try again." : nil
         launchAtLoginStatus = launchAtLoginService.status
         launchAtLoginError = nil
         if let inputStatus {
@@ -164,6 +175,42 @@ final class SettingsViewModel: ObservableObject {
         case .completed: correctionError = nil
         case let .denied(message), let .failed(message): correctionError = message
         }
+    }
+
+    func setDiagnosticsEnabled(_ enabled: Bool) {
+        guard let diagnostics, !diagnosticsBusy else { return }
+        diagnosticsBusy = true
+        diagnostics.setEnabled(enabled) { [weak self] success in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.diagnosticsEnabled = diagnostics.isEnabled
+                self.finishDiagnosticsAction(success)
+            }
+        }
+    }
+
+    func showDiagnosticLogs() {
+        guard let diagnostics, !diagnosticsBusy else { return }
+        diagnosticsBusy = true
+        diagnostics.prepareForViewing { [weak self] success in
+            DispatchQueue.main.async {
+                let opened = success && NSWorkspace.shared.open(diagnostics.directory)
+                self?.finishDiagnosticsAction(opened)
+            }
+        }
+    }
+
+    func clearDiagnosticLogs() {
+        guard let diagnostics, !diagnosticsBusy else { return }
+        diagnosticsBusy = true
+        diagnostics.clear { [weak self] success in
+            DispatchQueue.main.async { self?.finishDiagnosticsAction(success) }
+        }
+    }
+
+    private func finishDiagnosticsAction(_ success: Bool) {
+        diagnosticsBusy = false
+        diagnosticsError = success ? nil : "Qipli could not access diagnostic logs. Check folder access or free disk space, then try again."
     }
 
     func setLaunchAtLoginEnabled(_ isEnabled: Bool) {

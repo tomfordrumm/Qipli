@@ -47,6 +47,7 @@ final class ApplicationShell: NSObject {
     private let shortcutPreferences: ShortcutPreferences
     private let layoutCorrectionSourceCatalog: LayoutCorrectionSourceCatalog
     private let layoutCorrectionPreferences: LayoutCorrectionPreferences
+    private let diagnostics: LocalDiagnostics
     private let layoutCorrectionCoordinator: LayoutCorrectionCoordinator?
     private let correctionInputAdapter: CGEventTapAdapter?
     private var correctionContextObservers: [NSObjectProtocol] = []
@@ -79,6 +80,8 @@ final class ApplicationShell: NSObject {
     ) {
         self.permissionService = permissionService
         self.shortcutPreferences = shortcutPreferences
+        let diagnostics = LocalDiagnostics()
+        self.diagnostics = diagnostics
         let correctionCatalog = LayoutCorrectionSourceCatalog()
         correctionCatalog.refresh()
         layoutCorrectionSourceCatalog = correctionCatalog
@@ -98,7 +101,8 @@ final class ApplicationShell: NSObject {
             correctionAXAdapter = axAdapter
             let coordinator = LayoutCorrectionCoordinator(
                 adapter: axAdapter,
-                ledger: correctionInput.correctionLedger
+                ledger: correctionInput.correctionLedger,
+                diagnostics: diagnostics
             )
             coordinator.sourceCatalog = correctionCatalog
             layoutCorrectionCoordinator = coordinator
@@ -278,7 +282,8 @@ final class ApplicationShell: NSObject {
             launchAtLoginService: launchAtLoginService,
             secureUpdater: resolvedSecureUpdater,
             correctionPreferences: correctionPreferences,
-            correctionSourceCatalog: correctionCatalog
+            correctionSourceCatalog: correctionCatalog,
+            diagnostics: diagnostics
         )
         super.init()
 
@@ -573,9 +578,11 @@ final class ApplicationShell: NSObject {
             targetPID: targetPID,
             sources: layoutCorrectionSourceCatalog.sources.compactMap(\.source),
             currentSourceID: layoutCorrectionSourceCatalog.currentSourceID,
-            mayRun: mayRun
+            mayRun: mayRun,
+            trigger: layoutCorrectionPreferences.settings.trigger
         ) { [weak self] outcome in
             self?.settingsViewModel.updateCorrectionOutcome(outcome)
+            self?.panels.showLayoutCorrectionOutcome(outcome)
         }
     }
 
