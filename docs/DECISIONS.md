@@ -547,3 +547,14 @@
 - Ownership: serial utility queue, generation invalidation для queued records при disable/clear; только собственные имена файлов, отказ на symlinks/non-regular files. Отключение сохраняет прежние журналы до retention/явной очистки. Никаких uploads, OSLog, новых permissions, helper или persistence dependencies.
 - Supersedes отсутствие stage/error logging из D-053 и технического контракта S037 только при explicit opt-in. Update module по-прежнему не логирует.
 - Verification: default-off/no-file, relaunch, disable/clear races, rotation/age/permissions, unsafe filesystem, schema privacy, correction outcomes и Settings controls. Installed signed UI acceptance ведётся отдельно.
+
+
+## D-055: Evidence для расследования correction incidents
+
+- Статус: `accepted`
+- Дата: 2026-10-15
+- Источник: пользователь после двух ChatGPT failures потребовал сохранять максимум диагностической информации для расследования. В schema v1 `wordProof/unavailable` и `replacement/unavailable` теряли конкретный AX вызов и причину.
+- Решение: расширить S038 schema v2 конкретными API/attribute/system-result/type/range/check/timing данными, terminal outcomes и корреляцией delayed clipboard restore. Именованные успешные проверки и polling observations сохраняются вместе с отказами. Последняя конкретная причина дублируется в terminal record, потеря событий отмечается sequence gaps и counted overflow report. Terminal reserve восемь записей сверх основной очереди 256, не более одной pending overflow task на generation; input thread не ждёт диск.
+- Privacy: максимум структурного evidence без текста/clipboard, hashes, raw source/app/window IDs, key stream, URL/filename/path/media metadata и произвольных строк. Разрешены fixed browser family chrome/safari/firefox/edge/other, static field role/value type, числовые lengths/ranges и булевы equality checks. Source identities только operation-local sorted ordinals. Raw numeric AXError/OSStatus не превращается в error description. Это уточнение D-054/BR-041; arbitrary identity/payload logging по-прежнему запрещено.
+- Граница: instrument existing calls/checks, не читать новое содержимое, не менять input permissions/correction transport/deadline/обычный Cmd-V. Default-off/local-only, storage ≤10 MiB/7 дней и Dev/Release separation сохраняются. Не обещать ретроспективно восстановить отсутствующее evidence или доказать внутренний bug браузера только по AX failure.
+- Проверка: injected AX API failures, wrong types, short strings, focus/permission/secure-input/setter/deadline cases; synthetic clipboard ownership/restore; schema privacy/old records/overflow and terminal-cause retention; SwiftPM и universal builds. Установленный ChatGPT reproduction новой сборкой остаётся отдельным acceptance gate.

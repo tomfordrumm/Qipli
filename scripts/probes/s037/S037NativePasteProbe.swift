@@ -15,6 +15,7 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
     private var caseIndex = 0
     private var coordinator: LayoutCorrectionCoordinator?
     private let adapter = LayoutCorrectionAXAdapter()
+    private var diagnostics: LocalDiagnostics?
     private var selfWrites = 0
     private var clipboardBefore: [[(String, Data?)]] = []
 
@@ -29,6 +30,12 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         if CommandLine.arguments.contains("--fixture") { showFixture(); return }
         guard AXIsProcessTrusted() else { finish("nativePaste=SKIPPED accessibility=false"); return }
+        if CommandLine.arguments.contains("--diagnostics") {
+            let defaults = UserDefaults(suiteName: "Qipli.S037.DiagnosticProbe")!
+            defaults.set(true, forKey: LocalDiagnostics.preferenceKey)
+            diagnostics = LocalDiagnostics(defaults: defaults,
+                directory: URL(fileURLWithPath: "/private/tmp/qipli-s037-native-paste-diagnostics", isDirectory: true))
+        }
         // Omitting the optional registration exercises the production Unicode
         // fallback without changing the user's clipboard to force a failure.
         if !CommandLine.arguments.contains("--unicode-only") {
@@ -118,7 +125,7 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
             let b = Dictionary(uniqueKeysWithValues: pairs.enumerated().map { (CorrectionPhysicalKey(keyCode: UInt16($0.offset), level: 0), String($0.element.1)) })
             let sources = [CorrectionSource(id: "A", name: "Synthetic A", isCurrent: true, keyMap: a),
                            CorrectionSource(id: "B", name: "Synthetic B", isCurrent: false, keyMap: b)]
-            let coordinator = LayoutCorrectionCoordinator(adapter: adapter, ledger: ledger, selectSource: { _ in true })
+            let coordinator = LayoutCorrectionCoordinator(adapter: adapter, ledger: ledger, selectSource: { _ in true }, diagnostics: diagnostics)
             self.coordinator = coordinator
             coordinator.handleTrigger(targetPID: pid, sources: sources, currentSourceID: "A", mayRun: true) { [self] outcome in
                 guard outcome == .completed(sourceID: "B") else {
@@ -203,6 +210,7 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
         return zip(a,b).allSatisfy { left,right in left.count == right.count && zip(left,right).allSatisfy { $0.0 == $1.0 && $0.1 == $1.1 } }
     }
     private func finish(_ result: String) {
+        diagnostics?.flush()
         lines.append(result)
         try? (lines.joined(separator: "\n") + "\n").write(to: Self.reportURL, atomically: true, encoding: .utf8)
         fixture?.terminate()

@@ -3,7 +3,7 @@ import Foundation
 
 /// No payload-bearing strings can cross this boundary.
 enum DiagnosticStage: String, Codable, Sendable {
-    case session, trigger, admission, capture, cycle, selection, wordProof, mapping
+    case session, trigger, admission, capture, cycle, selection, wordProof, mapping, ax, validation, checkpoint, inputListener
     case replacement, clipboardLease, nativePaste, unicodePaste, postcondition, layoutSwitch, finished
 }
 
@@ -14,6 +14,8 @@ enum DiagnosticReason: String, Codable, Sendable {
     case caretBoundary, spaceBoundary, leftBoundary, rightBoundary, wordBoundary
     case permissionDenied, secureInput, unavailable, unsupported, stale, limit, deadline, verification
     case unsupportedCharacter, ambiguousSource, ambiguousDestination, unchanged, unexpected
+    case mismatch, axFailure, typeMismatch, lengthMismatch, notSettable, missingCapability, denied, failed, cancelled, dropped, restored, restoreSkipped, restoreDeferred
+    case tapTimeout, tapDisabled, listenerReady, listenerStopped, listenerUnavailable
 
     init(ax error: CorrectionAXError) {
         switch error {
@@ -37,6 +39,9 @@ enum DiagnosticReason: String, Codable, Sendable {
 }
 
 struct DiagnosticRecord: Codable, Sendable {
+    let schemaVersion: Int?
+    let sequence: UInt64?
+    let details: DiagnosticDetails?
     let timestamp: Date
     let session: UUID
     let operation: UUID?
@@ -68,6 +73,9 @@ final class LocalDiagnostics: @unchecked Sendable {
     private var generation: UInt64 = 0
     private var pending = 0
     private var failed = false
+    private var sequence: UInt64 = 0
+    private var dropped: UInt64 = 0
+    private var overflowReportEpoch: UInt64?
 
     init(defaults: UserDefaults = .standard, directory: URL? = nil,
          maximumFileBytes: Int = 1_048_576, maximumFiles: Int = 10,
@@ -95,7 +103,7 @@ final class LocalDiagnostics: @unchecked Sendable {
                 try self.prepareDirectory(create: self.isEnabled)
                 try self.removeExpired()
                 if self.isEnabled {
-                    try self.append(self.makeRecord(operation: nil, stage: .session, reason: .enabled, elapsed: nil))
+                    try self.append(self.makeRecord(operation: nil, stage: .session, reason: .enabled, elapsed: nil, details: Self.environmentDetails))
                 }
             }
         }
@@ -119,6 +127,7 @@ final class LocalDiagnostics: @unchecked Sendable {
         let epoch = lock.withLock { () -> UInt64 in
             enabled = value
             generation &+= 1
+            dropped = 0
             return generation
         }
         defaults.set(value, forKey: Self.preferenceKey)
@@ -127,7 +136,7 @@ final class LocalDiagnostics: @unchecked Sendable {
                 try prepareDirectory(create: value)
                 try removeExpired()
                 if lock.withLock({ generation == epoch }), value {
-                    try append(makeRecord(operation: nil, stage: .session, reason: .enabled, elapsed: nil))
+                    try append(makeRecord(operation: nil, stage: .session, reason: .enabled, elapsed: nil, details: Self.environmentDetails))
                 }
             }
             completion(success)
@@ -135,18 +144,48 @@ final class LocalDiagnostics: @unchecked Sendable {
     }
 
     func record(operation: UUID? = nil, stage: DiagnosticStage, reason: DiagnosticReason,
-                elapsedMilliseconds: UInt64? = nil) {
-        let epoch: UInt64? = lock.withLock {
-            guard enabled, pending < maximumPending else { return nil }
+                elapsedMilliseconds: UInt64? = nil, details: DiagnosticDetails? = nil) {
+        // Reserve room for operation endings. Overflow itself is reported by one
+        // bounded queue task, even when no later input event arrives.
+        let admission: (UInt64, UInt64)? = lock.withLock {
+            guard enabled else { return nil }
+            sequence &+= 1
+            guard pending < maximumPending + (stage == .finished ? 8 : 0) else {
+                dropped &+= 1
+                if overflowReportEpoch != generation {
+                    overflowReportEpoch = generation
+                    let epoch = generation
+                    queue.async { [self] in reportOverflow(epoch: epoch) }
+                }
+                return nil
+            }
             pending += 1
-            return generation
+            return (generation, sequence)
         }
-        guard let epoch else { return }
-        let record = makeRecord(operation: operation, stage: stage, reason: reason, elapsed: elapsedMilliseconds)
+        guard let (epoch, number) = admission else { return }
+        let record = makeRecord(operation: operation, stage: stage, reason: reason,
+            elapsed: elapsedMilliseconds, details: details, sequence: number)
         queue.async { [self] in
             defer { lock.withLock { pending -= 1 } }
             guard lock.withLock({ enabled && generation == epoch }) else { return }
             attempt { try prepareDirectory(create: true); try append(record) }
+        }
+    }
+
+    private func reportOverflow(epoch: UInt64) {
+        let count = lock.withLock { () -> UInt64 in
+            guard overflowReportEpoch == epoch else { return 0 }
+            overflowReportEpoch = nil
+            guard enabled && generation == epoch else { return 0 }
+            let count = dropped
+            dropped = 0
+            return count
+        }
+        guard count > 0 else { return }
+        attempt {
+            try prepareDirectory(create: true)
+            try append(makeRecord(operation: nil, stage: .session, reason: .dropped, elapsed: nil,
+                details: DiagnosticDetails(droppedRecords: count)))
         }
     }
 
@@ -158,7 +197,7 @@ final class LocalDiagnostics: @unchecked Sendable {
     }
 
     func clear(completion: @escaping @Sendable (Bool) -> Void) {
-        lock.withLock { generation &+= 1 }
+        lock.withLock { generation &+= 1; dropped = 0 }
         queue.async { [self] in
             completion(attempt {
                 try prepareDirectory(create: false)
@@ -171,9 +210,15 @@ final class LocalDiagnostics: @unchecked Sendable {
     func flush() { queue.sync {} }
 
     private func makeRecord(operation: UUID?, stage: DiagnosticStage, reason: DiagnosticReason,
-                            elapsed: UInt64?) -> DiagnosticRecord {
-        DiagnosticRecord(timestamp: now(), session: session, operation: operation,
+                            elapsed: UInt64?, details: DiagnosticDetails? = nil, sequence number: UInt64? = nil) -> DiagnosticRecord {
+        let number = number ?? lock.withLock { sequence &+= 1; return sequence }
+        return DiagnosticRecord(schemaVersion: 2, sequence: number, details: details, timestamp: now(), session: session, operation: operation,
             version: version, build: build, stage: stage, reason: reason, elapsedMilliseconds: elapsed)
+    }
+
+    private static var environmentDetails: DiagnosticDetails {
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        return DiagnosticDetails(osMajor: os.majorVersion, osMinor: os.minorVersion, osPatch: os.patchVersion)
     }
 
     @discardableResult private func attempt(_ action: () throws -> Void) -> Bool {

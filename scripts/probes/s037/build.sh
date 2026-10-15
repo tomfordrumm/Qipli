@@ -20,6 +20,8 @@ mkdir -p "$probe_app_dir/Contents/MacOS" "$probe_output_dir/module-cache"
     "$probe_source_dir/S037SelfAXRegression.swift" \
     "$probe_source_dir/S037ProductionAdapterProbe.swift" \
     "$probe_repo_dir/Sources/Qipli/Input/LayoutCorrectionAXAdapter.swift" \
+    "$probe_repo_dir/Sources/Qipli/Input/CorrectionDiagnostics.swift" \
+    "$probe_repo_dir/Sources/Qipli/Settings/LocalDiagnostics.swift" \
     "$probe_repo_dir/Sources/Qipli/Input/SyntheticEventMarker.swift" \
     -o "$probe_app_dir/Contents/MacOS/Qipli"
 cat > "$probe_app_dir/Contents/Info.plist" <<'PLIST'
