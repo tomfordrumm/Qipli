@@ -63,7 +63,7 @@ final class CorrectionClipboardLease {
     private var ownedCount: Int
     private let trace: CorrectionDiagnosticTrace?
 
-    init(text: String, pasteboard: NSPasteboard = .general,
+    init(text: String? = nil, pasteboard: NSPasteboard = .general,
          deadline: CorrectionAXDeadline = CorrectionAXDeadline(),
          registerSelfWrite: @escaping (Int) -> Void, trace: CorrectionDiagnosticTrace? = nil) throws {
         self.trace = trace
@@ -98,14 +98,43 @@ final class CorrectionClipboardLease {
         self.pasteboard = pasteboard
         self.registerSelfWrite = registerSelfWrite
         saved = snapshot
+        ownedCount = initialCount
+        if let text { try write(text) }
+    }
+
+    /// Invalidate stale clipboard text before the native Copy request.
+    func beginCopy() throws -> Int {
+        guard isOwned() else { throw CorrectionAXError.stale }
+        ownedCount = pasteboard.clearContents()
+        registerSelfWrite(ownedCount)
+        return ownedCount
+    }
+
+    /// Called while monitor polling is suspended. Never accepts pre-Copy text.
+    func acceptCopy(after count: Int) throws -> String? {
+        guard pasteboard.changeCount != count else { return nil }
+        ownedCount = pasteboard.changeCount
+        registerSelfWrite(ownedCount)
+        guard let items = pasteboard.pasteboardItems, items.count == 1,
+              items[0].data(forType: .fileURL) == nil,
+              let text = pasteboard.string(forType: .string), !text.isEmpty else {
+            throw CorrectionAXError.unsupported
+        }
+        guard text.utf16.count <= LayoutCorrectionLimits.maximumTextUTF16Units else { throw CorrectionAXError.limit }
+        guard pasteboard.changeCount == ownedCount else { throw CorrectionAXError.stale }
+        return text
+    }
+
+    func write(_ text: String) throws {
+        guard isOwned() else { throw CorrectionAXError.stale }
         ownedCount = pasteboard.clearContents()
         registerSelfWrite(ownedCount)
         let written = pasteboard.setString(text, forType: .string)
+        ownedCount = pasteboard.changeCount
+        registerSelfWrite(ownedCount)
         trace?(.clipboardLease, written ? .passed : .unavailable,
             DiagnosticDetails(step: .clipboardWrite, check: .clipboardWrite, matches: written))
         guard written else { restore(); throw CorrectionAXError.unavailable }
-        ownedCount = pasteboard.changeCount
-        registerSelfWrite(ownedCount)
     }
 
     func isOwned() -> Bool { saved != nil && pasteboard.changeCount == ownedCount }
@@ -629,7 +658,7 @@ private extension DiagnosticAXAttribute {
         switch self {
         case .focusedApplication, .focusedElement: .axElement
         case .role, .subrole, .value, .stringForRange: .string
-        case .enabled: .boolean
+        case .enabled, .editable: .boolean
         case .selectedRange: .axValue
         case .characterCount: .number
         }
@@ -641,6 +670,7 @@ private extension DiagnosticAXAttribute {
         case .role: kAXRoleAttribute as CFString
         case .subrole: kAXSubroleAttribute as CFString
         case .enabled: kAXEnabledAttribute as CFString
+        case .editable: "AXEditable" as CFString
         case .value: kAXValueAttribute as CFString
         case .selectedRange: kAXSelectedTextRangeAttribute as CFString
         case .characterCount: kAXNumberOfCharactersAttribute as CFString

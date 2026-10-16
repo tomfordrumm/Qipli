@@ -15,7 +15,7 @@ enum DiagnosticAPI: String, Codable, Sendable {
     case selectInputSource
 }
 enum DiagnosticAXAttribute: String, Codable, Sendable {
-    case focusedApplication, focusedElement, role, subrole, enabled, value, selectedRange, characterCount, stringForRange
+    case focusedApplication, focusedElement, role, subrole, enabled, editable, value, selectedRange, characterCount, stringForRange
 }
 enum DiagnosticCheck: String, Codable, Sendable {
     case wordBlocked, wordMissing, trailingSpaces, targetChanged, wordExpired, sourceChanged

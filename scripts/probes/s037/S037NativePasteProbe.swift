@@ -13,8 +13,10 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
     private var fixture: NSRunningApplication?
     private var lines: [String] = []
     private var caseIndex = 0
+    private var focusAttempts = 0
     private var coordinator: LayoutCorrectionCoordinator?
-    private let adapter = LayoutCorrectionAXAdapter()
+    private let adapter = LayoutCorrectionAXAdapter() // verification only
+    private let nativeTransport = NativeLayoutCorrectionTransport()
     private var diagnostics: LocalDiagnostics?
     private var selfWrites = 0
     private var clipboardBefore: [[(String, Data?)]] = []
@@ -36,11 +38,8 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
             diagnostics = LocalDiagnostics(defaults: defaults,
                 directory: URL(fileURLWithPath: "/private/tmp/qipli-s037-native-paste-diagnostics", isDirectory: true))
         }
-        // Omitting the optional registration exercises the production Unicode
-        // fallback without changing the user's clipboard to force a failure.
-        if !CommandLine.arguments.contains("--unicode-only") {
-            adapter.configurePasteboard { [weak self] _ in self?.selfWrites += 1 }
-        }
+        nativeTransport.configurePasteboard(registerSelfWrite: { [weak self] _ in self?.selfWrites += 1 },
+            beginCopy: {}, endCopy: {})
         clipboardBefore = snapshot()
         launchFixture()
     }
@@ -80,6 +79,7 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
         appItem.submenu = appMenu; main.addItem(appItem)
         let editItem = NSMenuItem(); let editMenu = NSMenu(title: "Edit")
         editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editItem.submenu = editMenu; main.addItem(editItem); NSApp.mainMenu = main
         self.window = window; self.editor = editor
@@ -91,8 +91,15 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
     private func runCase() {
         guard let fixture, !fixture.isTerminated,
               NSWorkspace.shared.frontmostApplication?.processIdentifier == fixture.processIdentifier else {
+            if let fixture, !fixture.isTerminated, focusAttempts < 5 {
+                focusAttempts += 1
+                fixture.activate(options: [.activateIgnoringOtherApps])
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.runCase() }
+                return
+            }
             finish("nativePaste=FAIL ownedFixtureFocus=false"); return
         }
+        focusAttempts = 0
         let spaces = caseIndex == 1 ? 0 : 3
         let selected = caseIndex >= 2
         let sourceText = caseIndex == 3 ? String(repeating: "ghbdtn", count: 2048) : "ghbdtn"
@@ -118,14 +125,15 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
             let tick = DispatchTime.now().uptimeNanoseconds - 10_000
             for index in 0..<(6 + spaces) {
                 ledger.noteKeyDown(timestamp: tick + UInt64(index), sourceID: "A", targetPID: pid,
-                    expectedUTF16Units: 1, isSpace: index >= 6, isExternal: true)
+                    expectedUTF16Units: 1, isSpace: index >= 6, isExternal: true,
+                    physicalKey: index < 6 ? CorrectionPhysicalKey(keyCode: UInt16(index), level: 0) : nil)
             }
             let pairs = Array(zip(Array("ghbdtn"), Array("привет")))
             let a = Dictionary(uniqueKeysWithValues: pairs.enumerated().map { (CorrectionPhysicalKey(keyCode: UInt16($0.offset), level: 0), String($0.element.0)) })
             let b = Dictionary(uniqueKeysWithValues: pairs.enumerated().map { (CorrectionPhysicalKey(keyCode: UInt16($0.offset), level: 0), String($0.element.1)) })
             let sources = [CorrectionSource(id: "A", name: "Synthetic A", isCurrent: true, keyMap: a),
                            CorrectionSource(id: "B", name: "Synthetic B", isCurrent: false, keyMap: b)]
-            let coordinator = LayoutCorrectionCoordinator(adapter: adapter, ledger: ledger, selectSource: { _ in true }, diagnostics: diagnostics)
+            let coordinator = LayoutCorrectionCoordinator(transport: nativeTransport, ledger: ledger, selectSource: { _ in true }, diagnostics: diagnostics)
             self.coordinator = coordinator
             coordinator.handleTrigger(targetPID: pid, sources: sources, currentSourceID: "A", mayRun: true) { [self] outcome in
                 guard outcome == .completed(sourceID: "B") else {
@@ -156,11 +164,16 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
         DispatchQueue(label: "qipli.s037.native-paste-verification").async { [weak self] in
             var verificationStage = "afterCorrection"
             do {
-                let target = try adapter.capture(pid: pid, deadline: CorrectionAXDeadline())
-                guard CFEqual(element, target.element), target.characterCount == expected.utf16.count,
-                      try Self.matchesText(expected, target: target, adapter: adapter, deadline: CorrectionAXDeadline()),
-                      target.selection.location == (selected ? 15 : 21 + spaces), target.selection.length == (selected ? selectedLength : 0)
-                else { throw CorrectionAXError.verification }
+                let verificationDeadline = CorrectionAXDeadline(milliseconds: 1500)
+                var applied = false
+                while !applied {
+                    try verificationDeadline.check()
+                    let target = try adapter.capture(pid: pid, deadline: verificationDeadline)
+                    applied = try CFEqual(element, target.element) && target.characterCount == expected.utf16.count &&
+                        Self.matchesText(expected, target: target, adapter: adapter, deadline: verificationDeadline) &&
+                        target.selection.location == 15 + selectedLength + (selected ? 0 : spaces) && target.selection.length == 0
+                    if !applied { Thread.sleep(forTimeInterval: 0.01) }
+                }
                 verificationStage = "undo"
                 guard let source = CGEventSource(stateID: .combinedSessionState) else { throw CorrectionAXError.unavailable }
                 for down in [true, false] {
@@ -183,7 +196,7 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
                     guard let self else { return }
                     let after = self.snapshot()
                     guard self.same(self.clipboardBefore, after) else { self.finish("nativePaste=FAIL clipboardRestore=false"); return }
-                    self.lines.append("case=\(index) PASS spaces=\(spaces) selected=\(selected) transport=\(self.selfWrites == 0 ? "unicode" : "paste") nativeUndo=true caret=true clipboardRestore=true preinputMonitor=false")
+                    self.lines.append("case=\(index) PASS spaces=\(spaces) selected=\(selected) transport=\(selected ? "copy-paste" : "key-replay") nativeUndo=true caret=true clipboardRestore=true preinputMonitor=false")
                     self.caseIndex += 1
                     if self.caseIndex < 4 {
                         self.fixture?.terminate(); self.fixture = nil

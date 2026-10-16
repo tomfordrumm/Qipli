@@ -13,6 +13,43 @@ final class LayoutCorrectionModelTests: XCTestCase {
         ))
     }
 
+    func testPhysicalBufferBoundExpiryAndInvalidation() {
+        let ledger = CorrectionInputLedger(), key = CorrectionPhysicalKey(keyCode: 0, level: 1)
+        let now = DispatchTime.now().uptimeNanoseconds
+        func keyDown(_ time: UInt64 = now) {
+            ledger.noteKeyDown(timestamp: time, sourceID: "A", targetPID: 42,
+                expectedUTF16Units: 1, isSpace: false, isExternal: true, physicalKey: key)
+        }
+        keyDown()
+        XCTAssertEqual(ledger.recentKeys(now: now), [key])
+        XCTAssertTrue(ledger.recentKeys(now: now + 5_000_000_000).isEmpty)
+        ledger.reset()
+        for _ in 0..<256 { keyDown() }
+        XCTAssertEqual(ledger.recentKeys(now: now).count, 256)
+        keyDown()
+        XCTAssertTrue(ledger.recentKeys(now: now).isEmpty)
+        XCTAssertTrue(ledger.isBlocked())
+        ledger.reset(); keyDown(); ledger.invalidate()
+        XCTAssertTrue(ledger.recentKeys(now: now).isEmpty)
+        ledger.reset(); keyDown(); ledger.markCompositionUncertain()
+        XCTAssertTrue(ledger.recentKeys(now: now).isEmpty)
+        ledger.reset(); keyDown(); ledger.setActiveSourceID("B")
+        XCTAssertTrue(ledger.recentKeys(now: now).isEmpty)
+    }
+
+    func testBufferKeepsOnlyLastWordAndIgnoresSyntheticInput() {
+        let ledger = CorrectionInputLedger(), first = CorrectionPhysicalKey(keyCode: 0, level: 0)
+        let second = CorrectionPhysicalKey(keyCode: 1, level: 0)
+        let now = DispatchTime.now().uptimeNanoseconds
+        for (key, space, external) in [(first, false, true), (first, true, true), (second, false, true), (first, false, false)] {
+            ledger.noteKeyDown(timestamp: now, sourceID: "A", targetPID: 42,
+                expectedUTF16Units: 1, isSpace: space, isExternal: external, physicalKey: key)
+        }
+        XCTAssertEqual(ledger.recentKeys(now: now), [second])
+        ledger.resetWordMetadata()
+        XCTAssertTrue(ledger.recentKeys(now: now).isEmpty)
+    }
+
     func testMapperPreservesUnmappedUnicodeButRefusesCharactersOwnedByForeignSource() throws {
         let a = source("A", [(0, 0, "g"), (1, 0, "h"), (2, 0, "b")])
         let b = source("B", [(0, 0, "п"), (1, 0, "р"), (2, 0, "и")])

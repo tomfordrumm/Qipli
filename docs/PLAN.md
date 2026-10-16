@@ -279,3 +279,5 @@ S023 + S024 + S025 + S027 -> S029
 ## Milestone M18: Локальная диагностика
 
 38. [S038: Opt-in локальные журналы](slices/S038-local-diagnostics.md), D-054, зависимости S010/S037. Сначала bounded writer и privacy schema, затем Settings и correction checkpoints, automated/build verification и installed smoke.
+
+Уточнение 2026-10-15: S037/FR-053–054, BR-039–040, NFR-037 реализуются по D-056. Срез и coverage сохраняются: сначала bounded key buffer и native Copy transaction/replay, затем coordinator/race/clipboard tests, signed owned-field probe и Final Cut text-field acceptance.

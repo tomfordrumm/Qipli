@@ -101,7 +101,7 @@ struct CorrectionInputMetadata: Equatable, Sendable {
     let leftOptionDown: Bool
 }
 
-/// Fixed-size event-tap ledger. It never retains keycodes, Unicode, or event objects.
+/// Bounded sensitive physical-key buffer. Never persist or log keys or reconstructed text.
 final class CorrectionInputLedger: @unchecked Sendable {
     private let lock = NSLock()
     private var generation: UInt64 = 0
@@ -117,6 +117,29 @@ final class CorrectionInputLedger: @unchecked Sendable {
     private var capturedPID: pid_t = 0
     private var activeSourceID = ""
     private var compositionUncertain = false
+    private var keys: [CorrectionPhysicalKey] = []
+    private var keyExpiryScheduled = false
+
+    func recentKeys(now: UInt64 = DispatchTime.now().uptimeNanoseconds) -> [CorrectionPhysicalKey] {
+        lock.lock(); defer { lock.unlock() }
+        guard !blocked, !compositionUncertain, now >= lastTimestamp,
+              now - lastTimestamp < 5_000_000_000 else { keys.removeAll(); return [] }
+        return keys
+    }
+
+    private func scheduleKeyExpiry(after delay: Double = 5) {
+        guard !keyExpiryScheduled else { return }
+        keyExpiryScheduled = true
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            self.lock.lock(); defer { self.lock.unlock() }
+            self.keyExpiryScheduled = false
+            let now = DispatchTime.now().uptimeNanoseconds
+            if now >= self.lastTimestamp, now - self.lastTimestamp >= 5_000_000_000 {
+                self.keys.removeAll()
+            } else if !self.keys.isEmpty { self.scheduleKeyExpiry(after: Double(5_000_000_000 - min(5_000_000_000, now &- self.lastTimestamp)) / 1_000_000_000) }
+        }
+    }
 
     func setActiveSourceID(_ sourceID: String) {
         lock.lock(); defer { lock.unlock() }
@@ -142,36 +165,41 @@ final class CorrectionInputLedger: @unchecked Sendable {
 
     func noteKeyDown(timestamp: UInt64, sourceID: String, targetPID: pid_t,
                      expectedUTF16Units: UInt8?, isSpace: Bool, isExternal: Bool,
-                     uncertainComposition: Bool = false) {
+                     uncertainComposition: Bool = false, physicalKey: CorrectionPhysicalKey? = nil) {
         lock.lock(); defer { lock.unlock() }
         guard isExternal else { return }
         generation &+= 1
         inputGeneration &+= 1
         keyDownCount &+= 1
+        if timestamp >= lastTimestamp, timestamp - lastTimestamp >= 5_000_000_000 { keys.removeAll() }
         lastTimestamp = timestamp
         if capturedSourceID == nil {
             capturedSourceID = sourceID
             capturedPID = targetPID
         } else if capturedSourceID != sourceID || capturedPID != targetPID {
-            blocked = true; compositionUncertain = true
+            keys.removeAll(); blocked = true; compositionUncertain = true
         }
         guard let expectedUTF16Units, expectedUTF16Units > 0 else {
-            blocked = true; compositionUncertain = compositionUncertain || uncertainComposition; return
+            keys.removeAll(); blocked = true; compositionUncertain = compositionUncertain || uncertainComposition; return
         }
         totalUTF16Units &+= UInt32(expectedUTF16Units)
         if isSpace {
-            if trailingSpaces == 8 { blocked = true }
+            if trailingSpaces == 8 { keys.removeAll(); blocked = true }
             else { trailingSpaces += 1 }
         } else {
-            if trailingSpaces > 0 { wordUTF16Units = 0 }
+            if trailingSpaces > 0 { wordUTF16Units = 0; keys.removeAll() }
             wordUTF16Units &+= UInt32(expectedUTF16Units)
             trailingSpaces = 0
+            if let physicalKey, !blocked {
+                if keys.count < 256 { keys.append(physicalKey); scheduleKeyExpiry() }
+                else { keys.removeAll(); blocked = true }
+            }
         }
     }
 
     func invalidate() {
         lock.lock(); defer { lock.unlock() }
-        generation &+= 1; inputGeneration &+= 1; blocked = true
+        generation &+= 1; inputGeneration &+= 1; keys.removeAll(); blocked = true
     }
 
     func resetWordMetadata() {
@@ -182,7 +210,7 @@ final class CorrectionInputLedger: @unchecked Sendable {
 
     func markCompositionUncertain() {
         lock.lock(); defer { lock.unlock() }
-        generation &+= 1; inputGeneration &+= 1; blocked = true; compositionUncertain = true
+        generation &+= 1; inputGeneration &+= 1; keys.removeAll(); blocked = true; compositionUncertain = true
     }
 
     func isCompositionUncertain() -> Bool {
@@ -211,6 +239,7 @@ final class CorrectionInputLedger: @unchecked Sendable {
     }
 
     private func clearWordMetadata(preserveCompositionUncertain: Bool) {
+        keys.removeAll()
         keyDownCount = 0; totalUTF16Units = 0; wordUTF16Units = 0; trailingSpaces = 0; blocked = false
         capturedSourceID = nil; capturedPID = 0
         if !preserveCompositionUncertain { compositionUncertain = false }
