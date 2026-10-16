@@ -4,6 +4,67 @@ import XCTest
 
 @MainActor
 final class LayoutCorrectionClipboardTests: XCTestCase {
+    func testCopyTransactionUsesFreshTextAndRestoresOriginalWithoutCapture() throws {
+        let board = board(); defer { board.releaseGlobally() }
+        board.clearContents(); board.setString("synthetic original", forType: .string)
+        var captures = 0
+        let monitor = PasteboardMonitor(pasteboard: SystemPasteboardReader(pasteboard: board), onExternalText: { _ in captures += 1 })
+        monitor.start(); defer { monitor.stop() }
+        let lease = try CorrectionClipboardLease(pasteboard: board, registerSelfWrite: { monitor.registerSelfWrite(changeCount: $0) })
+        monitor.beginCorrectionCopy()
+        let emptyCount = try lease.beginCopy()
+        XCTAssertNil(try lease.acceptCopy(after: emptyCount))
+        board.clearContents(); board.setString("synthetic selected", forType: .string)
+        monitor.poll() // timer may fire before the Copy response is registered
+        XCTAssertEqual(captures, 0)
+        XCTAssertEqual(try lease.acceptCopy(after: emptyCount), "synthetic selected")
+        monitor.endCorrectionCopy()
+        try lease.write("synthetic converted"); monitor.poll()
+        lease.restore(); monitor.poll()
+        XCTAssertEqual(captures, 0)
+        XCTAssertEqual(board.string(forType: .string), "synthetic original")
+        board.clearContents(); board.setString("synthetic subsequent external", forType: .string); monitor.poll()
+        XCTAssertEqual(captures, 1)
+    }
+
+    func testNoCopyResponseNeverUsesPreviousClipboardText() throws {
+        let board = board(); defer { board.releaseGlobally() }
+        board.clearContents(); board.setString("synthetic stale clipboard", forType: .string)
+        let lease = try CorrectionClipboardLease(pasteboard: board, registerSelfWrite: { _ in })
+        let count = try lease.beginCopy()
+        XCTAssertNil(try lease.acceptCopy(after: count))
+        lease.restore()
+        XCTAssertEqual(board.string(forType: .string), "synthetic stale clipboard")
+    }
+
+    func testExternalCopyAfterSelectionAcquiredCancelsWriteAndPreservesNewClipboard() throws {
+        let board = board(); defer { board.releaseGlobally() }
+        board.clearContents(); board.setString("synthetic original", forType: .string)
+        let lease = try CorrectionClipboardLease(pasteboard: board, registerSelfWrite: { _ in })
+        let count = try lease.beginCopy()
+        board.clearContents(); board.setString("synthetic selected", forType: .string)
+        _ = try lease.acceptCopy(after: count)
+        board.clearContents(); board.setString("synthetic newer external", forType: .string)
+        XCTAssertThrowsError(try lease.write("synthetic converted"))
+        lease.restore()
+        XCTAssertEqual(board.string(forType: .string), "synthetic newer external")
+    }
+
+    func testFileCopyAndOversizedSelectionAreRejectedBeforePaste() throws {
+        let board = board(); defer { board.releaseGlobally() }
+        for oversized in [false, true] {
+            board.clearContents(); board.setString("synthetic original", forType: .string)
+            let lease = try CorrectionClipboardLease(pasteboard: board, registerSelfWrite: { _ in })
+            let count = try lease.beginCopy()
+            board.clearContents()
+            if oversized { board.setString(String(repeating: "a", count: 12_289), forType: .string) }
+            else { board.setString("file:///tmp/synthetic-qipli-fixture", forType: .fileURL) }
+            XCTAssertThrowsError(try lease.acceptCopy(after: count))
+            lease.restore()
+            XCTAssertEqual(board.string(forType: .string), "synthetic original")
+        }
+    }
+
     private func board() -> NSPasteboard { NSPasteboard(name: .init("qipli-correction-test-" + UUID().uuidString)) }
 
     func testRestorePreservesMultipleItemsAndBinaryRepresentations() throws {

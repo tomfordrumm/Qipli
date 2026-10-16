@@ -95,19 +95,19 @@ final class ApplicationShell: NSObject {
         )
         let correctionInput = resolvedInputAdapter as? CGEventTapAdapter
         correctionInputAdapter = correctionInput
-        let correctionAXAdapter: LayoutCorrectionAXAdapter?
+        let correctionNativeTransport: NativeLayoutCorrectionTransport?
         if let correctionInput {
-            let axAdapter = LayoutCorrectionAXAdapter()
-            correctionAXAdapter = axAdapter
+            let nativeTransport = NativeLayoutCorrectionTransport()
+            correctionNativeTransport = nativeTransport
             let coordinator = LayoutCorrectionCoordinator(
-                adapter: axAdapter,
+                transport: nativeTransport,
                 ledger: correctionInput.correctionLedger,
                 diagnostics: diagnostics
             )
             coordinator.sourceCatalog = correctionCatalog
             layoutCorrectionCoordinator = coordinator
         } else {
-            correctionAXAdapter = nil
+            correctionNativeTransport = nil
             layoutCorrectionCoordinator = nil
         }
         historyShortcutObservation = shortcutPreferences.$snapshot
@@ -190,9 +190,10 @@ final class ApplicationShell: NSObject {
             }
         )
         pasteboardMonitor = monitor
-        correctionAXAdapter?.configurePasteboard(registerSelfWrite: { [weak monitor] count in
+        correctionNativeTransport?.configurePasteboard(registerSelfWrite: { [weak monitor] count in
             monitor?.registerSelfWrite(changeCount: count)
-        })
+        }, beginCopy: { [weak monitor] in monitor?.beginCorrectionCopy() },
+           endCopy: { [weak monitor] in monitor?.endCorrectionCopy() })
         finderCutSessionController.registerSelfWrite = { [weak monitor] changeCount in
             monitor?.registerSelfWrite(changeCount: changeCount)
         }

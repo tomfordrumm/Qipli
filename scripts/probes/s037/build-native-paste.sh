@@ -12,6 +12,7 @@ xcrun swiftc -D DEBUG -parse-as-library -module-cache-path "$probe_output_dir/mo
   "$probe_repo_dir/Sources/Qipli/Input/CorrectionDiagnostics.swift" \
   "$probe_repo_dir/Sources/Qipli/Settings/LocalDiagnostics.swift" \
   "$probe_repo_dir/Sources/Qipli/Input/LayoutCorrectionCoordinator.swift" \
+  "$probe_repo_dir/Sources/Qipli/Input/NativeLayoutCorrectionTransport.swift" \
   "$probe_repo_dir/Sources/Qipli/Input/LayoutCorrectionPreferences.swift" \
   "$probe_repo_dir/Sources/Qipli/Settings/ShortcutPreferences.swift" \
   "$probe_repo_dir/Sources/Qipli/Input/CorrectionFreshWordMonitor.swift" \

@@ -349,3 +349,19 @@ S034 закрыт по пользовательскому smoke acceptance и а
 4. Выполнить clean-machine macOS14 install/launch и operational immutable-rerun gate S014. Выпуск v1.0.13 завершён, опубликованные tag/assets неизменяемы.
 
 Подробные исторические записи не являются обязательным operational-контекстом. Открывайте [`STATE-HISTORY.md`](STATE-HISTORY.md) только если нужно восстановить происхождение решения, старый verification result или release evidence.
+
+
+## 2026-10-15: 1.0.15 build16 перед protected signing
+
+Пользователь явно разрешил публикацию 1.0.15 с D-055. Feature PR #36 (`d971433`, squash main `be103e0`) и Release PR #37 (`d224611`, squash main `7209e34c428e385a1606be008c764d9b6375613d`) слиты. CI runs 38768118610/38769066437 и exact-main 38769989444 SUCCESS. В release branch менялись только Config/Version.xcconfig и release notes, build16 выше всех published builds. Annotated v1.0.15 создан на проверенном main SHA и отправлен отдельно. Clean detached `/private/tmp/qipli-v1.0.15-admission` release admission PASS. Run 38770846125 waiting на required reviewer Environment release; пользователю передана ссылка. Approval не обходился. ZIP/DMG/Sparkle и installed acceptance ещё не подтверждены.
+
+
+## 2026-10-15: публичный релиз 1.0.15/build16 и независимая проверка
+
+- Feature PR https://github.com/tomfordrumm/Qipli/pull/36, Release PR https://github.com/tomfordrumm/Qipli/pull/37 слиты. Immutable annotated `v1.0.15` на main SHA `7209e34c428e385a1606be008c764d9b6375613d`; exact-main CI https://github.com/tomfordrumm/Qipli/actions/runs/38769989444 SUCCESS перед тегом. Release branch содержала только version/build16 и release notes. Clean detached tag admission PASS.
+- Protected release https://github.com/tomfordrumm/Qipli/actions/runs/38770846125: пользователь подтвердил Environment approval, signed-release и deploy-appcast SUCCESS. Public Release https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.15, publishedAt `2026-10-15T16:47:33Z`, non-draft/non-prerelease; tag/target SHA и build marker16 совпадают.
+- Public ZIP SHA-256 `41b697637e7d67b679751bd4c76a4466ffda1e0d2f730ba559c42a48d6a3acb6`, size 5,586,237; DMG SHA-256 `e17358a14f41067e46bd683fcfce338a5d043ada5aa93045ce41ce2901a371ac`, size 5,807,614. Скачанные checksum manifests PASS; `Qipli.dmg` из версии и latest alias byte-identical versioned DMG.
+- ZIP извлечён в `/private/tmp/qipli-1.0.15-verified/unpacked/Qipli.app`. Info.plist 1.0.15/build16. verify-signed-app release mode и verify-dmg release mode PASS: Developer ID, Team3N2R5K4J63, universal architectures, Hardened Runtime, nested Sparkle, entitlements/runtime linking, strict/deep signatures, stapler, Gatekeeper accepted Notarized Developer ID. DMG смонтирован read-only и проверен штатным скриптом.
+- Public https://tomfordrumm.github.io/Qipli/appcast.xml: 1.0.15/build16, minimum macOS14.0, immutable v1.0.15 ZIP URL/length, public URL length PASS. Отдельный CryptoKit Ed25519 verifier проверил downloaded ZIP подписью feed и SUPublicEDKey из downloaded app, без private key. Public executable содержит schemaVersion/lastFailure/copyStringForRange/droppedRecords.
+- Все verification artifacts/logs: `/private/tmp/qipli-1.0.15-verified/`. Local final source suite355/355, version8/8, release contract13/13, unsigned CI/public-readiness/privacy и universal Debug/Release ранее PASS. Native owned-field probe SKIPPED Accessibility=false.
+- Publication не подтверждает installed Sparkle update, сохранение History/favorites/Accessibility и реальный ChatGPT schema-v2 trail. Установленная Release в этой задаче не заменялась; Settings/VoiceOver/Finder/ChatGPT и clean-machine macOS14 matrix остаются открытыми.

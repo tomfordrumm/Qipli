@@ -355,7 +355,14 @@ final class PasteboardMonitor {
         ignoredChanges.insert(changeCount)
     }
 
+    private var correctionCopyDepth = 0
+
+    /// Hold observations only until a correction Copy result is registered by exact count.
+    func beginCorrectionCopy() { correctionCopyDepth += 1 }
+    func endCorrectionCopy() { correctionCopyDepth = max(0, correctionCopyDepth - 1); poll() }
+
     func poll() {
+        guard correctionCopyDepth == 0 else { return }
         let currentChangeCount = pasteboard.changeCount
         guard let lastChangeCount else {
             self.lastChangeCount = currentChangeCount

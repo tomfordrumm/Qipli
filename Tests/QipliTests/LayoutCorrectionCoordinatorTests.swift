@@ -2,199 +2,91 @@ import ApplicationServices
 import XCTest
 @testable import Qipli
 
-private final class CorrectionFakeAX: LayoutCorrectionAXAdapting, @unchecked Sendable {
-    var text: String
-    var target: CorrectionAXTarget
-    var captures = 0
-    var reads = 0
-    var replacements = 0
-    var beforeCapture: (() -> Void)?
-    var replacedRanges: [CFRange] = []
-    init(_ text: String, selection: CFRange) {
-        self.text = text
-        target = CorrectionAXTarget(pid: 77, element: AXUIElementCreateApplication(77),
-                                    selection: selection, characterCount: text.utf16.count)
-    }
-    func capture(pid: pid_t, deadline: CorrectionAXDeadline) throws -> CorrectionAXTarget {
-        captures += 1; beforeCapture?(); return target
-    }
-    func matches(_ target: CorrectionAXTarget, deadline: CorrectionAXDeadline) throws -> Bool { true }
-    func read(_ target: CorrectionAXTarget, range: CFRange, deadline: CorrectionAXDeadline) throws -> String {
-        reads += 1
-        return (text as NSString).substring(with: NSRange(location: range.location, length: range.length))
-    }
-    func replace(_ target: CorrectionAXTarget, range: CFRange, expectedText: String, replacement: String,
-                 keepSelected: Bool, deadline: CorrectionAXDeadline, isFresh: () -> Bool) throws -> CorrectionAXReplacement {
-        guard isFresh(), try read(target, range: range, deadline: deadline) == expectedText else {
-            throw CorrectionAXError.stale
+private final class NativeMetadataClient: CorrectionAXClient, @unchecked Sendable {
+    var role = "AXTextArea"
+    var subrole: String?
+    var subroleStatus: AXError = .attributeUnsupported
+    var rangeStatus: AXError = .attributeUnsupported
+    var editableStatus: AXError = .attributeUnsupported
+    var editable: Bool?
+    var elementPID: pid_t = 77
+    var requested: [String] = []
+    func copyAttribute(_ element: AXUIElement, _ name: CFString) -> (AXError, CFTypeRef?) {
+        let name = name as String; requested.append(name)
+        switch name {
+        case kAXFocusedUIElementAttribute: return (.success, AXUIElementCreateApplication(77))
+        case kAXRoleAttribute: return (.success, role as CFString)
+        case kAXSubroleAttribute: return (subroleStatus, subrole.map { $0 as CFString })
+        case "AXEditable": return editable.map { (.success, $0 as CFBoolean) } ?? (editableStatus, nil)
+        case kAXSelectedTextRangeAttribute: return (rangeStatus, nil)
+        default: XCTFail("Unexpected metadata read"); return (.failure, nil)
         }
-        replacements += 1; replacedRanges.append(range)
-        text = (text as NSString).replacingCharacters(in: NSRange(location: range.location, length: range.length), with: replacement)
-        let next = CFRange(location: range.location, length: replacement.utf16.count)
-        let selection = keepSelected ? next : CFRange(location: target.selection.location + next.length - range.length, length: 0)
-        self.target = CorrectionAXTarget(pid: target.pid, element: target.element, selection: selection, characterCount: text.utf16.count)
-        return CorrectionAXReplacement(target: self.target, range: next)
     }
+    func parameterNames(_ element: AXUIElement) -> (AXError, CFTypeRef?) { XCTFail(); return (.failure, nil) }
+    func stringForRange(_ element: AXUIElement, _ range: AXValue) -> (AXError, CFTypeRef?) { XCTFail(); return (.failure, nil) }
+    func pid(_ element: AXUIElement) -> (AXError, pid_t) { (.success, elementPID) }
+    func timeout(_ element: AXUIElement, _ seconds: Float) -> AXError { .success }
+    func settable(_ element: AXUIElement, _ name: CFString) -> (AXError, Bool) { XCTFail(); return (.failure, false) }
+    func setSelection(_ element: AXUIElement, _ range: AXValue) -> AXError { XCTFail(); return .failure }
+    func isTrusted() -> Bool { true }
+    func isSecureInput() -> Bool { false }
 }
-private final class CorrectionFakeProof: CorrectionFreshWordProofProviding, @unchecked Sendable {
-    var value: (FreshWordBaseline, FreshWordSample)?
-    var onRefresh: (() -> Void)?
-    func refreshForTrigger(deadline: CorrectionAXDeadline) { onRefresh?() }
-    func invalidate() { value = nil }
-    func proof(generation: UInt64, sourceID: String, pid: pid_t, lastInputTimestamp: UInt64)
-        -> (FreshWordBaseline, FreshWordSample)? { value }
+
+@MainActor
+private final class FakeNativeCorrection: LayoutCorrectionTransport {
+    var mutationBegan = false
+    var selectionEmpty: Bool? = true
+    var copied: String?
+    var prepareError: Error?
+    var copyError: Error?
+    var onPrepare: (() -> Void)?
+    var onCopy: (() -> Void)?
+    var onReplay: (() -> Void)?
+    var prepared = 0, copies = 0, finishes = 0
+    var pastes: [String] = []
+    var replays: [(Int, String)] = []
+    func setTrace(_ trace: CorrectionDiagnosticTrace?) {}
+    func prepare(pid: pid_t) async throws -> Bool? {
+        mutationBegan = false; prepared += 1; onPrepare?()
+        if let prepareError { throw prepareError }
+        return selectionEmpty
+    }
+    func copySelection(pid: pid_t, isFresh: () -> Bool) async throws -> String? {
+        copies += 1; onCopy?()
+        if let copyError { throw copyError }
+        return copied
+    }
+    func pasteSelection(_ text: String, pid: pid_t, isFresh: () -> Bool) async throws {
+        guard isFresh() else { throw CorrectionAXError.stale }
+        mutationBegan = true; pastes.append(text)
+    }
+    func replay(deleteCount: Int, text: String, pid: pid_t, isFresh: () -> Bool) async throws {
+        guard isFresh() else { throw CorrectionAXError.stale }
+        mutationBegan = true; replays.append((deleteCount, text)); onReplay?()
+        guard isFresh() else { throw CorrectionAXError.stale }
+    }
+    func finish() { finishes += 1 }
 }
 
 @MainActor
 final class LayoutCorrectionCoordinatorTests: XCTestCase {
-    func testWordUsesCaretAfterNativeSpaceSettlesDuringMetadataRefresh() async {
-        let ax = CorrectionFakeAX("a ", selection: CFRange(location: 2, length: 0))
-        let settled = ax.target
-        ax.target = CorrectionAXTarget(pid: 77, element: settled.element,
-            selection: CFRange(location: 1, length: 0), characterCount: 1)
-        let ledger = CorrectionInputLedger()
-        let tick = DispatchTime.now().uptimeNanoseconds - 1_000
-        ledger.noteKeyDown(timestamp: tick, sourceID: "A", targetPID: 77,
-            expectedUTF16Units: 1, isSpace: false, isExternal: true)
-        ledger.noteKeyDown(timestamp: tick + 1, sourceID: "A", targetPID: 77,
-            expectedUTF16Units: 1, isSpace: true, isExternal: true)
-        let proof = CorrectionFakeProof()
-        proof.value = (FreshWordBaseline(target: CorrectionAXTarget(pid: 77, element: settled.element,
-            selection: CFRange(location: 0, length: 0), characterCount: 0), sampledAt: tick - 1,
-            inputGeneration: 0, observerGeneration: 0, sourceID: "A"),
-            FreshWordSample(target: settled, sampledAt: tick + 2, observerGeneration: 0,
-                inputGeneration: ledger.snapshot().inputGeneration, sourceID: "A"))
-        ax.beforeCapture = { if ax.captures >= 2 { ax.target = settled } }
-        let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: ledger,
-            freshWordMonitor: proof, selectSource: { _ in true })
-        let result = await trigger(coordinator, current: "A")
-        XCTAssertEqual(result, .completed(sourceID: "B"))
-        XCTAssertEqual(ax.text, "b ")
-        XCTAssertEqual(ax.target.selection.location, 2)
-        XCTAssertEqual(ax.replacements, 1)
-    }
-    func testWordTypedOverAnInitialSelectionPreservesSuffixAndSpaces() async {
-        // The new typing replaced the initial "old old" selection at [2, 7].
-        // Net document growth is negative, but inserted units and caret growth match.
-        for spaces in 0...1 {
-            let ax = CorrectionFakeAX("d a" + String(repeating: " ", count: spaces) + " d",
-                                      selection: CFRange(location: 3 + spaces, length: 0))
-            let ledger = CorrectionInputLedger()
-            let tick = DispatchTime.now().uptimeNanoseconds - 1_000
-            for index in 0...spaces {
-                ledger.noteKeyDown(timestamp: tick + UInt64(index), sourceID: "A", targetPID: 77,
-                    expectedUTF16Units: 1, isSpace: index > 0, isExternal: true)
-            }
-            let proof = CorrectionFakeProof()
-            proof.value = (FreshWordBaseline(target: CorrectionAXTarget(pid: 77, element: ax.target.element,
-                selection: CFRange(location: 2, length: 7), characterCount: 11), sampledAt: tick - 1,
-                inputGeneration: 0, observerGeneration: 0, sourceID: "A"),
-                FreshWordSample(target: ax.target, sampledAt: tick + UInt64(spaces + 1), observerGeneration: 1,
-                    inputGeneration: ledger.snapshot().inputGeneration, sourceID: "A"))
-            let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: ledger,
-                freshWordMonitor: proof, selectSource: { _ in true })
-            let result = await trigger(coordinator, current: "A")
-            XCTAssertEqual(result, .completed(sourceID: "B"))
-            XCTAssertEqual(ax.text, "d b" + String(repeating: " ", count: spaces) + " d")
-            XCTAssertEqual(ax.target.selection.location, 3 + spaces)
-            XCTAssertEqual(ax.replacements, 1)
-        }
-    }
-
-    func testRecentWordWithSpacesConvertsWithoutAnyPreinputAXMonitor() async {
-        for spaces in [0, 1, 3] {
-            let ax = CorrectionFakeAX("d a" + String(repeating: " ", count: spaces),
-                                      selection: CFRange(location: 3 + spaces, length: 0))
-            let ledger = CorrectionInputLedger()
-            let tick = DispatchTime.now().uptimeNanoseconds - 10_000
-            for index in 0...spaces {
-                ledger.noteKeyDown(timestamp: tick + UInt64(index), sourceID: "A", targetPID: 77,
-                    expectedUTF16Units: 1, isSpace: index > 0, isExternal: true)
-            }
-            let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: ledger, selectSource: { _ in true })
-            let result = await trigger(coordinator, current: "A")
-            XCTAssertEqual(result, .completed(sourceID: "B"))
-            XCTAssertEqual(ax.text, "d b" + String(repeating: " ", count: spaces))
-            XCTAssertEqual(ax.target.selection.location, 3 + spaces)
-        }
-    }
-
-    func testOldOrPastedWordWithoutRecentTypingIsRejectedBeforeReadingText() async {
-        let ax = CorrectionFakeAX("a", selection: CFRange(location: 1, length: 0))
-        let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: CorrectionInputLedger(), selectSource: { _ in true })
-        if case .failed = await trigger(coordinator, current: "A") {} else { XCTFail("Old text was admitted") }
-        XCTAssertEqual(ax.reads, 0)
-        XCTAssertEqual(ax.replacements, 0)
-    }
-
-    func testExpandedSelectionLimitPreservesContextAndSelectedRange() async {
-        let seed = String(repeating: "a", count: 12_288)
-        let ax = CorrectionFakeAX("d " + seed + " d", selection: CFRange(location: 2, length: seed.utf16.count))
-        let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: CorrectionInputLedger(), selectSource: { _ in true })
-        let result = await trigger(coordinator, current: "A")
-        XCTAssertEqual(result, .completed(sourceID: "B"))
-        XCTAssertEqual(ax.text, "d " + String(repeating: "b", count: 12_288) + " d")
-        XCTAssertEqual(ax.target.selection.location, 2)
-        XCTAssertEqual(ax.target.selection.length, 12_288)
-        XCTAssertEqual(ax.replacements, 1)
-    }
-
-    func testAboveExpandedSelectionLimitRefusesBeforePayloadRead() async {
-        let seed = String(repeating: "a", count: 12_289)
-        let ax = CorrectionFakeAX(seed, selection: CFRange(location: 0, length: seed.utf16.count))
-        let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: CorrectionInputLedger(), selectSource: { _ in true })
-        let result = await trigger(coordinator, current: "A")
-        XCTAssertEqual(result, .failed("Select up to 12,288 characters for layout correction."))
-        XCTAssertEqual(ax.reads, 0)
-        XCTAssertEqual(ax.replacements, 0)
-        XCTAssertEqual(ax.text, seed)
-    }
-
-    func testDiagnosticsCorrelatesSuccessBusyAndWordFailureWithoutPayload() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let suite = "CorrectionDiagnosticTest.\(UUID())"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer {
-            try? FileManager.default.removeItem(at: root)
-            defaults.removePersistentDomain(forName: suite)
-        }
-        defaults.set(true, forKey: LocalDiagnostics.preferenceKey)
-        let logger = LocalDiagnostics(defaults: defaults, directory: root)
-        let ax = CorrectionFakeAX("a", selection: CFRange(location: 0, length: 1))
-        let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: CorrectionInputLedger(),
-            selectSource: { _ in true }, diagnostics: logger)
-        let success = await trigger(coordinator, current: "A")
-        XCTAssertEqual(success, .completed(sourceID: "B"))
-        _ = await trigger(coordinator, current: "B", mayRun: false)
-        ax.target = CorrectionAXTarget(pid: 77, element: ax.target.element,
-            selection: CFRange(location: 1, length: 0), characterCount: 1)
-        _ = await trigger(coordinator, current: "B")
-        logger.flush()
-        let data = try Data(contentsOf: root.appendingPathComponent("diagnostics-0.jsonl"))
-        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-        let records = try data.split(separator: 0x0A).map { try decoder.decode(DiagnosticRecord.self, from: Data($0)) }
-        let completed = try XCTUnwrap(records.first { $0.reason == .completed })
-        let steps = records.filter { $0.operation == completed.operation }
-        XCTAssertTrue(steps.contains { $0.stage == .trigger })
-        XCTAssertTrue(steps.contains { $0.stage == .selection })
-        XCTAssertTrue(steps.contains { $0.stage == .replacement })
-        XCTAssertTrue(steps.contains { $0.stage == .layoutSwitch })
-        XCTAssertTrue(records.contains { $0.reason == .inputBusy })
-        XCTAssertTrue(records.contains { $0.stage == .wordProof && $0.reason == .wordMissing })
-        XCTAssertEqual(Set(records.compactMap(\.operation)).count, 3)
-        XCTAssertEqual(Set(records.map(\.session)).count, 1)
-        XCTAssertTrue(steps.allSatisfy { $0.elapsedMilliseconds != nil })
-    }
-
+    private let key = CorrectionPhysicalKey(keyCode: 0, level: 0)
     private var sources: [CorrectionSource] {
-        let zero = CorrectionPhysicalKey(keyCode: 0, level: 0)
-        let one = CorrectionPhysicalKey(keyCode: 1, level: 0)
-        return [CorrectionSource(id: "A", name: "A", isCurrent: true, keyMap: [zero: "a", one: "d"]),
-                CorrectionSource(id: "B", name: "B", isCurrent: false, keyMap: [zero: "b", one: "b"]),
-                CorrectionSource(id: "C", name: "C", isCurrent: false, keyMap: [zero: "c", one: "e"])]
+        let shifted = CorrectionPhysicalKey(keyCode: 0, level: 1)
+        return [CorrectionSource(id: "A", name: "A", isCurrent: true, keyMap: [key: "a", shifted: "A"]),
+                CorrectionSource(id: "B", name: "B", isCurrent: false, keyMap: [key: "b", shifted: "B"]),
+                CorrectionSource(id: "C", name: "C", isCurrent: false, keyMap: [key: "c", shifted: "C"])]
     }
-    private func trigger(_ coordinator: LayoutCorrectionCoordinator, current: String, mayRun: Bool = true)
-        async -> LayoutCorrectionOutcome {
+    private func typed(_ ledger: CorrectionInputLedger, spaces: Int = 0, pid: pid_t = 77, source: String = "A") {
+        let now = DispatchTime.now().uptimeNanoseconds - 100
+        ledger.noteKeyDown(timestamp: now, sourceID: source, targetPID: pid,
+            expectedUTF16Units: 1, isSpace: false, isExternal: true, physicalKey: key)
+        for _ in 0..<spaces {
+            ledger.noteKeyDown(timestamp: now, sourceID: source, targetPID: pid,
+                expectedUTF16Units: 1, isSpace: true, isExternal: true)
+        }
+    }
+    private func trigger(_ coordinator: LayoutCorrectionCoordinator, current: String = "A", mayRun: Bool = true) async -> LayoutCorrectionOutcome {
         await withCheckedContinuation { continuation in
             coordinator.handleTrigger(targetPID: 77, sources: sources, currentSourceID: current, mayRun: mayRun) {
                 continuation.resume(returning: $0)
@@ -202,138 +94,191 @@ final class LayoutCorrectionCoordinatorTests: XCTestCase {
         }
     }
 
-    func testCycleUsesOriginalSeedAcrossALossyIntermediateSource() async {
-        let ax = CorrectionFakeAX("a", selection: CFRange(location: 0, length: 1))
-        let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: CorrectionInputLedger(),
-            freshWordMonitor: CorrectionFakeProof(), selectSource: { _ in true })
-        let outcome1 = await trigger(coordinator, current: "A")
-        XCTAssertEqual(outcome1, .completed(sourceID: "B"))
-        XCTAssertEqual(ax.text, "b")
-        let outcome2 = await trigger(coordinator, current: "B")
-        XCTAssertEqual(outcome2, .completed(sourceID: "C"))
-        XCTAssertEqual(ax.text, "c")
-        let outcome3 = await trigger(coordinator, current: "C")
-        XCTAssertEqual(outcome3, .completed(sourceID: "A"))
-        XCTAssertEqual(ax.text, "a")
-        XCTAssertEqual(ax.replacements, 3)
-    }
-
-    func testUniqueSelectionOriginDeterminesDestinationBeforeMapping() async {
-        let ax = CorrectionFakeAX("a", selection: CFRange(location: 0, length: 1))
-        let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: CorrectionInputLedger(),
-            freshWordMonitor: CorrectionFakeProof(), selectSource: { _ in true })
-        let outcome4 = await trigger(coordinator, current: "C")
-        XCTAssertEqual(outcome4, .completed(sourceID: "B"))
-        XCTAssertEqual(ax.text, "b")
-    }
-
-    func testWordCyclePreservesSpacesAndCaretWithoutReusingInputProof() async {
-        let ax = CorrectionFakeAX("prefix a   ", selection: CFRange(location: 11, length: 0))
-        let ledger = CorrectionInputLedger()
-        let tick = DispatchTime.now().uptimeNanoseconds
-        for index in 0..<4 {
-            ledger.noteKeyDown(timestamp: tick + UInt64(index), sourceID: "A", targetPID: 77,
-                expectedUTF16Units: 1, isSpace: index > 0, isExternal: true)
+    func testNativePreflightAdmitsTextFieldWithoutAXValueRangeOrSettableCapabilities() throws {
+        for rangeStatus in [AXError.attributeUnsupported, .cannotComplete] {
+            let client = NativeMetadataClient(); client.rangeStatus = rangeStatus; client.editableStatus = rangeStatus
+            XCTAssertNil(try NativeLayoutCorrectionTransport.textFieldMetadata(pid: 77, client: client))
+            XCTAssertFalse(client.requested.contains(kAXValueAttribute))
+            XCTAssertFalse(client.requested.contains(kAXNumberOfCharactersAttribute))
         }
-        let proof = CorrectionFakeProof()
-        proof.value = (FreshWordBaseline(target: CorrectionAXTarget(pid: 77, element: ax.target.element,
-            selection: CFRange(location: 7, length: 0), characterCount: 7), sampledAt: tick - 10,
-            inputGeneration: 0, observerGeneration: 0, sourceID: "A"),
-            FreshWordSample(target: ax.target, sampledAt: tick + 4, observerGeneration: 1,
-                inputGeneration: ledger.snapshot().generation, sourceID: "A"))
-        let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: ledger,
-            freshWordMonitor: proof, selectSource: { _ in true })
-        let outcome5 = await trigger(coordinator, current: "A")
-        XCTAssertEqual(outcome5, .completed(sourceID: "B"))
-        XCTAssertNil(proof.value)
-        let outcome6 = await trigger(coordinator, current: "B")
-        XCTAssertEqual(outcome6, .completed(sourceID: "C"))
-        XCTAssertEqual(ax.text, "prefix c   ")
-        XCTAssertEqual(ax.target.selection.location, 11)
-        XCTAssertEqual(ax.target.selection.length, 0)
-        XCTAssertTrue(ax.replacedRanges.allSatisfy { $0.location == 7 && $0.length == 1 })
     }
 
-    func testInputRaceAfterMetadataCaptureCancelsBeforePayloadRead() async {
-        let ax = CorrectionFakeAX("a", selection: CFRange(location: 0, length: 1))
-        let ledger = CorrectionInputLedger()
-        ax.beforeCapture = { ledger.invalidate() }
-        let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: ledger,
-            freshWordMonitor: CorrectionFakeProof(), selectSource: { _ in true })
-        if case .failed = await trigger(coordinator, current: "A") {} else { XCTFail("Race was not rejected") }
-        XCTAssertEqual(ax.reads, 0)
-        XCTAssertEqual(ax.replacements, 0)
-    }
-
-    func testLastWordUsesWholeTypingRunDeltaAfterEarlierWords() async {
-        let ax = CorrectionFakeAX("a a   ", selection: CFRange(location: 6, length: 0))
-        let ledger = CorrectionInputLedger()
-        let tick = DispatchTime.now().uptimeNanoseconds
-        for index in 0..<6 {
-            ledger.noteKeyDown(timestamp: tick + UInt64(index), sourceID: "A", targetPID: 77,
-                expectedUTF16Units: 1, isSpace: index != 0 && index != 2, isExternal: true)
+    func testNativePreflightRejectsSecureReadonlyAndTimelineBeforeCopy() {
+        for kind in 0..<3 {
+            let client = NativeMetadataClient()
+            if kind == 0 { client.subrole = kAXSecureTextFieldSubrole; client.subroleStatus = .success }
+            if kind == 1 { client.editable = false }
+            if kind == 2 { client.role = "AXLayoutArea" }
+            XCTAssertThrowsError(try NativeLayoutCorrectionTransport.textFieldMetadata(pid: 77, client: client))
         }
-        let proof = CorrectionFakeProof()
-        proof.value = (FreshWordBaseline(target: CorrectionAXTarget(pid: 77, element: ax.target.element,
-            selection: CFRange(location: 0, length: 0), characterCount: 0), sampledAt: tick - 10,
-            inputGeneration: 0, observerGeneration: 0, sourceID: "A"),
-            FreshWordSample(target: ax.target, sampledAt: tick + 6, observerGeneration: 1,
-                inputGeneration: ledger.snapshot().generation, sourceID: "A"))
-        let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: ledger,
-            freshWordMonitor: proof, selectSource: { _ in true })
-        let outcome = await trigger(coordinator, current: "A")
-        XCTAssertEqual(outcome, .completed(sourceID: "B"))
-        XCTAssertEqual(ax.text, "a b   ")
-        XCTAssertEqual(ax.target.selection.location, 6)
     }
 
-    func testFreshLettersAppendedToAnOldTokenAreNotTreatedAsANewWord() async {
-        let ax = CorrectionFakeAX("olda", selection: CFRange(location: 4, length: 0))
-        let ledger = CorrectionInputLedger()
-        let tick = DispatchTime.now().uptimeNanoseconds
-        ledger.noteKeyDown(timestamp: tick, sourceID: "A", targetPID: 77,
-            expectedUTF16Units: 1, isSpace: false, isExternal: true)
-        let proof = CorrectionFakeProof()
-        proof.value = (FreshWordBaseline(target: CorrectionAXTarget(pid: 77, element: ax.target.element,
-            selection: CFRange(location: 3, length: 0), characterCount: 3), sampledAt: tick - 10,
-            inputGeneration: 0, observerGeneration: 0, sourceID: "A"),
-            FreshWordSample(target: ax.target, sampledAt: tick + 1, observerGeneration: 1,
-                inputGeneration: ledger.snapshot().generation, sourceID: "A"))
-        let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: ledger,
-            freshWordMonitor: proof, selectSource: { _ in true })
-        if case .failed = await trigger(coordinator, current: "A") {} else { XCTFail("Old token prefix was accepted") }
-        XCTAssertEqual(ax.replacements, 0)
-        XCTAssertEqual(ax.text, "olda")
+    func testNativePreflightDoesNotIgnoreFailedPasswordCheckOrWrongPID() {
+        let failedSubrole = NativeMetadataClient(); failedSubrole.subroleStatus = .cannotComplete
+        XCTAssertThrowsError(try NativeLayoutCorrectionTransport.textFieldMetadata(pid: 77, client: failedSubrole))
+        let wrongPID = NativeMetadataClient(); wrongPID.elementPID = 99
+        XCTAssertThrowsError(try NativeLayoutCorrectionTransport.textFieldMetadata(pid: 77, client: wrongPID))
     }
 
-    func testSourceSwitchFailureDoesNotRepeatTheReplacement() async {
-        let ax = CorrectionFakeAX("a", selection: CFRange(location: 0, length: 1))
-        let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: CorrectionInputLedger(),
-            freshWordMonitor: CorrectionFakeProof(), selectSource: { _ in false })
-        if case let .failed(message) = await trigger(coordinator, current: "A") {
-            XCTAssertTrue(message.hasPrefix("Text corrected"))
-        } else { XCTFail("Source switch failure was not reported") }
-        XCTAssertEqual(ax.text, "b")
-        XCTAssertEqual(ax.replacements, 1)
+    func testWordReplaysKeysAndTrailingSpacesWithoutCopyOrAXText() async {
+        for spaces in [0, 1, 3, 8] {
+            let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
+            typed(ledger, spaces: spaces)
+            let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger, selectSource: { _ in true })
+            let result = await trigger(coordinator)
+            XCTAssertEqual(result, .completed(sourceID: "B"))
+            XCTAssertEqual(native.copies, 0)
+            XCTAssertEqual(native.pastes, [])
+            XCTAssertEqual(native.replays.first?.0, 1 + spaces)
+            XCTAssertEqual(native.replays.first?.1, "b" + String(repeating: " ", count: spaces))
+        }
+    }
+
+    func testSelectionCopyHasPriorityOverWordWhenRangeUnavailable() async {
+        let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
+        native.selectionEmpty = nil; native.copied = "a a"
+        typed(ledger)
+        let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger, selectSource: { _ in true })
+        let result = await trigger(coordinator)
+        XCTAssertEqual(result, .completed(sourceID: "B"))
+        XCTAssertEqual(native.copies, 1)
+        XCTAssertEqual(native.pastes, ["b b"])
+        XCTAssertTrue(native.replays.isEmpty)
+    }
+
+    func testCopyWithoutTextFallsBackOnlyToFreshWord() async {
+        let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
+        native.selectionEmpty = nil
+        typed(ledger)
+        let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger, selectSource: { _ in true })
+        let result = await trigger(coordinator)
+        XCTAssertEqual(result, .completed(sourceID: "B"))
+        XCTAssertEqual(native.copies, 1)
+        XCTAssertEqual(native.replays.count, 1)
+    }
+
+    func testOldOrPastedWordIsRejectedWithoutMutation() async {
+        let native = FakeNativeCorrection()
+        let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: CorrectionInputLedger(), selectSource: { _ in true })
+        if case .failed = await trigger(coordinator) {} else { XCTFail("Old text admitted") }
+        XCTAssertTrue(native.pastes.isEmpty); XCTAssertTrue(native.replays.isEmpty)
+    }
+
+    func testSecureOrNontextPreflightFailureNeverCopiesOrDeletes() async {
+        let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
+        typed(ledger); native.prepareError = CorrectionAXError.unsupported
+        let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger, selectSource: { _ in true })
+        _ = await trigger(coordinator)
+        XCTAssertEqual(native.copies, 0); XCTAssertTrue(native.replays.isEmpty)
+        XCTAssertEqual(native.finishes, 1)
+    }
+
+    func testInputDuringPreflightCancelsBeforeCopyOrReplay() async {
+        let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
+        typed(ledger); native.onPrepare = { ledger.invalidate() }
+        let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger, selectSource: { _ in true })
+        _ = await trigger(coordinator)
+        XCTAssertEqual(native.copies, 0); XCTAssertTrue(native.replays.isEmpty)
+    }
+
+    func testNewCopyOrFocusChangeDuringCopyPreventsPaste() async {
+        let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
+        native.selectionEmpty = false; native.copied = "a"; native.onCopy = { ledger.invalidate() }
+        let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger, selectSource: { _ in true })
+        _ = await trigger(coordinator)
+        XCTAssertTrue(native.pastes.isEmpty); XCTAssertTrue(native.replays.isEmpty)
+    }
+
+    func testUnsupportedOrOversizedCopyNeverFallsBackToDeletingWord() async {
+        for error in [CorrectionAXError.unsupported, .limit, .stale] {
+            let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
+            typed(ledger); native.selectionEmpty = nil; native.copyError = error
+            let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger, selectSource: { _ in true })
+            _ = await trigger(coordinator)
+            XCTAssertTrue(native.pastes.isEmpty); XCTAssertTrue(native.replays.isEmpty)
+        }
+    }
+
+    func testWordCycleUsesOriginalPhysicalKeysAndDoesNotCopy() async {
+        let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
+        typed(ledger, spaces: 3)
+        let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger, selectSource: { _ in true })
+        for current in ["A", "B", "C"] { _ = await trigger(coordinator, current: current) }
+        XCTAssertEqual(native.replays.map { $0.1 }, ["b   ", "c   ", "a   "])
+        XCTAssertEqual(native.replays.map { $0.0 }, [4, 4, 4])
+        XCTAssertEqual(native.copies, 0)
+    }
+
+    func testSelectionCycleReplaysTheOriginalSeedAndPreservesSpaces() async {
+        let native = FakeNativeCorrection()
+        native.selectionEmpty = false; native.copied = "a a"
+        let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: CorrectionInputLedger(), selectSource: { _ in true })
+        for current in ["A", "B", "C"] { _ = await trigger(coordinator, current: current) }
+        XCTAssertEqual(native.pastes, ["b b"])
+        XCTAssertEqual(native.replays.map { $0.1 }, ["c c", "a a"])
+        XCTAssertEqual(native.copies, 1)
+    }
+
+    func testPhysicalKeyMappingAvoidsReverseMappingAmbiguity() async {
+        let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
+        typed(ledger)
+        let ambiguous = [CorrectionSource(id: "A", name: "A", isCurrent: true,
+            keyMap: [key: "a", CorrectionPhysicalKey(keyCode: 1, level: 0): "a"]), sources[1]]
+        let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger, selectSource: { _ in true })
+        let result = await withCheckedContinuation { continuation in
+            coordinator.handleTrigger(targetPID: 77, sources: ambiguous, currentSourceID: "A", mayRun: true) { continuation.resume(returning: $0) }
+        }
+        XCTAssertEqual(result, .completed(sourceID: "B")); XCTAssertEqual(native.replays.first?.1, "b")
+    }
+
+    func testWrongPIDOrSourceDoesNotReplay() async {
+        for mismatchPID in [true, false] {
+            let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
+            typed(ledger, pid: mismatchPID ? 99 : 77, source: mismatchPID ? "A" : "B")
+            let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger, selectSource: { _ in true })
+            _ = await trigger(coordinator)
+            XCTAssertTrue(native.replays.isEmpty)
+        }
+    }
+
+    func testPartialReplayIsNeverRetriedAndDoesNotSwitchLayout() async {
+        let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
+        typed(ledger); native.onReplay = { ledger.invalidate() }; var switches = 0
+        let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger, selectSource: { _ in switches += 1; return true })
+        let result = await trigger(coordinator)
+        if case let .failed(message) = result { XCTAssertTrue(message.contains("after sending")) } else { XCTFail() }
+        XCTAssertEqual(native.replays.count, 1); XCTAssertEqual(switches, 0); XCTAssertFalse(coordinator.hasCycle)
+    }
+
+    func testSourceSwitchFailureDoesNotRepeatInput() async {
+        let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
+        typed(ledger)
+        let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger, selectSource: { _ in false })
+        _ = await trigger(coordinator)
+        XCTAssertEqual(native.replays.count, 1); XCTAssertFalse(coordinator.hasCycle)
+    }
+
+    func testCompetingOwnerDeniesBeforeNativeService() async {
+        let native = FakeNativeCorrection()
+        let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: CorrectionInputLedger())
+        if case .denied = await trigger(coordinator, mayRun: false) {} else { XCTFail() }
+        XCTAssertEqual(native.prepared, 0)
+    }
+
+    func testCycleIsReleasedAutomaticallyAtIdleTTL() async throws {
+        let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
+        typed(ledger)
+        let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger, selectSource: { _ in true })
+        _ = await trigger(coordinator); XCTAssertTrue(coordinator.hasCycle)
+        try await Task.sleep(nanoseconds: 5_100_000_000)
         XCTAssertFalse(coordinator.hasCycle)
     }
 
-    func testCompetingOwnerDeniesBeforeAnyAXRequest() async {
-        let ax = CorrectionFakeAX("a", selection: CFRange(location: 0, length: 1))
-        let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: CorrectionInputLedger(),
-            freshWordMonitor: CorrectionFakeProof(), selectSource: { _ in true })
-        if case .denied = await trigger(coordinator, current: "A", mayRun: false) {} else { XCTFail("Owner not honored") }
-        XCTAssertEqual(ax.captures, 0)
-        XCTAssertEqual(ax.replacements, 0)
-    }
-
-    func testIdleTTLReleasesCycleWithoutWaitingForAnotherTrigger() async throws {
-        let ax = CorrectionFakeAX("a", selection: CFRange(location: 0, length: 1))
-        let coordinator = LayoutCorrectionCoordinator(adapter: ax, ledger: CorrectionInputLedger(),
-            freshWordMonitor: CorrectionFakeProof(), selectSource: { _ in true })
-        _ = await trigger(coordinator, current: "A")
-        XCTAssertTrue(coordinator.hasCycle)
-        try await Task.sleep(nanoseconds: 5_200_000_000)
-        XCTAssertFalse(coordinator.hasCycle)
+    func testUnicodeChunksPreserveSurrogatesAndCombiningCharacters() {
+        let text = String(repeating: "a😀e\u{301}", count: 30)
+        let chunks = NativeLayoutCorrectionTransport.unicodeChunks(text)
+        XCTAssertEqual(chunks.joined(), text)
+        XCTAssertTrue(chunks.allSatisfy { $0.utf16.count <= 20 })
+        XCTAssertTrue(chunks.allSatisfy { !$0.hasPrefix("\u{301}") })
     }
 }

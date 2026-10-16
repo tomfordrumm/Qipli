@@ -4,7 +4,7 @@ import Foundation
 /// No payload-bearing strings can cross this boundary.
 enum DiagnosticStage: String, Codable, Sendable {
     case session, trigger, admission, capture, cycle, selection, wordProof, mapping, ax, validation, checkpoint, inputListener
-    case replacement, clipboardLease, nativePaste, unicodePaste, postcondition, layoutSwitch, finished
+    case replacement, clipboardLease, nativeCopy, nativePaste, keyReplay, unicodePaste, postcondition, layoutSwitch, finished
 }
 
 enum DiagnosticReason: String, Codable, Sendable {

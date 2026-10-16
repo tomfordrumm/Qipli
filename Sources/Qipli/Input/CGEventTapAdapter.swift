@@ -118,6 +118,7 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
 
     func installCorrectionSettings(enabled: Bool, trigger: CorrectionTrigger) {
         correctionSettingsLock.lock(); defer { correctionSettingsLock.unlock() }
+        if correctionEnabled != enabled || correctionTrigger != trigger { correctionLedger.reset() }
         correctionEnabled = enabled
         correctionTrigger = trigger
     }
@@ -202,11 +203,12 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         return event.getIntegerValueField(.keyboardEventAutorepeat) == 0 ? .trigger : .consumeRepeat
     }
 
-    /// O(1), metadata-only event accounting. No AX, TIS, Unicode event payload, or keycode history.
+    /// Bounded physical-key accounting. No AX, TIS, Unicode event payload or I/O.
     private func observeCorrectionEvent(type: CGEventType, event: CGEvent) {
         if SyntheticEventMarker.isQipliSynthetic(
             sourceUserData: event.getIntegerValueField(.eventSourceUserData)
         ) { return }
+        if IsSecureEventInputEnabled() { correctionLedger.reset(); return }
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         switch type {
         case .flagsChanged:
@@ -252,7 +254,9 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
             correctionLedger.noteKeyDown(timestamp: timestamp, sourceID: metadata.sourceID,
                 targetPID: metadata.pid, expectedUTF16Units: metadata.units,
                 isSpace: metadata.isSpace, isExternal: true,
-                uncertainComposition: metadata.uncertain)
+                uncertainComposition: metadata.uncertain,
+                physicalKey: metadata.units == nil ? nil : CorrectionPhysicalKey(keyCode: UInt16(keyCode),
+                    level: (event.flags.contains(.maskShift) ? 1 : 0) | (event.flags.contains(.maskAlphaShift) ? 2 : 0)))
             if metadata.units == nil {
                 if metadata.uncertain { correctionLedger.markCompositionUncertain() }
                 else { correctionLedger.resetWordMetadata() }

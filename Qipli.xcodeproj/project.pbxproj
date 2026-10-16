@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        D60100000000000000000001 /* NativeLayoutCorrectionTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D60200000000000000000001 /* NativeLayoutCorrectionTransport.swift */; };
         DA0100000000000000000002 /* CorrectionDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0200000000000000000002 /* CorrectionDiagnostics.swift */; };
         DA0100000000000000000001 /* LocalDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0200000000000000000001 /* LocalDiagnostics.swift */; };
 		A00100000000000000000001 /* QipliAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000001 /* QipliAppDelegate.swift */; };
@@ -84,6 +85,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+        D60200000000000000000001 /* NativeLayoutCorrectionTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLayoutCorrectionTransport.swift; sourceTree = "<group>"; };
         DA0200000000000000000002 /* CorrectionDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CorrectionDiagnostics.swift; sourceTree = "<group>"; };
         DA0200000000000000000001 /* LocalDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDiagnostics.swift; sourceTree = "<group>"; };
 		A00200000000000000000001 /* QipliAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QipliAppDelegate.swift; sourceTree = "<group>"; };
@@ -227,6 +229,7 @@
 				A00200000000000000000096 /* CorrectionFreshWordMonitor.swift */,
 				A00200000000000000000097 /* LayoutCorrectionAXAdapter.swift */,
 				A00200000000000000000098 /* LayoutCorrectionCoordinator.swift */,
+                D60200000000000000000001 /* NativeLayoutCorrectionTransport.swift */,
 				A0020000000000000000009D /* CorrectionTriggerGesture.swift */,
 			);
 			path = Input;
@@ -499,6 +502,7 @@
 				A00100000000000000000096 /* CorrectionFreshWordMonitor.swift in Sources */,
 				A00100000000000000000097 /* LayoutCorrectionAXAdapter.swift in Sources */,
 				A00100000000000000000098 /* LayoutCorrectionCoordinator.swift in Sources */,
+                D60100000000000000000001 /* NativeLayoutCorrectionTransport.swift in Sources */,
 				A0010000000000000000009D /* CorrectionTriggerGesture.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
