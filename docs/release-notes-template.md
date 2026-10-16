@@ -32,12 +32,14 @@ Source code and license: https://github.com/tomfordrumm/Qipli
 
 ## Changes
 
-- Expand optional local diagnostics for keyboard-layout correction. Journals now record the specific Accessibility call and attribute, numeric system error, response type, requested range, expected and observed lengths, focus and selection checks, call timing, and remaining deadline.
-- Follow each correction through admission, mapping, selection, native or Unicode paste, postcondition checks, keyboard-layout switching, and clipboard restoration. A fixed browser category and input-owner state help identify the affected path.
-- Record a terminal outcome with the concrete failure. Numbered events and explicit overflow counts make incomplete diagnostic trails visible.
+- Rework manual keyboard-layout correction for better compatibility with editors such as Final Cut Pro. Selected text now uses native Copy/Paste; the last typed word uses a short-lived buffer of physical keys and native deletion/retyping.
+- Remove mandatory AXValue, writable selection-range, and range-reading capabilities from the correction path. A lightweight text/password focus check remains, with cancellation when input or context changes.
+- Preserve clipboard contents through correction Copy/Paste and keep internal writes out of History and Paste Stack. Do not retry after sending a replacement.
 
-Logging remains off by default. If it was enabled in 1.0.14, the setting is preserved after updating. Otherwise enable it in Settings → General → Diagnostics before reproducing an incident. Show Logs opens the local journal folder; Clear Logs removes the journals.
+Enable manual layout correction in Settings and tap the left Option key after typing, or select text before the tap. Correction uses supported static keyboard layouts enabled in macOS. Password/Secure Input fields and IME composition are excluded.
 
-Diagnostics contain structural checks, numeric ranges and fixed categories. They exclude field and clipboard contents, keystrokes, raw application/window/layout identities, URLs and file paths. Journals stay on this Mac, rotate at 10 MiB, and expire after seven days while Qipli is running or on its next launch. There is no automatic upload.
+While correction is enabled, Qipli holds up to 256 recent physical keys with Shift/Caps metadata in memory. The buffer expires after five seconds of inactivity and is cleared on navigation, clicks, context changes, or disabling the feature. An explicit repeated correction can retain its fragment for up to 30 seconds to cycle layouts. Neither keys nor corrected text are written to diagnostics or sent over the network.
 
-Manual layout correction requires a compatible editable field and supported static keyboard layouts. Existing History, favorites, shortcuts, Accessibility permissions and diagnostic preferences are preserved; this release does not change the database schema.
+The two replacement transports were verified in Final Cut's effects-search field. Other Final Cut fields, installed Option/cycling behavior, and the wider compatibility matrix remain user acceptance checks. The caret stays at the end of the replacement; Undo grouping depends on the editor. Sending input does not prove that every target accepted it, and an interrupted replacement should be checked before retrying.
+
+Existing History, favorites, shortcuts, Accessibility permissions, and diagnostic preferences are preserved. This release does not change the database schema. Optional diagnostics remain off by default and stay local.
