@@ -32,14 +32,15 @@ Source code and license: https://github.com/tomfordrumm/Qipli
 
 ## Changes
 
-- Rework manual keyboard-layout correction for better compatibility with editors such as Final Cut Pro. Selected text now uses native Copy/Paste; the last typed word uses a short-lived buffer of physical keys and native deletion/retyping.
-- Remove mandatory AXValue, writable selection-range, and range-reading capabilities from the correction path. A lightweight text/password focus check remains, with cancellation when input or context changes.
-- Preserve clipboard contents through correction Copy/Paste and keep internal writes out of History and Paste Stack. Do not retry after sending a replacement.
+- Restore keyboard input automatically after macOS disables the listener. Successful reconnects no longer consume a permanent retry budget; failed reconnects retry with a delay. Qipli shows a message while input is unavailable.
+- Stop layout correction without deleting text when selection Copy fails. Recheck the focused field before Copy and replacement, including changes between fields in the same application.
+- Replace buffered words using paced Backspace and native Paste. Prepare the clipboard before deleting text, preserve newer external copies, and never retry a partially dispatched correction.
+- Recover word correction after an uncertain composition ends at a safe boundary. The in-memory buffer now lasts up to 30 seconds after typing, instead of five, and remains limited to 256 physical keys.
 
-Enable manual layout correction in Settings and tap the left Option key after typing, or select text before the tap. Correction uses supported static keyboard layouts enabled in macOS. Password/Secure Input fields and IME composition are excluded.
+Enable manual layout correction in Settings and tap the left Option key after typing, or select text before the tap. Correction requires a compatible editable field and supported static keyboard layouts enabled in macOS. Password/Secure Input fields and active IME composition are excluded.
 
-While correction is enabled, Qipli holds up to 256 recent physical keys with Shift/Caps metadata in memory. The buffer expires after five seconds of inactivity and is cleared on navigation, clicks, context changes, or disabling the feature. An explicit repeated correction can retain its fragment for up to 30 seconds to cycle layouts. Neither keys nor corrected text are written to diagnostics or sent over the network.
+The physical-key buffer is cleared on navigation, clicks, context changes, or disabling the feature. Neither keys nor corrected text are written to diagnostics or sent over the network. Optional local diagnostics remain off by default; enable them in Settings → General → Diagnostics before reproducing an incident.
 
-The two replacement transports were verified in Final Cut's effects-search field. Other Final Cut fields, installed Option/cycling behavior, and the wider compatibility matrix remain user acceptance checks. The caret stays at the end of the replacement; Undo grouping depends on the editor. Sending input does not prove that every target accepted it, and an interrupted replacement should be checked before retrying.
+Chrome and Telegram compatibility, installed Option/cycling behavior, clipboard restoration, and Undo still need user acceptance testing for this version. Input dispatch is not proof that an editor accepted the replacement. If correction is interrupted after sending input, inspect the text before trying again. Undo grouping depends on the editor.
 
-Existing History, favorites, shortcuts, Accessibility permissions, and diagnostic preferences are preserved. This release does not change the database schema. Optional diagnostics remain off by default and stay local.
+Existing History, favorites, shortcuts, Accessibility permissions, and diagnostic preferences are preserved. This release does not change the database schema.
