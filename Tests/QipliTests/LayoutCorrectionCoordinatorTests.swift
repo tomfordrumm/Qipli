@@ -10,11 +10,12 @@ private final class NativeMetadataClient: CorrectionAXClient, @unchecked Sendabl
     var editableStatus: AXError = .attributeUnsupported
     var editable: Bool?
     var elementPID: pid_t = 77
+    var focusedElement = AXUIElementCreateApplication(77)
     var requested: [String] = []
     func copyAttribute(_ element: AXUIElement, _ name: CFString) -> (AXError, CFTypeRef?) {
         let name = name as String; requested.append(name)
         switch name {
-        case kAXFocusedUIElementAttribute: return (.success, AXUIElementCreateApplication(77))
+        case kAXFocusedUIElementAttribute: return (.success, focusedElement)
         case kAXRoleAttribute: return (.success, role as CFString)
         case kAXSubroleAttribute: return (subroleStatus, subrole.map { $0 as CFString })
         case "AXEditable": return editable.map { (.success, $0 as CFBoolean) } ?? (editableStatus, nil)
@@ -113,6 +114,17 @@ final class LayoutCorrectionCoordinatorTests: XCTestCase {
         }
     }
 
+    func testNativeMutationRefusesAnotherFieldWithinSameApplication() throws {
+        let client = NativeMetadataClient()
+        let admitted = client.focusedElement
+        XCTAssertNoThrow(try NativeLayoutCorrectionTransport.validateFocusedElement(admitted, pid: 77, client: client))
+        client.focusedElement = AXUIElementCreateSystemWide()
+        XCTAssertThrowsError(try NativeLayoutCorrectionTransport.validateFocusedElement(admitted, pid: 77, client: client)) {
+            XCTAssertEqual($0 as? CorrectionAXError, .stale)
+        }
+        XCTAssertFalse(client.requested.contains(kAXValueAttribute))
+    }
+
     func testNativePreflightDoesNotIgnoreFailedPasswordCheckOrWrongPID() {
         let failedSubrole = NativeMetadataClient(); failedSubrole.subroleStatus = .cannotComplete
         XCTAssertThrowsError(try NativeLayoutCorrectionTransport.textFieldMetadata(pid: 77, client: failedSubrole))
@@ -146,15 +158,17 @@ final class LayoutCorrectionCoordinatorTests: XCTestCase {
         XCTAssertTrue(native.replays.isEmpty)
     }
 
-    func testCopyWithoutTextFallsBackOnlyToFreshWord() async {
-        let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
-        native.selectionEmpty = nil
-        typed(ledger)
-        let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger, selectSource: { _ in true })
-        let result = await trigger(coordinator)
-        XCTAssertEqual(result, .completed(sourceID: "B"))
-        XCTAssertEqual(native.copies, 1)
-        XCTAssertEqual(native.replays.count, 1)
+    func testCopyTimeoutWithKnownOrUnknownSelectionNeverDeletesBufferedWord() async {
+        for empty: Bool? in [false, nil] {
+            let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
+            native.selectionEmpty = empty
+            typed(ledger)
+            let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger, selectSource: { _ in true })
+            if case .failed = await trigger(coordinator) {} else { XCTFail("Copy timeout must refuse") }
+            XCTAssertEqual(native.copies, 1)
+            XCTAssertTrue(native.replays.isEmpty)
+            XCTAssertTrue(native.pastes.isEmpty)
+        }
     }
 
     func testOldOrPastedWordIsRejectedWithoutMutation() async {

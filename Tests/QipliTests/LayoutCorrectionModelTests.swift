@@ -22,7 +22,7 @@ final class LayoutCorrectionModelTests: XCTestCase {
         }
         keyDown()
         XCTAssertEqual(ledger.recentKeys(now: now), [key])
-        XCTAssertTrue(ledger.recentKeys(now: now + 5_000_000_000).isEmpty)
+        XCTAssertTrue(ledger.recentKeys(now: now + CorrectionInputLedger.wordLifetimeNanoseconds).isEmpty)
         ledger.reset()
         for _ in 0..<256 { keyDown() }
         XCTAssertEqual(ledger.recentKeys(now: now).count, 256)
@@ -129,6 +129,30 @@ final class LayoutCorrectionModelTests: XCTestCase {
         XCTAssertTrue(ledger.isCompositionUncertain())
         ledger.reset()
         XCTAssertFalse(ledger.isCompositionUncertain())
+    }
+
+    func testCompositionRefusesCurrentWordButRecoversAfterPlainSpace() {
+        let ledger = CorrectionInputLedger(), key = CorrectionPhysicalKey(keyCode: 0, level: 0)
+        let now = DispatchTime.now().uptimeNanoseconds
+        ledger.markCompositionUncertain()
+        ledger.noteKeyDown(timestamp: now, sourceID: "A", targetPID: 42,
+            expectedUTF16Units: 1, isSpace: false, isExternal: true, physicalKey: key)
+        XCTAssertTrue(ledger.recentKeys(now: now).isEmpty)
+        ledger.noteKeyDown(timestamp: now, sourceID: "A", targetPID: 42,
+            expectedUTF16Units: 1, isSpace: true, isExternal: true)
+        ledger.noteKeyDown(timestamp: now, sourceID: "A", targetPID: 42,
+            expectedUTF16Units: 1, isSpace: false, isExternal: true, physicalKey: key)
+        XCTAssertEqual(ledger.recentKeys(now: now), [key])
+        XCTAssertFalse(ledger.isCompositionUncertain())
+    }
+
+    func testWordRemainsAvailableAfterThinkingPauseButExpiresAtThirtySeconds() {
+        let ledger = CorrectionInputLedger(), key = CorrectionPhysicalKey(keyCode: 0, level: 0)
+        let now = DispatchTime.now().uptimeNanoseconds
+        ledger.noteKeyDown(timestamp: now, sourceID: "A", targetPID: 42,
+            expectedUTF16Units: 1, isSpace: false, isExternal: true, physicalKey: key)
+        XCTAssertEqual(ledger.recentKeys(now: now + 6_000_000_000), [key])
+        XCTAssertTrue(ledger.recentKeys(now: now + 30_000_000_000).isEmpty)
     }
 
     func testStandaloneLeftOptionTriggersExactlyOnceOnRelease() {

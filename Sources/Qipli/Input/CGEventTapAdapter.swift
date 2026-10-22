@@ -27,7 +27,10 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
     private var correctionGesture = CorrectionTriggerGesture()
     private var invalidationScheduled = false
 
-    private var recoveryPolicy = EventTapRecoveryPolicy(maximumAttempts: 2)
+    private var recoveryPolicy = EventTapRecoveryPolicy()
+    private var recoveryTask: DispatchWorkItem?
+    private var healthTimer: Timer?
+    private var lifecycle: UInt64 = 0
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private let shortcutSnapshotProvider: () -> ShortcutSnapshot
@@ -53,7 +56,8 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
 
     @discardableResult
     func start() -> GlobalInputStatus {
-        guard tap == nil else { return status }
+        if let tap, CFMachPortIsValid(tap), CGEvent.tapIsEnabled(tap: tap) { return status }
+        disposeTap()
 
         let eventMask = (CGEventMask(1) << CGEventType.keyDown.rawValue) |
             (CGEventMask(1) << CGEventType.flagsChanged.rawValue) |
@@ -69,7 +73,8 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
             callback: Self.eventTapCallback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
-            status = .unavailable("Qipli could not create the global input listener. Check Accessibility access and try again.")
+            reportUnavailable()
+            scheduleRebuild()
             return status
         }
 
@@ -82,16 +87,37 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         correctionGesture.reset(flags: CGEventSource.flagsState(.combinedSessionState))
         recoveryPolicy.recordHealthyEvent()
         status = .ready
+        recoveryTask?.cancel(); recoveryTask = nil
+        if healthTimer == nil {
+            let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
+                guard let self, let tap = self.tap else { return }
+                if !CFMachPortIsValid(tap) || !CGEvent.tapIsEnabled(tap: tap) {
+                    self.recoverFromDisabledTap()
+                }
+            }
+            timer.tolerance = 1
+            RunLoop.main.add(timer, forMode: .common)
+            healthTimer = timer
+        }
         return status
     }
 
     func stop() {
+        lifecycle &+= 1
+        recoveryTask?.cancel(); recoveryTask = nil
+        healthTimer?.invalidate(); healthTimer = nil
         historyHotKey.stop()
         correctionFreshWordMonitor?.stop()
         correctionLedger.resetWordMetadata()
         correctionLedger.markCompositionUncertain()
         correctionGesture.reset(flags: [.maskAlternate])
         scheduleCorrectionInvalidation(preserveWordBaseline: false)
+        disposeTap()
+        recoveryPolicy.recordHealthyEvent()
+        status = .stopped
+    }
+
+    private func disposeTap() {
         if let source = runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
             CFRunLoopSourceInvalidate(source)
@@ -101,8 +127,6 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         }
         runLoopSource = nil
         tap = nil
-        recoveryPolicy.recordHealthyEvent()
-        status = .stopped
     }
 
     func refreshHistoryShortcut(_ binding: ShortcutBinding) {
@@ -161,6 +185,16 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
     private static let eventTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
         guard let userInfo else { return Unmanaged.passUnretained(event) }
         let adapter = Unmanaged<CGEventTapAdapter>.fromOpaque(userInfo).takeUnretainedValue()
+        // Recover before consulting shortcuts, Secure Input, or UI admission.
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            adapter.diagnostics?.record(stage: .inputListener,
+                reason: type == .tapDisabledByTimeout ? .tapTimeout : .tapDisabled)
+            adapter.correctionLedger.reset()
+            adapter.correctionGesture.reset(flags: [.maskAlternate])
+            adapter.scheduleCorrectionInvalidation(preserveWordBaseline: false)
+            adapter.recoverFromDisabledTap()
+            return Unmanaged.passUnretained(event)
+        }
         switch adapter.correctionShortcutEvent(type: type, event: event) {
         case .trigger:
             DispatchQueue.main.async { [weak adapter] in adapter?.onCorrectionTrigger?() }
@@ -240,6 +274,12 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
                 return
             }
             guard isCorrectionEnabledForInput else { return }
+            if [Int64(kVK_Escape), Int64(kVK_Return), Int64(kVK_Tab)].contains(keyCode),
+               event.flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty {
+                correctionLedger.reset()
+                scheduleCorrectionInvalidation(preserveWordBaseline: false)
+                return
+            }
             if !event.flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty {
                 // Modified typing, shortcuts and paste can never add fresh-word
                 // units. Start a new baseline for subsequent ordinary typing.
@@ -455,53 +495,52 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
     }
 
     private func recoverFromDisabledTap() {
-        guard let tap else {
-            status = .unavailable("Qipli’s global input listener was disabled and could not be restored.")
+        var restored = false
+        if let tap, CFMachPortIsValid(tap) {
+            CGEvent.tapEnable(tap: tap, enable: true)
+            restored = CGEvent.tapIsEnabled(tap: tap)
+        }
+        applyRecoveryResult(restored, rebuild: scheduleRebuild)
+    }
+
+    private func applyRecoveryResult(_ restored: Bool, rebuild: () -> Void) {
+        if restored {
+            recoveryPolicy.recordHealthyEvent()
+            recoveryTask?.cancel(); recoveryTask = nil
+            correctionGesture.reset(flags: CGEventSource.flagsState(.combinedSessionState))
+            if status != .ready { status = .ready }
             return
         }
-
-        recoverFromDisabledTap(
-            attemptRecovery: {
-                CGEvent.tapEnable(tap: tap, enable: true)
-                return CGEvent.tapIsEnabled(tap: tap)
-            },
-            scheduleRetry: { work in
-                DispatchQueue.main.async(execute: work)
-            }
-        )
+        reportUnavailable()
+        rebuild()
     }
 
     #if DEBUG
-    /// Deterministic adapter seam for XCTest. It never creates, enables, or disables a real event tap.
-    func simulateDisabledTapForTesting(recoverySucceeds: @escaping () -> Bool) {
-        recoverFromDisabledTap(
-            attemptRecovery: recoverySucceeds,
-            scheduleRetry: { work in work() }
-        )
+    func simulateDisabledTapForTesting(recoverySucceeds: () -> Bool, scheduleRebuild: () -> Void = {}) {
+        applyRecoveryResult(recoverySucceeds(), rebuild: scheduleRebuild)
     }
+    func queueRebuildForTesting() { scheduleRebuild() }
+    var hasQueuedRebuildForTesting: Bool { recoveryTask != nil }
     #endif
 
-    private func recoverFromDisabledTap(
-        attemptRecovery: @escaping () -> Bool,
-        scheduleRetry: @escaping (@escaping () -> Void) -> Void
-    ) {
-        guard recoveryPolicy.permitsRecovery() else {
-            status = .unavailable("macOS repeatedly disabled Qipli’s global input listener. Open Permission Status and try again.")
-            return
-        }
+    private func reportUnavailable() {
+        let unavailable = GlobalInputStatus.unavailable("Qipli’s keyboard listener is unavailable. Reconnecting automatically; check Accessibility access if this persists.")
+        if status != unavailable { status = unavailable }
+    }
 
-        guard attemptRecovery() else {
-            scheduleRetry { [weak self] in
-                self?.recoverFromDisabledTap(
-                    attemptRecovery: attemptRecovery,
-                    scheduleRetry: scheduleRetry
-                )
-            }
-            return
+    private func scheduleRebuild() {
+        guard recoveryTask == nil else { return }
+        let token = lifecycle
+        let task = DispatchWorkItem { [weak self] in
+            guard let self, self.lifecycle == token else { return }
+            self.recoveryTask = nil
+            self.correctionLedger.reset()
+            self.scheduleCorrectionInvalidation(preserveWordBaseline: false)
+            self.disposeTap()
+            _ = self.start()
         }
-        let flags = CGEventSource.flagsState(.combinedSessionState)
-        correctionGesture.reset(flags: flags)
-        status = .ready
+        recoveryTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + recoveryPolicy.nextRetryDelay(), execute: task)
     }
 }
 

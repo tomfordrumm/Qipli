@@ -360,6 +360,9 @@ final class ApplicationShell: NSObject {
             switch status {
             case .permissionRequired, .unavailable:
                 self.stackSessionController.recordInputUnavailable()
+                if self.layoutCorrectionPreferences.settings.isEnabled {
+                    self.panels.showLayoutCorrectionOutcome(.failed(status.userDescription))
+                }
             case .stopped, .ready:
                 break
             }

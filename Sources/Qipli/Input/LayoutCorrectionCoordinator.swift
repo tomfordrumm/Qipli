@@ -9,6 +9,7 @@ enum LayoutCorrectionOutcome: Equatable, Sendable {
 
 @MainActor
 final class LayoutCorrectionCoordinator {
+    private enum SelectionCopyError: Error { case unavailable }
     private struct Cycle {
         let pid: pid_t
         let seed: String
@@ -99,9 +100,19 @@ final class LayoutCorrectionCoordinator {
                         next = Cycle(pid: targetPID, seed: copied, keys: nil, origin: origin.id,
                             sourceIDs: eligible.map(\.id), began: now, current: origin.id, inserted: copied, lastUsed: now)
                     } else {
+                        guard selectionEmpty == true else {
+                            trace(.nativeCopy, .unavailable)
+                            throw SelectionCopyError.unavailable
+                        }
                         trace(.wordProof, .started)
                         let metadata = ledger.snapshot(), keys = ledger.recentKeys()
-                        guard !keys.isEmpty, metadata.targetPID == targetPID, metadata.sourceID == current,
+                        if keys.isEmpty {
+                            let expired = now >= metadata.timestamp && metadata.timestamp > 0 &&
+                                now - metadata.timestamp >= CorrectionInputLedger.wordLifetimeNanoseconds
+                            trace(.wordProof, ledger.isBlocked() || ledger.isCompositionUncertain() ? .wordBlocked : expired ? .wordExpired : .wordMissing)
+                            throw CorrectionAXError.unavailable
+                        }
+                        guard metadata.targetPID == targetPID, metadata.sourceID == current,
                               let source = eligible.first(where: { $0.id == current }) else {
                             trace(.wordProof, .wordMissing); throw CorrectionAXError.unavailable
                         }
@@ -151,6 +162,7 @@ final class LayoutCorrectionCoordinator {
                 invalidate()
                 let reason: DiagnosticReason
                 if let ax = error as? CorrectionAXError { reason = DiagnosticReason(ax: ax) }
+                else if error is SelectionCopyError { reason = .unavailable }
                 else if let mapping = error as? CorrectionMappingError { reason = DiagnosticReason(mapping: mapping) }
                 else { reason = .unexpected }
                 trace(.finished, reason, DiagnosticDetails(dispatched: mutated, confirmed: false))
@@ -167,6 +179,7 @@ final class LayoutCorrectionCoordinator {
     }
     private static func message(_ error: Error) -> String {
         switch error {
+        case is SelectionCopyError: "The text selection could not be copied. Select the text and try again; no text was deleted."
         case CorrectionAXError.unsupported: "Focus an editable text field outside Secure Input."
         case CorrectionAXError.stale: "The input context changed; correction stopped."
         case CorrectionAXError.limit: "Select up to 12,288 characters for layout correction."

@@ -103,6 +103,7 @@ struct CorrectionInputMetadata: Equatable, Sendable {
 
 /// Bounded sensitive physical-key buffer. Never persist or log keys or reconstructed text.
 final class CorrectionInputLedger: @unchecked Sendable {
+    static let wordLifetimeNanoseconds: UInt64 = 30_000_000_000
     private let lock = NSLock()
     private var generation: UInt64 = 0
     private var inputGeneration: UInt64 = 0
@@ -123,11 +124,11 @@ final class CorrectionInputLedger: @unchecked Sendable {
     func recentKeys(now: UInt64 = DispatchTime.now().uptimeNanoseconds) -> [CorrectionPhysicalKey] {
         lock.lock(); defer { lock.unlock() }
         guard !blocked, !compositionUncertain, now >= lastTimestamp,
-              now - lastTimestamp < 5_000_000_000 else { keys.removeAll(); return [] }
+              now - lastTimestamp < Self.wordLifetimeNanoseconds else { keys.removeAll(); return [] }
         return keys
     }
 
-    private func scheduleKeyExpiry(after delay: Double = 5) {
+    private func scheduleKeyExpiry(after delay: Double = 30) {
         guard !keyExpiryScheduled else { return }
         keyExpiryScheduled = true
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) { [weak self] in
@@ -135,9 +136,9 @@ final class CorrectionInputLedger: @unchecked Sendable {
             self.lock.lock(); defer { self.lock.unlock() }
             self.keyExpiryScheduled = false
             let now = DispatchTime.now().uptimeNanoseconds
-            if now >= self.lastTimestamp, now - self.lastTimestamp >= 5_000_000_000 {
+            if now >= self.lastTimestamp, now - self.lastTimestamp >= Self.wordLifetimeNanoseconds {
                 self.keys.removeAll()
-            } else if !self.keys.isEmpty { self.scheduleKeyExpiry(after: Double(5_000_000_000 - min(5_000_000_000, now &- self.lastTimestamp)) / 1_000_000_000) }
+            } else if !self.keys.isEmpty { self.scheduleKeyExpiry(after: Double(Self.wordLifetimeNanoseconds - min(Self.wordLifetimeNanoseconds, now &- self.lastTimestamp)) / 1_000_000_000) }
         }
     }
 
@@ -171,8 +172,14 @@ final class CorrectionInputLedger: @unchecked Sendable {
         generation &+= 1
         inputGeneration &+= 1
         keyDownCount &+= 1
-        if timestamp >= lastTimestamp, timestamp - lastTimestamp >= 5_000_000_000 { keys.removeAll() }
+        if timestamp >= lastTimestamp, timestamp - lastTimestamp >= Self.wordLifetimeNanoseconds { keys.removeAll() }
         lastTimestamp = timestamp
+        // A plain Space completes/cancels the uncertain composition. Discard its
+        // output and admit only the next word, never the potentially composed one.
+        if isSpace, blocked || compositionUncertain {
+            clearWordMetadata(preserveCompositionUncertain: false)
+            return
+        }
         if capturedSourceID == nil {
             capturedSourceID = sourceID
             capturedPID = targetPID

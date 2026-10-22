@@ -320,41 +320,46 @@ final class CGEventTapAdapterClassificationTests: XCTestCase {
 }
 
 final class EventTapRecoveryPolicyTests: XCTestCase {
-    func testRecoveryIsBoundedUntilHealthyInputIsObserved() {
-        var policy = EventTapRecoveryPolicy(maximumAttempts: 2)
-
-        XCTAssertTrue(policy.permitsRecovery())
-        XCTAssertTrue(policy.permitsRecovery())
-        XCTAssertFalse(policy.permitsRecovery())
-
+    func testFailuresBackOffWithoutPermanentExhaustionAndSuccessResetsDelay() {
+        var policy = EventTapRecoveryPolicy()
+        XCTAssertEqual(policy.nextRetryDelay(), 0.25)
+        XCTAssertEqual(policy.nextRetryDelay(), 0.5)
+        XCTAssertEqual(policy.nextRetryDelay(), 1)
+        for _ in 0..<100 { XCTAssertLessThanOrEqual(policy.nextRetryDelay(), 5) }
         policy.recordHealthyEvent()
-        XCTAssertTrue(policy.permitsRecovery())
+        XCTAssertEqual(policy.nextRetryDelay(), 0.25)
     }
 }
 
 final class CGEventTapAdapterRecoveryTests: XCTestCase {
-    func testDisabledTapRecoveryBecomesUnavailableAfterBoundedFailures() {
+    @MainActor
+    func testStopCancelsPendingRebuildAndDoesNotResurrectListener() async throws {
         let adapter = CGEventTapAdapter()
-        var attempts = 0
-
-        adapter.simulateDisabledTapForTesting {
-            attempts += 1
-            return false
-        }
-
-        XCTAssertEqual(attempts, 2)
-        XCTAssertEqual(
-            adapter.status,
-            .unavailable("macOS repeatedly disabled Qipli’s global input listener. Open Permission Status and try again.")
-        )
+        adapter.queueRebuildForTesting()
+        XCTAssertTrue(adapter.hasQueuedRebuildForTesting)
+        adapter.stop()
+        XCTAssertFalse(adapter.hasQueuedRebuildForTesting)
+        try await Task.sleep(nanoseconds: 350_000_000)
+        XCTAssertEqual(adapter.status, .stopped)
+        XCTAssertFalse(adapter.hasQueuedRebuildForTesting)
     }
 
-    func testDisabledTapRecoveryReturnsReadyWhenRetrySucceeds() {
+    func testFailedReenableRequestsRebuildAndReportsUnavailable() {
         let adapter = CGEventTapAdapter()
-
-        adapter.simulateDisabledTapForTesting { true }
-
+        var rebuilds = 0
+        adapter.simulateDisabledTapForTesting(recoverySucceeds: { false }, scheduleRebuild: { rebuilds += 1 })
+        XCTAssertEqual(rebuilds, 1)
+        if case .unavailable = adapter.status {} else { XCTFail("Failure must be visible") }
+        adapter.simulateDisabledTapForTesting(recoverySucceeds: { true })
         XCTAssertEqual(adapter.status, .ready)
+    }
+
+    func testRepeatedSuccessfulRecoveriesWithoutKeyDownNeverExhaustBudget() {
+        let adapter = CGEventTapAdapter()
+        for _ in 0..<20 {
+            adapter.simulateDisabledTapForTesting(recoverySucceeds: { true }, scheduleRebuild: { XCTFail("Unexpected rebuild") })
+            XCTAssertEqual(adapter.status, .ready)
+        }
     }
 }
 
