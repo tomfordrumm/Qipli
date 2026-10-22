@@ -1,19 +1,12 @@
 import Foundation
 
-/// Bounds event-tap recovery so repeated system disables cannot create a busy loop.
+/// Rate-limits failed rebuilds without permanently abandoning global input.
 struct EventTapRecoveryPolicy {
-    let maximumAttempts: Int
     private(set) var recoveryAttempts = 0
-
-    init(maximumAttempts: Int) {
-        precondition(maximumAttempts > 0)
-        self.maximumAttempts = maximumAttempts
-    }
-
-    mutating func permitsRecovery() -> Bool {
-        guard recoveryAttempts < maximumAttempts else { return false }
-        recoveryAttempts += 1
-        return true
+    mutating func nextRetryDelay() -> TimeInterval {
+        let delay = min(5, 0.25 * pow(2, Double(min(recoveryAttempts, 5))))
+        recoveryAttempts = min(recoveryAttempts + 1, 6)
+        return delay
     }
 
     mutating func recordHealthyEvent() {

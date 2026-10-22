@@ -1,29 +1,38 @@
 # Qipli — текущее состояние проекта
 
-Последняя актуализация: 2026-10-16, v1.0.15/build16 опубликован; public ZIP/DMG/Sparkle проверены, installed update остаётся отдельным gate.
+Последняя актуализация: 2026-10-16, v1.0.16/build17 опубликован; public ZIP/DMG/Sparkle проверены, installed update остаётся отдельным gate.
 
 Источник operational-статусов: этот файл. Исторические переходы и прежние verification snapshots находятся в [`STATE-HISTORY.md`](STATE-HISTORY.md).
 
 ## Текущее положение
 
+### Выпуск 1.0.16/build17
+
+Публичный [v1.0.16](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.16), build `17`, annotated tag/main SHA `a333f7fad1afc7d7d0352f9ae2624cc2b57e6501`. [Feature PR #38](https://github.com/tomfordrumm/Qipli/pull/38) и [Release PR #39](https://github.com/tomfordrumm/Qipli/pull/39) слиты; [exact-main CI](https://github.com/tomfordrumm/Qipli/actions/runs/38870673262) SUCCESS на attempt2 без source changes. После approval пользователя [protected release и Pages](https://github.com/tomfordrumm/Qipli/actions/runs/38872025883) SUCCESS. Скачанные public ZIP/DMG SHA-256, stable/latest DMG equality, Developer ID/Hardened Runtime/nested Sparkle, notarization/stapling/Gatekeeper и публичный appcast 1.0.16/build17 PASS. Ed25519 подпись ZIP независимо проверена публичным ключом downloaded app. Evidence: STATE-HISTORY, artifacts `/private/tmp/qipli-1.0.16-verified/`. Installed update и реальный Option/cycle/title-field acceptance остаются открытыми.
+
+
+### S037: локальные исправления надёжности, 2026-10-22
+
+D-057 реализован локально; пользователь 2026-10-22 разрешил публикацию 1.0.17/build18 для собственного тестирования. Recovery/backoff/health-check и видимый input-unavailable, безопасный Copy refusal, same-field recheck, composition boundary и 30 s buffer, paced Backspace + Paste. SwiftPM 369/369, signed Dev/unsigned Release и codesign/privacy/CI/diff PASS; итоговый focused run 41/41 PASS. Подробности и пути сборок в S037.
+
+Статус `needs_verification`: Chrome/Telegram comparison не выполнен из-за глобального focus admission, mutation не начиналась. Общий Telegram UI запрещён auto-review из-за private chats; prepared synthetic-field runner позволяет обойтись без чтения чатов. Пользователь остановил живые тесты, поскольку компьютер нужен для работы. Следующее действие при возобновлении: проверить synthetic Chrome/Telegram поле без ожидания пользователя у компьютера; подтвердить actual text, clipboard/Undo и реальные trigger/cycle. Нельзя объявлять совместимость или готовность заменить Punto по unit/build.
+
 ### S037 native correction D-056
 
-`needs_verification`, ветка `feature/native-layout-correction`. Обновлено 2026-10-16 после native проверки 15 октября. Production AX replacement заменён Copy/Paste выделения и physical-key replay слова. Документы/coverage, clipboard self-write suppression и guards обновлены. Full SwiftPM 365/365 и focused run 66/66 PASS; signed universal Debug и unsigned universal Release builds PASS.
+`needs_verification`, реализация D-056 слита через PR #38 и опубликована в 1.0.16/build17. Обновлено 2026-10-16 после native проверки 15 октября. Production AX replacement заменён Copy/Paste выделения и physical-key replay слова. Документы/coverage, clipboard self-write suppression и guards обновлены. Full SwiftPM 365/365 и focused run 66/66 PASS; signed universal Debug и unsigned universal Release builds PASS.
 
-Signed two-process owned NSTextView: word +0/+3 spaces, selection 6/12 288 UTF-16, фактический текст/caret/single native Undo/clipboard restore PASS, TIS switch mock. В реальном Final Cut effects-search оба production transport пути `ghbdtn → привет` подтверждены повторным Copy: paste 1196 ms, replay 1514 ms, включая подготовку/verification. Это transport integration, не installed Option/source-switch acceptance; UI automation отвергает modifier-only key. Поиск очищен, монтаж не менялся; прежняя `/Applications/Qipli.app` снова запущена после разрешённой пользователем остановки. Final Cut title fields/реальный Option/cycle/TIS, macOS14/permission/VoiceOver и delivery gates остаются открыты. По запросу 2026-10-16 готовится публикация 1.0.16/build17 для установленной пользовательской проверки; acceptance gates не закрываются публикацией.
+Signed two-process owned NSTextView: word +0/+3 spaces, selection 6/12 288 UTF-16, фактический текст/caret/single native Undo/clipboard restore PASS, TIS switch mock. В реальном Final Cut effects-search оба production transport пути `ghbdtn → привет` подтверждены повторным Copy: paste 1196 ms, replay 1514 ms, включая подготовку/verification. Это transport integration, не installed Option/source-switch acceptance; UI automation отвергает modifier-only key. Поиск очищен, монтаж не менялся; прежняя `/Applications/Qipli.app` снова запущена после разрешённой пользователем остановки. Final Cut title fields/реальный Option/cycle/TIS, macOS14/permission/VoiceOver и delivery gates остаются открыты. По запросу 2026-10-16 опубликован 1.0.16/build17 для установленной пользовательской проверки; acceptance gates не закрываются публикацией.
 
-### Выпуск 1.0.15 с подробной диагностикой D-055
+### Локальная диагностика D-055
 
-Публичный [v1.0.15](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.15), build `16`, immutable tag/main SHA `7209e34c428e385a1606be008c764d9b6375613d`. [Feature PR #36](https://github.com/tomfordrumm/Qipli/pull/36) и [Release PR #37](https://github.com/tomfordrumm/Qipli/pull/37) слиты. [Exact-main unsigned CI](https://github.com/tomfordrumm/Qipli/actions/runs/38769989444) и [protected release/Pages](https://github.com/tomfordrumm/Qipli/actions/runs/38770846125) SUCCESS; пользователь подтвердил protected Environment в GitHub. Public ZIP/DMG SHA-256, versioned/stable/latest DMG equality, Developer ID/Hardened Runtime/Sparkle nested signing, notarization/stapling/Gatekeeper, public appcast version/build/immutable URL/length и независимый Ed25519 ZIP verification публичным ключом приложения PASS. В public executable есть schemaVersion/lastFailure/copyStringForRange/droppedRecords. Подробное evidence в STATE-HISTORY.
-
-S038 остаётся `needs_verification`. Schema v2 сохраняет AX calls/errors/types/ranges/checks, admission/context, timing/deadline, transport/postconditions/clipboard restore, terminal lastFailure и counted overflow, без payload/raw identities. Local SwiftPM 355/355 без failures/skips и universal builds PASS. Native owned-field probe runtime SKIPPED: Accessibility=false. Installed Settings/ChatGPT/Sparkle acceptance открыт; установленная Release в этой задаче не заменялась. Existing logging opt-in сохраняется после обновления. Downloaded verification artifacts: `/private/tmp/qipli-1.0.15-verified/`.
+S038 остаётся `needs_verification`. Schema v2 опубликована с 1.0.15/build16, сохранена в 1.0.16; payload/raw identities не записываются, прежний opt-in сохраняется. Installed Settings/ChatGPT/VoiceOver acceptance остаётся открытым. Подробное evidence предыдущего выпуска находится в STATE-HISTORY.
 
 ### Qipli Dev identity
 
 Статус: `needs_verification`. D-045 реализован: Debug `Qipli Dev.app` / `com.qipli.app.dev`, Apple Development, отдельные настройки, общий History store/assets и отключённый Sparkle. Подписанный universal `build-for-testing` прошёл; существующие `SecureUpdaterSettingsTests` 3/3; Release settings сохраняют `Qipli.app` / `com.qipli.app`. Strict codesign verification прошёл на копии в `/private/tmp/qipli-dev-identity-check/Qipli Dev.app` без Finder xattrs: Documents file provider повторно добавляет недопустимый FinderInfo к build test bundle. Проверка Accessibility остаётся за пользователем: обычный Cmd+R из Xcode, выдать Dev доступ, пересобрать и проверить сохранение доступа обеих версий. Версии запускать по очереди.
 
 
-- Последняя опубликованная версия [v1.0.14](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.14), build15 от 2026-10-15. Optional local diagnostics D-054 опубликованы; расширенная schema v2 D-055 готовится к 1.0.15/build16. Installed update проверяется отдельно.
+- Последняя опубликованная версия [v1.0.16](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.16), build17 от 2026-10-16. Native correction D-056 и local diagnostics D-055 опубликованы. Installed update проверяется отдельно.
 - Milestones M1–M3 и M6–M9 завершены. M4/M5 сохраняют release gates S014/S008; M10 и M11 активны из-за оставшихся gates S031 и S032.
 - S001–S007, S009–S013, S015–S016, S017–S027 и S030 имеют статус `done`.
 - S028 остаётся в backlog по D-038. S029 возвращён в активный план по D-042; M12 описывает избранное в Top Notch.
@@ -76,7 +85,7 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 
 ## Последний выпуск
 
-`v1.0.15`, build `16`, tag/main SHA `7209e34c428e385a1606be008c764d9b6375613d`, опубликован 2026-10-15. [Release](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.15), [workflow](https://github.com/tomfordrumm/Qipli/actions/runs/38770846125). ZIP/DMG/checksums/stable/latest aliases и Sparkle feed проверены независимо. Installed update, сохранение History/favorites/Accessibility и реальный ChatGPT trail schema v2 не объявляются пройденными по публикации.
+`v1.0.16`, build `17`, tag/main SHA `a333f7fad1afc7d7d0352f9ae2624cc2b57e6501`, опубликован 2026-10-16. [Release](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.16), [workflow](https://github.com/tomfordrumm/Qipli/actions/runs/38872025883). ZIP/DMG/checksums/stable/latest aliases и Sparkle feed проверены независимо. Installed update, сохранение History/favorites/Accessibility и реальный Option/cycling в Final Cut остаются отдельными gates.
 
 ## Статусы срезов
 
@@ -137,6 +146,8 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 
 ## Последняя проверка
 
+- 2026-10-16: v1.0.16/build17 publication и release/Pages SUCCESS; public ZIP/DMG/checksums/aliases, version, signing/notarization/Gatekeeper и Sparkle public-key signature PASS. Installed update не выполнялся.
+
 - 2026-10-15: v1.0.15/build16 publication и release/Pages SUCCESS; публичные ZIP/DMG checksums, signing/notarization/Gatekeeper и Sparkle public-key signature PASS. Installed update не выполнялся.
 
 - 2026-10-06: v1.0.13/build14 опубликован без временного logger S037. Release/Pages SUCCESS; публичные ZIP/DMG checksums, stable/latest alias, codesign/stapler/Gatekeeper, Sparkle Ed25519 и public executable logging scan PASS.
@@ -173,8 +184,6 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 
 ## Следующее действие
 
-Для D-056 остаётся установленная Dev проверка реального левого Option, cycle/системных раскладок и title/text fields Final Cut. Оба transport пути уже проверены в effects search; детали в S037. Рабочая подписанная сборка: `/private/tmp/qipli-native-correction-xcode/Build/Products/Debug/Qipli Dev.app`. Прежняя Release восстановлена; пользователь запросил публикацию 1.0.16/build17 для installed acceptance.
+Обновить установленную Release до 1.0.16/build17 через Check for Updates или опубликованный DMG. Проверить реальный левый Option, цикл системных раскладок, последнее слово и выделение в Final Cut, включая title/text fields, native Undo и сохранение clipboard. Effects-search transport paths уже подтверждены отдельно, детали в S037. Dev сборка для отдельных probes сохранена: `/private/tmp/qipli-native-correction-xcode/Build/Products/Debug/Qipli Dev.app`.
 
-Отдельный прежний release gate:
-
-Обновить установленную Release до опубликованной 1.0.15 через Sparkle; отдельно проверить version/build, сохранение History/favorites/Accessibility/diagnostics opt-in и реальный ChatGPT correction trail schema v2. Installed Settings/VoiceOver/Finder/ChatGPT matrix и clean-machine macOS14 gate остаются открытыми. Опубликованные v1.0.15 tag/assets неизменяемы; исправления выходят новой версией.
+Отдельно проверить installed Sparkle update с сохранением History/favorites/Accessibility/diagnostics opt-in и реальный correction trail schema v2. Installed Settings/VoiceOver/Finder/ChatGPT matrix и clean-machine macOS14 gate остаются открытыми. Опубликованные v1.0.16 tag/assets неизменяемы; исправления выходят новой версией.
