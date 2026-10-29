@@ -1,4 +1,6 @@
+import AppKit
 import ApplicationServices
+import Carbon.HIToolbox
 import XCTest
 @testable import Qipli
 
@@ -43,6 +45,8 @@ private final class FakeNativeCorrection: LayoutCorrectionTransport {
     var onPrepare: (() -> Void)?
     var onCopy: (() -> Void)?
     var onReplay: (() -> Void)?
+    var onFinish: (() -> Void)?
+    var onDispatchReturn: (() -> Void)?
     var prepared = 0, copies = 0, finishes = 0
     var pastes: [String] = []
     var replays: [(Int, String)] = []
@@ -65,8 +69,9 @@ private final class FakeNativeCorrection: LayoutCorrectionTransport {
         guard isFresh() else { throw CorrectionAXError.stale }
         mutationBegan = true; replays.append((deleteCount, text)); onReplay?()
         guard isFresh() else { throw CorrectionAXError.stale }
+        onDispatchReturn?()
     }
-    func finish() { finishes += 1 }
+    func finish() async { onFinish?(); finishes += 1 }
 }
 
 @MainActor
@@ -264,6 +269,71 @@ final class LayoutCorrectionCoordinatorTests: XCTestCase {
         XCTAssertEqual(native.replays.count, 1); XCTAssertEqual(switches, 0); XCTAssertFalse(coordinator.hasCycle)
     }
 
+    func testLayoutSwitchPrecedesClipboardGraceAndLaterInputDoesNotFailCompletedPaste() async {
+        for selection in [false, true] {
+            let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
+            typed(ledger)
+            native.selectionEmpty = !selection; native.copied = selection ? "a" : nil
+            var switches = 0
+            let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger,
+                selectSource: { _ in switches += 1; return true })
+            native.onFinish = {
+                XCTAssertEqual(switches, 1, "Switch must precede clipboard grace")
+                XCTAssertTrue(coordinator.isOperationActive, "No overlapping clipboard leases during grace")
+                coordinator.handleTrigger(targetPID: 77, sources: self.sources, currentSourceID: "B", mayRun: true) {
+                    if case .denied = $0 {} else { XCTFail("A second correction must wait for restoration") }
+                }
+                // Real input during grace invalidates cycling, not the dispatched result.
+                ledger.invalidate()
+                coordinator.invalidateCyclePreservingWordBaseline()
+            }
+            let result = await trigger(coordinator)
+            XCTAssertEqual(result, .completed(sourceID: "B"))
+            XCTAssertFalse(coordinator.hasCycle)
+            XCTAssertFalse(coordinator.isOperationActive)
+            XCTAssertEqual(native.pastes.count + native.replays.count, 1)
+            XCTAssertEqual(native.finishes, 1)
+        }
+    }
+
+    func testStaleDiagnosticsDistinguishInputModifierAndCoordinatorEpochs() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let suite = "QipliEpochTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.set(true, forKey: LocalDiagnostics.preferenceKey)
+        defer { try? FileManager.default.removeItem(at: root); defaults.removePersistentDomain(forName: suite) }
+        let logger = LocalDiagnostics(defaults: defaults, directory: root)
+        for phase in [DiagnosticStep.admission, .postDispatchValidation] {
+            for check in [DiagnosticCheck.inputEpoch, .modifierEpoch, .gateEpoch] {
+                let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
+                typed(ledger)
+                let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger,
+                    selectSource: { _ in XCTFail("Stale operation must never switch"); return true }, diagnostics: logger)
+                let invalidate = {
+                    switch check {
+                    case .inputEpoch: ledger.invalidate()
+                    case .modifierEpoch: ledger.noteModifierChange()
+                    default: coordinator.invalidateCyclePreservingWordBaseline()
+                    }
+                }
+                if phase == .admission { native.onPrepare = invalidate }
+                else { native.onDispatchReturn = invalidate }
+                _ = await trigger(coordinator)
+                logger.flush()
+                let rows = try Data(contentsOf: root.appendingPathComponent("diagnostics-0.jsonl")).split(separator: 10)
+                let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+                let records = try rows.map { try decoder.decode(DiagnosticRecord.self, from: Data($0)) }
+                let cause = try XCTUnwrap(records.last { $0.stage == .finished }?.details?.lastFailure)
+                XCTAssertEqual(cause.stage, .validation)
+                XCTAssertEqual(cause.reason, .stale)
+                XCTAssertEqual(cause.step, phase)
+                XCTAssertEqual(cause.check, check)
+                XCTAssertNotEqual(cause.expected, cause.observed)
+                XCTAssertEqual(native.replays.count, phase == .admission ? 0 : 1)
+            }
+        }
+    }
+
     func testSourceSwitchFailureDoesNotRepeatInput() async {
         let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
         typed(ledger)
@@ -286,6 +356,126 @@ final class LayoutCorrectionCoordinatorTests: XCTestCase {
         _ = await trigger(coordinator); XCTAssertTrue(coordinator.hasCycle)
         try await Task.sleep(nanoseconds: 5_100_000_000)
         XCTAssertFalse(coordinator.hasCycle)
+    }
+
+    private func nativeTransport(_ board: NSPasteboard, onPaste: @escaping () -> Void = {}) -> NativeLayoutCorrectionTransport {
+        let native = NativeLayoutCorrectionTransport(pasteboard: board, axClient: NativeMetadataClient(),
+            frontmostPID: { 77 }, postEvent: { event, pid in
+                XCTAssertEqual(pid, 77)
+                XCTAssertEqual(event.getIntegerValueField(.eventSourceUserData), SyntheticEventMarker.sourceUserData)
+                guard event.type == .keyUp else { return }
+                switch event.getIntegerValueField(.keyboardEventKeycode) {
+                case Int64(kVK_ANSI_C):
+                    board.clearContents()
+                    XCTAssertTrue(board.setString("synthetic selection", forType: .string))
+                case Int64(kVK_ANSI_V): onPaste()
+                default: break
+                }
+            })
+        native.configurePasteboard(registerSelfWrite: { _ in }, beginCopy: {}, endCopy: {})
+        return native
+    }
+
+    private func dispatchNativePaste(_ native: NativeLayoutCorrectionTransport, selection: Bool) async throws {
+        _ = try await native.prepare(pid: 77)
+        if selection {
+            let copied = try await native.copySelection(pid: 77, isFresh: { true })
+            XCTAssertEqual(copied, "synthetic selection")
+            try await native.pasteSelection("synthetic replacement", pid: 77, isFresh: { true })
+        } else {
+            try await native.replay(deleteCount: 1, text: "synthetic replacement", pid: 77, isFresh: { true })
+        }
+    }
+
+    func testNativeSelectionAndWordPasteReturnBeforeGraceAndRestoreOriginalRepresentations() async throws {
+        for selection in [false, true] {
+            let board = NSPasteboard(name: .init("QipliNativeGraceTests.\(UUID())"))
+            defer { board.releaseGlobally() }
+            let first = NSPasteboardItem(), second = NSPasteboardItem()
+            first.setString("synthetic original", forType: .string)
+            first.setData(Data([1, 2, 3]), forType: .init("org.qipli.synthetic-test"))
+            second.setString("synthetic second", forType: .string)
+            XCTAssertTrue(board.writeObjects([first, second]))
+            var returnedFromPaste = false, finished = false
+            let returnedBeforeQueuedWork = expectation(description: "dispatch returns without clipboard grace")
+            let native = nativeTransport(board) {
+                DispatchQueue.main.async {
+                    XCTAssertTrue(returnedFromPaste, "Paste must return before yielding for clipboard grace")
+                    returnedBeforeQueuedWork.fulfill()
+                }
+            }
+            let held = expectation(description: "temporary clipboard retained while finish is suspended")
+            let observeGrace: @MainActor @Sendable () -> Void = {
+                XCTAssertFalse(finished)
+                XCTAssertEqual(board.string(forType: .string), "synthetic replacement")
+                held.fulfill()
+            }
+            native.setTrace(CorrectionDiagnosticTrace { stage, reason, _ in
+                if stage == .clipboardLease && reason == .restoreDeferred {
+                    DispatchQueue.main.async(execute: observeGrace)
+                }
+            })
+            try await dispatchNativePaste(native, selection: selection)
+            returnedFromPaste = true
+            let began = DispatchTime.now().uptimeNanoseconds
+            await native.finish()
+            finished = true
+            XCTAssertGreaterThanOrEqual(DispatchTime.now().uptimeNanoseconds - began, 250_000_000)
+            await fulfillment(of: [returnedBeforeQueuedWork, held], timeout: 2)
+            let restored = try XCTUnwrap(board.pasteboardItems)
+            XCTAssertEqual(restored.count, 2)
+            XCTAssertEqual(restored.first?.string(forType: .string), "synthetic original")
+            XCTAssertEqual(restored.first?.data(forType: .init("org.qipli.synthetic-test")), Data([1, 2, 3]))
+            XCTAssertEqual(restored.last?.string(forType: .string), "synthetic second")
+            let restoredCount = board.changeCount
+            await native.finish()
+            XCTAssertEqual(board.changeCount, restoredCount, "Repeated cleanup must not write again")
+        }
+    }
+
+    func testNativeFinishCancellationDoesNotShortenGraceOrOverwriteExternalCopy() async throws {
+        for cancelBeforeStart in [false, true] {
+            for externalCopy in [false, true] {
+                let board = NSPasteboard(name: .init("QipliNativeCancellationTests.\(UUID())"))
+                defer { board.releaseGlobally() }
+                XCTAssertTrue(board.setString("synthetic original", forType: .string))
+                let native = nativeTransport(board)
+                try await dispatchNativePaste(native, selection: false)
+                var finished = false, finishTask: Task<Void, Never>?
+                var externalCount: Int?
+                let observed = expectation(description: "observe and cancel suspended real finish")
+                let observeGrace: @MainActor @Sendable () -> Void = {
+                    XCTAssertFalse(finished)
+                    XCTAssertEqual(board.string(forType: .string), "synthetic replacement")
+                    if !cancelBeforeStart { finishTask?.cancel() }
+                    if externalCopy {
+                        board.clearContents()
+                        XCTAssertTrue(board.setString("synthetic newer copy", forType: .string))
+                        externalCount = board.changeCount
+                    }
+                    observed.fulfill()
+                }
+                native.setTrace(CorrectionDiagnosticTrace { stage, reason, _ in
+                    if stage == .clipboardLease && reason == .restoreDeferred {
+                        DispatchQueue.main.async(execute: observeGrace)
+                    }
+                })
+                let completed = expectation(description: "cleanup completed despite cancellation")
+                finishTask = Task {
+                    let began = DispatchTime.now().uptimeNanoseconds
+                    await native.finish()
+                    XCTAssertGreaterThanOrEqual(DispatchTime.now().uptimeNanoseconds - began, 250_000_000)
+                    finished = true
+                    completed.fulfill()
+                }
+                if cancelBeforeStart { finishTask?.cancel() }
+                await fulfillment(of: [observed, completed], timeout: 3)
+                XCTAssertTrue(finishTask?.isCancelled == true)
+                XCTAssertTrue(finished)
+                XCTAssertEqual(board.string(forType: .string), externalCopy ? "synthetic newer copy" : "synthetic original")
+                if let externalCount { XCTAssertEqual(board.changeCount, externalCount) }
+            }
+        }
     }
 
     func testUnicodeChunksPreserveSurrogatesAndCombiningCharacters() {

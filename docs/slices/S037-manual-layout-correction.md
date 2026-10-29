@@ -287,3 +287,19 @@ Verification: полный SwiftPM 369/369, 0 failures; signed universal Debug �
 Dev artifact: `/private/tmp/qipli-layout-reliability-debug/Build/Products/Debug/Qipli Dev.app`, legacy feature base имела version/build 1.0.15/16; перед release исправления переносятся на свежий main. Тестовый runner: `/private/tmp/qipli-s037-compatibility/Qipli Dev.app`; отчёт `/private/tmp/qipli-s037-compatibility-report.txt`. Не запускать одновременно с Dev/Release capture. S037 остаётся needs_verification; Chrome Google/omnibox, Telegram synthetic search/composer, реальный Option/chord/cycle, Undo/clipboard и sleep/wake acceptance открыты. На этапе локальных проверок commit/push/release не выполнялись; последующая публикация разрешена пользователем 2026-10-22.
 
 Живые тесты остановлены по просьбе пользователя 2026-10-22: компьютер нужен для работы. Runner завершён, никаких новых попыток активации/ввода не выполнять до возобновления. Подготовленные Dev и исходники сохранены.
+
+
+### 2026-10-29: stale после Paste, D-058
+
+Native selection/word Paste больше не ждёт clipboard grace до source switch. Coordinator сохраняет freshness guard сразу после dispatch, затем переключает source и ожидает async finish с ownership-checked restore. Operation owner освобождается после finish, поэтому повторная correction не создаёт перекрывающийся lease. Ввод во время grace инвалидирует cycle, сохраняя completed outcome; partial replay по-прежнему останавливается без switch/retry. Исторические пять stale за 29 октября локализованы на post-dispatch guard; конкретное invalidating event не доказано.
+
+Verification: full SwiftPM 372/372; финальные focused coordinator/diagnostics/clipboard 47/47, без failures/skips. Unsigned universal Debug и Release builds PASS. Compatibility/Final Cut probe utilities typecheck PASS, не запускались. Проверены selection/word source switch до grace, отказ повторной correction до cleanup, ввод во время grace без ложного failure, invalidation cycle и точные epoch/phase причины до/после dispatch. Installed Option/rapid typing/selection/cycle, actual text, Undo и clipboard smoke остаются отдельными gates. Установленная сборка не заменялась.
+
+
+### 2026-10-29: закрытие automated gaps после Sol review
+
+Добавлены два native-transport regression tests с шестью вариантами: selection и word Paste возвращают управление до queued post-dispatch work; настоящий `finish()` удерживает replacement минимум 250 ms и восстанавливает несколько исходных pasteboard items/representations. Cancellation до старта и во время grace не ускоряет restore. Более новый внешний Copy сохраняется вместе с changeCount; повторный finish не пишет повторно. Используется отдельный named NSPasteboard, реальный timer и реальный lease. Подменяются только AX client, frontmost PID и отправка CGEvent, поэтому тесты не требуют смены фокуса, не отправляют клавиши и не трогают general clipboard.
+
+Compatibility probe заранее выбирает destination, затем выполняет dispatch → immediate source switch → real finish/grace → actual text/source verification. Selection начинает с Latin source, чтобы switch не был no-op; Unicode comparison ждёт обработки событий после source switch. Probe сообщает `switchBeforeGrace=true` только вместе с успешными text/source checks.
+
+Verification: focused 49/49 и full SwiftPM 374/374 PASS, без skips/failures/compiler warnings; обновлённый compatibility probe typecheck и финальный unsigned universal Release build PASS. Runtime probe/installed smoke не запускались: actual editor text, Option/rapid typing/cycle/Undo и реальные source notifications остаются открытыми gates.

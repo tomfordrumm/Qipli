@@ -1,10 +1,16 @@
 # Qipli — текущее состояние проекта
 
-Последняя актуализация: 2026-10-16, v1.0.16/build17 опубликован; public ZIP/DMG/Sparkle проверены, installed update остаётся отдельным gate.
+Последняя актуализация: 2026-10-29, исправление S037/S038 по D-058 и план совместного выпуска с дизайном. Публикация этим прогоном не перепроверялась.
 
 Источник operational-статусов: этот файл. Исторические переходы и прежние verification snapshots находятся в [`STATE-HISTORY.md`](STATE-HISTORY.md).
 
 ## Текущее положение
+
+### S037/S038: локальное исправление post-paste stale, 2026-10-29
+
+Ветка `feature/correction-post-paste-diagnostics`, D-058. Source switch перенесён перед 250 ms clipboard grace; operation ownership удерживается до restore. Trigger больше не маскирует lastFailure, stale различает input/modifier/gate epoch и phase. После review полный SwiftPM 374/374 и focused 49/49 PASS, включая настоящий timer/clipboard restore/cancellation/external Copy. Probe обновлён на switch до grace, typecheck PASS. Финальный unsigned universal Release build после testability seams PASS. Предыдущие Debug, Sparkle runtime linking и version/CI/public-readiness checks сохранены. Детали в Implementation reports S037/S038. Срезы остаются `needs_verification`.
+
+План поставки по пользователю 2026-10-29: выпустить это исправление вместе с будущими изменениями дизайна. До завершения дизайна отдельный релиз не готовить и не публиковать; version/build остаются 1.0.17/18. Следующее действие: работа над дизайном и installed smoke общей сборки с быстрым вводом после Option, selection/cycle, clipboard/Undo и новым журналом. После согласования состава доставить feature-изменения через PR в main и подготовить единственный release PR по RELEASING. Desktop/UI проверки не запускались, установленная сборка не заменялась. Release snapshots ниже относятся к прежней проверке.
 
 ### Выпуск 1.0.16/build17
 

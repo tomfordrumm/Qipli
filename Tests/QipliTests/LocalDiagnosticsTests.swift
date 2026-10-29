@@ -126,6 +126,38 @@ final class LocalDiagnosticsTests: XCTestCase {
         XCTAssertEqual((loss["details"] as? [String: Any])?["droppedRecords"] as? Int, 3)
     }
 
+    func testTriggerNeverMasksWordFailureAndSuccessfulLifecycleHasNoFailure() throws {
+        let writer = logger()
+        enable(writer)
+        for trigger in [DiagnosticReason.leftOptionTrigger, .shortcutTrigger] {
+            let id = UUID()
+            let trace = CorrectionDiagnosticTrace { stage, reason, details in
+                writer.record(operation: id, stage: stage, reason: reason, details: details)
+            }
+            trace(.trigger, trigger)
+            trace(.admission, .passed)
+            trace(.wordProof, .wordBlocked)
+            trace(.finished, .unavailable)
+            writer.flush()
+            let final = try XCTUnwrap(records().first { $0["operation"] as? String == id.uuidString && $0["stage"] as? String == "finished" })
+            let cause = (final["details"] as? [String: Any])?["lastFailure"] as? [String: Any]
+            XCTAssertEqual(cause?["stage"] as? String, "wordProof")
+            XCTAssertEqual(cause?["reason"] as? String, "wordBlocked")
+        }
+        let id = UUID()
+        let trace = CorrectionDiagnosticTrace { stage, reason, details in
+            writer.record(operation: id, stage: stage, reason: reason, details: details)
+        }
+        trace(.trigger, .leftOptionTrigger)
+        trace(.nativePaste, .passed)
+        trace(.clipboardLease, .restoreDeferred)
+        trace(.clipboardLease, .restored)
+        trace(.finished, .stale)
+        writer.flush()
+        let final = try XCTUnwrap(records().first { $0["operation"] as? String == id.uuidString && $0["stage"] as? String == "finished" })
+        XCTAssertNil((final["details"] as? [String: Any])?["lastFailure"])
+    }
+
     func testRotationBoundsEveryFileAndTotalStorage() throws {
         let writer = logger(bytes: 700, files: 3)
         enable(writer)

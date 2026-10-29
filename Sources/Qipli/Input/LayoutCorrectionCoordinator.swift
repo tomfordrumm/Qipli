@@ -66,14 +66,28 @@ final class LayoutCorrectionCoordinator {
             trace(.finished, .unsupportedSources); completion(.denied("Use at least two supported static keyboard layouts.")); return
         }
         operationID = id
-        let epoch = ledger.snapshot().generation, revision = generation
+        let initialInput = ledger.snapshot(), revision = generation
+        let epoch = initialInput.generation
+        var validationStep = DiagnosticStep.admission
         let fresh = { [weak self] in
             guard let self else { return false }
-            return self.generation == revision && self.ledger.snapshot().generation == epoch
+            let input = self.ledger.snapshot()
+            let inputEpoch = input.generation
+            let check: DiagnosticCheck = self.generation != revision ? .gateEpoch :
+                input.inputGeneration != initialInput.inputGeneration ? .inputEpoch : .modifierEpoch
+            let expected = check == .gateEpoch ? revision : epoch
+            let observed = check == .gateEpoch ? self.generation : inputEpoch
+            guard expected == observed else {
+                trace(.validation, .stale, DiagnosticDetails(step: validationStep, check: check,
+                    expected: Int(clamping: expected), observed: Int(clamping: observed), matches: false,
+                    inputGeneration: input.inputGeneration, gateGeneration: self.generation))
+                return false
+            }
+            return true
         }
         Task { [self] in
             transport.setTrace(trace)
-            defer { transport.finish(); operationID = nil }
+            let outcome: LayoutCorrectionOutcome
             do {
                 trace(.admission, .started)
                 let selectionEmpty = try await transport.prepare(pid: targetPID)
@@ -92,7 +106,10 @@ final class LayoutCorrectionCoordinator {
                     continuing = false
                     let copied: String?
                     if selectionEmpty == true { copied = nil }
-                    else { copied = try await transport.copySelection(pid: targetPID, isFresh: fresh) }
+                    else {
+                        validationStep = .selectedText
+                        copied = try await transport.copySelection(pid: targetPID, isFresh: fresh)
+                    }
                     guard fresh() else { throw CorrectionAXError.stale }
                     if let copied {
                         trace(.selection, .passed)
@@ -134,29 +151,32 @@ final class LayoutCorrectionCoordinator {
                 guard mapped != next.inserted else { throw CorrectionMappingError.unchanged }
                 trace(.mapping, .passed)
                 trace(.replacement, .started)
+                validationStep = .preDispatchValidation
                 // A fresh selection is already selected. A cycle/word replaces the immediately preceding insertion.
                 if next.keys == nil, !continuing {
                     try await transport.pasteSelection(mapped, pid: targetPID, isFresh: fresh)
                 } else {
                     try await transport.replay(deleteCount: next.inserted.count, text: mapped, pid: targetPID, isFresh: fresh)
                 }
+                validationStep = .postDispatchValidation
                 guard fresh() else { throw CorrectionAXError.stale }
                 next.current = destination.id; next.inserted = mapped; next.lastUsed = DispatchTime.now().uptimeNanoseconds
                 cycle = next // recognize our own synchronous source-change callback
                 trace(.layoutSwitch, .started)
                 let switched = selectSource?(destination.id) ?? sourceCatalog?.select(destination.id, trace: trace) ?? false
-                guard switched else {
+                if !switched {
                     invalidate(); trace(.finished, .switchFailed)
-                    completion(.failed("Text input was sent, but the keyboard layout could not be switched.")); return
+                    outcome = .failed("Text input was sent, but the keyboard layout could not be switched.")
+                } else {
+                    let expiryID = next.lastUsed
+                    let expiryDelay = min(5_000_000_000, 30_000_000_000 - min(30_000_000_000, expiryID &- next.began))
+                    Task { [weak self] in
+                        try? await Task.sleep(nanoseconds: expiryDelay)
+                        if self?.cycle?.lastUsed == expiryID { self?.cycle = nil }
+                    }
+                    trace(.finished, .completed, DiagnosticDetails(dispatched: true, confirmed: false))
+                    outcome = .completed(sourceID: destination.id)
                 }
-                let expiryID = next.lastUsed
-                let expiryDelay = min(5_000_000_000, 30_000_000_000 - min(30_000_000_000, expiryID &- next.began))
-                Task { [weak self] in
-                    try? await Task.sleep(nanoseconds: expiryDelay)
-                    if self?.cycle?.lastUsed == expiryID { self?.cycle = nil }
-                }
-                trace(.finished, .completed, DiagnosticDetails(dispatched: true, confirmed: false))
-                completion(.completed(sourceID: destination.id))
             } catch {
                 let mutated = transport.mutationBegan
                 invalidate()
@@ -166,8 +186,13 @@ final class LayoutCorrectionCoordinator {
                 else if let mapping = error as? CorrectionMappingError { reason = DiagnosticReason(mapping: mapping) }
                 else { reason = .unexpected }
                 trace(.finished, reason, DiagnosticDetails(dispatched: mutated, confirmed: false))
-                completion(.failed(mutated ? "Correction stopped after sending input; check the text before trying again." : Self.message(error)))
+                outcome = .failed(mutated ? "Correction stopped after sending input; check the text before trying again." : Self.message(error))
             }
+            // Completion and ownership release follow clipboard settlement, but
+            // the source switch above never waits for the pasteboard grace.
+            await transport.finish()
+            operationID = nil
+            completion(outcome)
         }
     }
 

@@ -17,6 +17,16 @@ enum DiagnosticReason: String, Codable, Sendable {
     case mismatch, axFailure, typeMismatch, lengthMismatch, notSettable, missingCapability, denied, failed, cancelled, dropped, restored, restoreSkipped, restoreDeferred
     case tapTimeout, tapDisabled, listenerReady, listenerStopped, listenerUnavailable
 
+    var isFailure: Bool {
+        switch self {
+        case .enabled, .started, .leftOptionTrigger, .shortcutTrigger, .passed, .completed,
+             .restored, .restoreSkipped, .restoreDeferred, .listenerReady, .listenerStopped:
+            false
+        default:
+            true
+        }
+    }
+
     init(ax error: CorrectionAXError) {
         switch error {
         case .unavailable: self = .unavailable

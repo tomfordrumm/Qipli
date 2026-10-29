@@ -53,3 +53,10 @@ Writer: utility queue, максимум 256 admitted pending records, generation
 - Existing two-process native probe обновлён для новых production dependencies и opt-in `--diagnostics`; собран и подписан. Runtime остановился до чтения/изменения поля: `nativePaste=SKIPPED accessibility=false`. Это не pass live AX/native paste. Установленный ChatGPT reproduction, Settings matrix и delivery gates остаются открыты; S038 по-прежнему needs_verification.
 
 Готовая development-сборка: `/private/tmp/qipli-incident-debug/Build/Products/Debug/Qipli Dev.app`. Установленная Release не заменялась. Public ZIP/DMG/Sparkle update в этой задаче не выпускались.
+
+
+### 2026-10-29: точные причины stale, D-058
+
+`leftOptionTrigger`/`shortcutTrigger`, passed и restore lifecycle больше не захватывают lastFailure. Coordinator пишет step и отдельные input/modifier/gate epoch checks с expected/observed; native guards показывают target process mismatch без PID, element mismatch, unsupported role, readonly field, permission и Secure Input. Payload-free schema v2 сохраняется с дополнительными enum values, исторические причины задним числом не восстанавливаются.
+
+Verification: full SwiftPM 372/372 и финальные focused 47/47 PASS. Regression tests проверяют обе trigger-причины, сохранение wordBlocked и конкретных epoch/phase evidence в terminal records; существующие overflow/privacy/schema tests прошли. Новый installed diagnostic trail ещё не получен.
