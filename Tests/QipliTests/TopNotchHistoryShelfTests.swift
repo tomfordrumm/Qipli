@@ -837,8 +837,89 @@ final class PanelEdgePresentationTests: XCTestCase {
         layout.prepare()
         XCTAssertEqual(layout.itemSize.width, scroll.contentSize.width - 4, accuracy: 0.01)
         layout.scrollDirection = .horizontal
+        layout.updateItemSize(viewport: scroll.contentSize)
         layout.prepare()
         XCTAssertEqual(layout.itemSize.width, 220)
+    }
+
+    func testHistoryCardFramesAndContentsSurviveEveryEdgeTransition() throws {
+        let cards = (0..<8).map { index in
+            TopNotchHistoryCardDescriptor(
+                id: UUID(), isFavorite: false, kind: index == 1 ? .image : .text,
+                title: index == 1 ? "Image" : "Text",
+                detail: index == 0 ? String(repeating: "Synthetic wrapping text. ", count: 20) : "Synthetic preview",
+                accessibilityLabel: "Synthetic card"
+            )
+        }
+        let image = NSImage(size: NSSize(width: 800, height: 450), flipped: false) { rect in
+            NSColor.orange.setFill()
+            rect.fill()
+            NSColor.blue.setFill()
+            rect.insetBy(dx: rect.width / 4, dy: rect.height / 4).fill()
+            return true
+        }
+        let imageData = try XCTUnwrap(image.tiffRepresentation)
+
+        for source in PanelEdge.allCases {
+            let model = TopNotchHistoryLayoutModel()
+            model.edge = source
+            let bridge = TopNotchHistoryInteractionBridge()
+            let host = NSHostingView(rootView: HistoryEdgeCollectionFixture(
+                layout: model, cards: cards, imageData: imageData, bridge: bridge
+            ))
+            let window = NSWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            defer { window.close() }
+
+            func show(_ edge: PanelEdge) {
+                model.edge = edge
+                window.setContentSize(edge.isVertical ? NSSize(width: 360, height: 640) : NSSize(width: 1080, height: 296))
+                window.orderFrontRegardless()
+                host.layoutSubtreeIfNeeded()
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            }
+
+            show(source)
+            for target in PanelEdge.allCases where target != source {
+                show(target)
+                let context = "\(source) → \(target)"
+                let scroll = try XCTUnwrap(descendants(of: host).compactMap { $0 as? HistoryCardsScrollView }.first)
+                let collection = try XCTUnwrap(scroll.documentView as? NSCollectionView)
+                let flow = try XCTUnwrap(collection.collectionViewLayout as? HistoryCardFlowLayout)
+                XCTAssertEqual(flow.scrollDirection, target.isVertical ? .vertical : .horizontal, context)
+                for index in 0..<2 {
+                    let path = IndexPath(item: index, section: 0)
+                    let attributes = try XCTUnwrap(flow.layoutAttributesForItem(at: path))
+                    let item = try XCTUnwrap(collection.item(at: path))
+                    XCTAssertEqual(attributes.size.width, flow.itemSize.width, accuracy: 0.01, context)
+                    XCTAssertEqual(attributes.size.height, flow.itemSize.height, accuracy: 0.01, context)
+                    XCTAssertEqual(item.view.frame, attributes.frame, context)
+                    if target.isVertical {
+                        XCTAssertGreaterThanOrEqual(attributes.frame.minX, 0, context)
+                        XCTAssertLessThanOrEqual(attributes.frame.maxX, scroll.contentSize.width, context)
+                    } else {
+                        XCTAssertGreaterThanOrEqual(attributes.frame.minY, 0, context)
+                        XCTAssertLessThanOrEqual(attributes.frame.maxY, scroll.contentSize.height, context)
+                    }
+                    let label = try XCTUnwrap(item.view.subviews.compactMap { $0 as? NSTextField }.first)
+                    XCTAssertEqual(label.stringValue, cards[index].detail, context)
+                    XCTAssertTrue(item.view.bounds.contains(label.frame), context)
+                    XCTAssertGreaterThan(label.frame.height, 0, context)
+                    if index == 1 {
+                        let thumbnail = try XCTUnwrap(item.view.subviews.compactMap { $0 as? NSImageView }
+                            .first { !$0.isHidden && $0.image?.size == image.size })
+                        XCTAssertEqual(thumbnail.frame, item.view.bounds, context)
+                    }
+                }
+                XCTAssertEqual(collection.selectionIndexPaths, [IndexPath(item: 0, section: 0)], context)
+                show(source)
+            }
+        }
+    }
+
+    private func descendants(of view: NSView) -> [NSView] {
+        view.subviews.flatMap { [$0] + descendants(of: $0) }
     }
 
     func testMaskOnlyOverscansAttachmentAcrossCompactAndExpandedStates() throws {
@@ -934,5 +1015,28 @@ final class PanelEdgePresentationTests: XCTestCase {
                 }
             }
         }
+    }
+}
+
+private struct HistoryEdgeCollectionFixture: View {
+    @ObservedObject var layout: TopNotchHistoryLayoutModel
+    let cards: [TopNotchHistoryCardDescriptor]
+    let imageData: Data
+    let bridge: TopNotchHistoryInteractionBridge
+
+    var body: some View {
+        VStack {
+            Text("History").frame(height: 50)
+            TopNotchHistoryCollectionView(
+                cards: cards, snapshotRevision: 1, thumbnailUpdateRevisionsByEntryID: [:],
+                selectedEntryID: cards[0].id, interactionBridge: bridge,
+                thumbnailData: { _ in imageData }, requestThumbnail: { _ in },
+                selectEntry: { _ in }, pasteEntry: { _, _ in }, toggleFavorite: { _, _ in },
+                loadMore: {}, isVertical: layout.edge.isVertical
+            )
+            Text("Footer").frame(height: 30)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

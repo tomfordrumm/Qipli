@@ -1081,14 +1081,14 @@ final class HistoryCardFlowLayout: NSCollectionViewFlowLayout {
             : NSSize(width: 220, height: max(1, min(168, viewport.height - sectionInset.top - sectionInset.bottom)))
         guard itemSize != size else { return }
         itemSize = size
-        invalidateLayout()
+        invalidateCardMetrics()
     }
 
-    override func prepare() {
-        if let size = collectionView?.enclosingScrollView?.contentSize {
-            updateItemSize(viewport: size)
-        }
-        super.prepare()
+    func invalidateCardMetrics() {
+        let context = NSCollectionViewFlowLayoutInvalidationContext()
+        context.invalidateFlowLayoutDelegateMetrics = true
+        context.invalidateFlowLayoutAttributes = true
+        invalidateLayout(with: context)
     }
 
     override func shouldInvalidateLayout(forBoundsChange newBounds: NSRect) -> Bool {
@@ -1097,6 +1097,25 @@ final class HistoryCardFlowLayout: NSCollectionViewFlowLayout {
 }
 
 final class HistoryCardsScrollView: NSScrollView {
+    override func setFrameSize(_ newSize: NSSize) {
+        let resized = frame.size != newSize
+        // Resizing can make AppKit prepare the collection synchronously. Give
+        // that pass fitting metrics before it sees the smaller cross-axis.
+        if resized, let collection = documentView as? NSCollectionView,
+           let layout = collection.collectionViewLayout as? HistoryCardFlowLayout {
+            layout.updateItemSize(viewport: newSize)
+        }
+        super.setFrameSize(newSize)
+        guard resized,
+              let collection = documentView as? NSCollectionView,
+              let layout = collection.collectionViewLayout as? HistoryCardFlowLayout else { return }
+        // SwiftUI changes the axis before assigning the new viewport. Rebuild
+        // metrics after resizing, outside flow-layout preparation, so cached
+        // attributes cannot retain the previous row width or column height.
+        layout.updateItemSize(viewport: contentSize)
+        layout.invalidateCardMetrics()
+    }
+
     override func tile() {
         super.tile()
         guard let collection = documentView as? NSCollectionView,
