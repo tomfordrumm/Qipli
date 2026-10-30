@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// Maintains one AppKit panel per temporary surface; reopening a surface reuses its panel.
@@ -13,6 +14,9 @@ final class PanelController {
     private let screenProvider: PanelScreenProviding
     private let topNotchScreenProvider: TopNotchScreenProviding
     private let openAccessibilitySettings: () -> Void
+    private let panelPreferences: PanelPreferences
+    private var panelEdge: PanelEdge
+    private var edgeObservation: AnyCancellable?
     private let materialProvider: PanelMaterialProvider
     private let topNotchInteractionBridge = TopNotchHistoryInteractionBridge()
     private let topNotchLayoutModel = TopNotchHistoryLayoutModel()
@@ -54,8 +58,14 @@ final class PanelController {
         screenProvider: PanelScreenProviding = SystemPanelScreenProvider(),
         topNotchScreenProvider: TopNotchScreenProviding = SystemTopNotchScreenProvider(),
         materialProvider: PanelMaterialProvider? = nil,
+        panelPreferences: PanelPreferences? = nil,
         openAccessibilitySettings: @escaping () -> Void
     ) {
+        let preferences = panelPreferences ?? PanelPreferences()
+        self.panelPreferences = preferences
+        panelEdge = preferences.edge
+        topNotchLayoutModel.edge = preferences.edge
+        stackPresentation.edge = preferences.edge
         self.permissionService = permissionService
         self.historyViewModel = historyViewModel
         self.stackSessionController = stackSessionController
@@ -66,6 +76,9 @@ final class PanelController {
         self.topNotchScreenProvider = topNotchScreenProvider
         self.openAccessibilitySettings = openAccessibilitySettings
         self.materialProvider = materialProvider ?? PanelMaterialProvider()
+        edgeObservation = preferences.$edge.removeDuplicates().dropFirst().sink { [weak self] edge in
+            self?.applyPanelEdge(edge)
+        }
         stackPresentation.onIntent = { [weak self] intent in
             self?.handleStackPresentationIntent(intent)
         }
@@ -112,7 +125,8 @@ final class PanelController {
             panel = makeHistoryPanel()
         }
         historyPanel = panel
-        topNotchLayoutModel.topContentInset = topNotchSafeAreaInset(for: historyPasteTarget)
+        topNotchLayoutModel.topContentInset = panelEdge == .top ? topNotchSafeAreaInset(for: historyPasteTarget) : 0
+        configureEdgeSurface(panel, edge: panelEdge)
         let expandedFrame = topNotchFrame(for: panel, target: historyPasteTarget)
         let collapsedFrame = topNotchCollapsedFrame(
             from: expandedFrame,
@@ -163,6 +177,7 @@ final class PanelController {
             )
         }
         stackPanel = panel
+        configureEdgeSurface(panel, edge: panelEdge)
         stackTopNotchScreen = resolveStackTopNotchScreen(preferredScreen: capturedScreen)
         let geometry = stackCompactGeometry(for: stackTopNotchScreen)
         let isNewPresentation = stackPresentation.state == .hidden
@@ -240,7 +255,7 @@ final class PanelController {
     private func configureCorrectionNoticeFrame() -> CGRect {
         guard let panel = correctionNoticePanel else { return .zero }
         correctionNoticeScreen = connectedScreen(preferred: correctionNoticeScreen)
-        let geometry = stackCompactGeometry(for: correctionNoticeScreen)
+        let geometry = stackCompactGeometry(for: correctionNoticeScreen, edge: .top)
         let visible = correctionNoticeScreen?.visibleFrame ?? screenProvider.currentVisibleFrame()
         let width = min(visible.width, max(440, geometry.panelFrame.width))
         let frame = NSRect(x: min(max(geometry.panelFrame.midX - width / 2, visible.minX), visible.maxX - width),
@@ -485,7 +500,7 @@ final class PanelController {
             historyPanelDelegate = panelDelegate
             historyKeyboardMonitor = HistoryPanelKeyboardMonitor(
                 panel: panel,
-                selectionAxis: .horizontal
+                selectionAxis: panelEdge.isVertical ? .vertical : .horizontal
             ) { [weak self] action in
                 self?.handleHistoryKeyAction(action) ?? false
             }
@@ -702,7 +717,25 @@ final class PanelController {
         panelSize: NSSize = TopNotchHistoryGeometry.defaultPanelSize,
         includesSafeAreaBand: Bool = true
     ) -> NSRect {
-        guard let screen = target?.preferredScreen ?? preferredScreen ?? topNotchScreenProvider.currentScreen() else {
+        let screen = connectedScreen(preferred: target?.preferredScreen ?? preferredScreen)
+        let visibleFrame = screen?.visibleFrame ?? screenProvider.currentVisibleFrame()
+        let screenFrame = screen?.frame ?? visibleFrame
+        let reserved = panelEdge == .top ? 0 : PanelEdgeGeometry.reservedEdgeInset(
+            edge: panelEdge, screenFrame: screenFrame, visibleFrame: visibleFrame)
+        if panel === stackPanel {
+            stackPresentation.edgeContentInset = reserved
+        } else if panel === historyPanel {
+            topNotchLayoutModel.edgeContentInset = reserved
+        }
+        if panelEdge != .top {
+            return PanelEdgeGeometry.expandedFrame(
+                edge: panelEdge,
+                screenFrame: screenFrame,
+                visibleFrame: visibleFrame,
+                isStack: panel === stackPanel
+            )
+        }
+        guard let screen else {
             return TopNotchHistoryGeometry.frame(
                 screenFrame: screenProvider.currentVisibleFrame(),
                 visibleFrame: screenProvider.currentVisibleFrame(),
@@ -730,7 +763,7 @@ final class PanelController {
         for target: HistoryPasteTarget?,
         preferredScreen: NSScreen? = nil
     ) -> CGFloat {
-        max(0, (target?.preferredScreen ?? preferredScreen ?? topNotchScreenProvider.currentScreen())?.safeAreaInsets.top ?? 0)
+        max(0, connectedScreen(preferred: target?.preferredScreen ?? preferredScreen)?.safeAreaInsets.top ?? 0)
     }
 
     private func topNotchCollapsedFrame(
@@ -738,7 +771,10 @@ final class PanelController {
         target: HistoryPasteTarget?,
         preferredScreen: NSScreen? = nil
     ) -> NSRect {
-        guard let screen = target?.preferredScreen ?? preferredScreen ?? topNotchScreenProvider.currentScreen() else {
+        if panelEdge != .top {
+            return PanelEdgeGeometry.collapsedFrame(edge: panelEdge, expandedFrame: expandedFrame)
+        }
+        guard let screen = connectedScreen(preferred: target?.preferredScreen ?? preferredScreen) else {
             return TopNotchHistoryGeometry.collapsedFrame(from: expandedFrame)
         }
         return TopNotchHistoryGeometry.collapsedFrame(
@@ -753,12 +789,7 @@ final class PanelController {
         collapsedFrame: NSRect,
         expandedFrame: NSRect
     ) -> CGRect {
-        CGRect(
-            x: collapsedFrame.minX - expandedFrame.minX,
-            y: 0,
-            width: collapsedFrame.width,
-            height: collapsedFrame.height
-        )
+        PanelEdgeGeometry.localRect(collapsedFrame, in: expandedFrame)
     }
 
     private func stackExpandedFrame() -> NSRect {
@@ -773,10 +804,15 @@ final class PanelController {
     }
 
     private func finderCutCompactGeometry(for screen: NSScreen?) -> PasteStackCompactGeometry {
-        stackCompactGeometry(for: screen).addingFinderCutFilenameRow()
+        stackCompactGeometry(for: screen, edge: .top).addingFinderCutFilenameRow()
     }
 
-    private func stackCompactGeometry(for screen: NSScreen?) -> PasteStackCompactGeometry {
+    private func stackCompactGeometry(for screen: NSScreen?, edge: PanelEdge? = nil) -> PasteStackCompactGeometry {
+        let edge = edge ?? panelEdge
+        if edge != .top {
+            return PanelEdgeGeometry.compactGeometry(edge: edge, screenFrame: screen?.frame,
+                visibleFrame: screen?.visibleFrame ?? screenProvider.currentVisibleFrame())
+        }
         guard let screen else {
             let frame = screenProvider.currentVisibleFrame()
             return PasteStackCompactGeometry.make(
@@ -831,7 +867,7 @@ final class PanelController {
         if reduceMotion {
             stackSurface?.prepareForExpandedPresentation(preservingContentAlpha: preservesCurrentAlpha)
         } else {
-            stackSurface?.animateStackReveal(from: compactRect, duration: 0.22, reversing: preservesCurrentAlpha)
+            stackSurface?.animateStackReveal(from: compactRect, duration: PanelDesign.revealDuration, reversing: preservesCurrentAlpha)
         }
         stackSurface?.setInteractiveRegions([
             CGRect(origin: .zero, size: expandedFrame.size)
@@ -839,10 +875,10 @@ final class PanelController {
         panel.ignoresMouseEvents = false
         panel.orderFrontRegardless()
 
-        let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.12 : 0.22
+        let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.12 : PanelDesign.revealDuration
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
+            context.timingFunction = PanelDesign.timingFunction
             stackSurface?.animateContentAlpha(to: 1)
         } completionHandler: { [weak self] in
             Task { @MainActor [weak self] in
@@ -855,7 +891,7 @@ final class PanelController {
         guard let panel = stackPanel,
               stackPresentation.isCurrent(token: token, state: .collapsing)
         else { return }
-        let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.10 : 0.18
+        let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.10 : PanelDesign.collapseDuration
         if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
            let geometry = stackPresentation.compactGeometry {
             stackSurface?.animateStackCollapse(
@@ -865,7 +901,7 @@ final class PanelController {
         }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
+            context.timingFunction = PanelDesign.timingFunction
             stackSurface?.animateContentAlpha(to: 0)
         } completionHandler: { [weak self, weak panel] in
             Task { @MainActor [weak self, weak panel] in
@@ -888,11 +924,20 @@ final class PanelController {
               stackPresentation.isCurrent(token: token, state: .dismissing)
         else { return }
         panel.ignoresMouseEvents = true
-        let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.10 : 0.16
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let duration = reduceMotion ? 0.10 : PanelDesign.dismissDuration
+        if !reduceMotion {
+            let collapsed = topNotchCollapsedFrame(from: panel.frame, target: nil, preferredScreen: stackTopNotchScreen)
+            stackSurface?.animateDismiss(to: topNotchCompactRect(collapsedFrame: collapsed, expandedFrame: panel.frame), duration: duration)
+        }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
-            panel.animator().alphaValue = 0
+            context.timingFunction = PanelDesign.timingFunction
+            if reduceMotion {
+                panel.animator().alphaValue = 0
+            } else {
+                stackSurface?.animateContentAlpha(to: 0)
+            }
         } completionHandler: { [weak self, weak panel] in
             Task { @MainActor [weak self, weak panel] in
                 guard let self, let panel,
@@ -912,10 +957,10 @@ final class PanelController {
               finderCutPresentation.isCurrent(token: token, state: .dismissing)
         else { return }
         panel.ignoresMouseEvents = true
-        let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.10 : 0.16
+        let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.10 : PanelDesign.dismissDuration
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
+            context.timingFunction = PanelDesign.timingFunction
             finderCutSurface?.animateContentAlpha(to: 0)
         } completionHandler: { [weak self, weak panel] in
             Task { @MainActor [weak self, weak panel] in
@@ -929,6 +974,39 @@ final class PanelController {
                 self.finderCutPresentation.finishDismissal(token: token)
             }
         }
+    }
+
+    private func configureEdgeSurface(_ panel: NSPanel, edge: PanelEdge) {
+        (panel.contentView as? TopNotchHistorySurfaceView)?.edge = edge
+        panel.hasShadow = false
+    }
+
+    private func applyPanelEdge(_ edge: PanelEdge) {
+        panelEdge = edge
+        topNotchLayoutModel.edge = edge
+        stackPresentation.edge = edge
+        historyKeyboardMonitor?.selectionAxis = edge.isVertical ? .vertical : .horizontal
+        if let panel = historyPanel {
+            configureEdgeSurface(panel, edge: edge)
+            refreshHistoryPanelFrame()
+        }
+        if let panel = stackPanel {
+            configureEdgeSurface(panel, edge: edge)
+            refreshStackPanelFrame()
+        }
+    }
+
+    private func refreshHistoryPanelFrame() {
+        guard let panel = historyPanel, panel.isVisible,
+              historyPasteTransactionID == nil, historyPresentation.state != .dismissing else { return }
+        // Retire an in-flight reveal before relocating. Paste and dismissal
+        // keep ownership of their own completions and are never resurrected.
+        historyPresentation.close(panel: panel)
+        topNotchLayoutModel.topContentInset = panelEdge == .top ? topNotchSafeAreaInset(for: historyPasteTarget) : 0
+        let frame = topNotchFrame(for: panel, target: historyPasteTarget)
+        _ = historyPresentation.prepare(panel: panel, expandedFrame: frame,
+            compactRect: .zero, reduceMotion: true)
+        topNotchInteractionBridge.applySelection(id: historyViewModel.selectedEntryID)
     }
 
     private func refreshStackPanelFrame() {
@@ -949,6 +1027,7 @@ final class PanelController {
             )
             panel.setFrame(expandedFrame, display: true)
             panel.contentView?.layoutSubtreeIfNeeded()
+            if stackPresentation.state == .expanded { stackSurface?.restoreExpandedPresentation() }
             stackSurface?.setInteractiveRegions([
                 CGRect(origin: .zero, size: expandedFrame.size)
             ])
@@ -971,10 +1050,7 @@ final class PanelController {
             configureCorrectionNoticeFrame()
             correctionNoticeSurface?.prepareForExpandedPresentation(preservingContentAlpha: true)
         }
-        if historyPresentation.isVisible, let panel = historyPanel, panel.isVisible {
-            topNotchLayoutModel.topContentInset = topNotchSafeAreaInset(for: historyPasteTarget)
-            panel.setFrame(topNotchFrame(for: panel, target: historyPasteTarget), display: true)
-        }
+        refreshHistoryPanelFrame()
         if stackPresentation.state != .hidden, let panel = stackPanel, panel.isVisible {
             refreshStackPanelFrame()
         }
@@ -1004,8 +1080,6 @@ private final class TopNotchPanelLifecycle {
     private weak var surface: TopNotchHistorySurfaceView?
     private(set) var state: TopNotchPresentationState = .hidden
     private var generation = 0
-
-    var isVisible: Bool { state == .visible }
 
     func attach(surface: TopNotchHistorySurfaceView?) {
         self.surface = surface
@@ -1050,7 +1124,7 @@ private final class TopNotchPanelLifecycle {
               state == .appearing
         else { return }
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = token.reduceMotion ? 0.12 : 0.20
+            context.duration = token.reduceMotion ? 0.12 : PanelDesign.revealDuration
             context.timingFunction = Self.timingFunction
             panel.animator().alphaValue = 1
             if !token.reduceMotion {
@@ -1088,7 +1162,7 @@ private final class TopNotchPanelLifecycle {
         }
 
         panel.ignoresMouseEvents = true
-        let duration = reduceMotion ? 0.10 : 0.16
+        let duration = reduceMotion ? 0.10 : PanelDesign.dismissDuration
         if !reduceMotion {
             surface?.animateDismiss(to: compactRect, duration: duration)
         }
@@ -1128,7 +1202,7 @@ private final class TopNotchPanelLifecycle {
     }
 
     private static var timingFunction: CAMediaTimingFunction {
-        CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
+        PanelDesign.timingFunction
     }
 }
 
@@ -1263,7 +1337,7 @@ enum HistoryPanelOutsideClickAdmission {
 private final class HistoryPanelKeyboardMonitor {
     private weak var panel: NSPanel?
     private var monitor: Any?
-    private let selectionAxis: HistoryPanelSelectionAxis
+    var selectionAxis: HistoryPanelSelectionAxis
     private let handle: (HistoryPanelKeyAction) -> Bool
 
     init(

@@ -5,6 +5,7 @@ import Foundation
 enum SettingsSection: Hashable {
     case general
     case shortcuts
+    case appearance
 }
 
 @MainActor
@@ -28,6 +29,8 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var diagnosticsError: String?
     private let diagnostics: LocalDiagnostics?
 
+    let panelPreferences: PanelPreferences
+
     private let shortcutPreferences: ShortcutPreferences
     private let launchAtLoginService: LaunchAtLoginServicing
     private let secureUpdater: SecureUpdaterServicing
@@ -42,9 +45,11 @@ final class SettingsViewModel: ObservableObject {
         secureUpdater: SecureUpdaterServicing? = nil,
         correctionPreferences: LayoutCorrectionPreferences? = nil,
         correctionSourceCatalog: LayoutCorrectionSourceCatalog? = nil,
-        diagnostics: LocalDiagnostics? = nil
+        diagnostics: LocalDiagnostics? = nil,
+        panelPreferences: PanelPreferences? = nil
     ) {
         let resolvedSecureUpdater = secureUpdater ?? UnavailableSecureUpdater()
+        self.panelPreferences = panelPreferences ?? PanelPreferences()
         self.diagnostics = diagnostics
         diagnosticsEnabled = diagnostics?.isEnabled ?? false
         self.shortcutPreferences = shortcutPreferences

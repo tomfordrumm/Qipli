@@ -72,7 +72,7 @@ final class SettingsWindowController {
 
     private func makeWindow() -> NSWindow {
         let settingsWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 440),
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 520),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -133,12 +133,16 @@ private struct SettingsRootView: View {
             .tabItem { Label("General", systemImage: "gearshape") }
             .tag(SettingsSection.general)
 
+            PanelAppearanceSettingsView(preferences: viewModel.panelPreferences)
+                .tabItem { Label("Appearance", systemImage: "macwindow") }
+                .tag(SettingsSection.appearance)
+
             ShortcutSettingsView(viewModel: viewModel)
                 .tabItem { Label("Shortcuts", systemImage: "keyboard") }
                 .tag(SettingsSection.shortcuts)
         }
-        .padding(20)
-        .frame(minWidth: 520, minHeight: 400)
+        .padding(16)
+        .frame(minWidth: 560, minHeight: 480)
         .onChange(of: selectedSection) { _, section in
             guard viewModel.selectedSection != section else { return }
             DispatchQueue.main.async {
@@ -150,6 +154,88 @@ private struct SettingsRootView: View {
             guard selectedSection != section else { return }
             selectedSection = section
         }
+    }
+}
+
+struct PanelAppearanceSettingsView: View {
+    @ObservedObject var preferences: PanelPreferences
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Form {
+            Section {
+                VStack(spacing: 20) {
+                    screenPreview
+                    Picker("Screen edge", selection: Binding(
+                        get: { preferences.edge },
+                        set: { preferences.setEdge($0) }
+                    )) {
+                        ForEach(PanelEdge.allCases) { edge in
+                            Text(edge.title).tag(edge)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .accessibilityLabel("Screen edge for History and Paste Stack")
+                    .frame(maxWidth: 360)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                Text("History and Paste Stack open from the same edge. Side panels show cards vertically.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } header: {
+                Text("Panel position")
+            }
+            Section {
+                LabeledContent("Motion", value: reduceMotion ? "Reduced" : "Full")
+                Text("Follows Reduce Motion in macOS Accessibility settings.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var screenPreview: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(nsColor: .underPageBackgroundColor))
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
+            VStack {
+                HStack(spacing: 4) {
+                    ForEach(0..<3) { _ in Circle().fill(Color.secondary.opacity(0.35)).frame(width: 4, height: 4) }
+                    Spacer()
+                }
+                .padding(10)
+                Spacer()
+            }
+            PanelEdgePreviewShape(edge: preferences.edge)
+                .fill(Color.black)
+                .frame(width: preferences.edge.isVertical ? 44 : 116,
+                       height: preferences.edge.isVertical ? 86 : 34)
+                .overlay {
+                    Image(systemName: "square.on.square")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color.white)
+                }
+                .offset(x: preferences.edge == .left ? -114 : preferences.edge == .right ? 114 : 0,
+                        y: preferences.edge == .top ? -71 : preferences.edge == .bottom ? 71 : 0)
+                .animation(reduceMotion ? nil : .smooth(duration: PanelDesign.revealDuration), value: preferences.edge)
+        }
+        .frame(width: 272, height: 176)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Panels open from the \(preferences.edge.title.lowercased()) edge")
+    }
+}
+
+private struct PanelEdgePreviewShape: Shape {
+    let edge: PanelEdge
+
+    func path(in rect: CGRect) -> Path {
+        Path(PanelLiquidContour.path(in: rect, edge: edge, compact: true))
     }
 }
 

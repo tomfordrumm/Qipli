@@ -1290,3 +1290,89 @@ private extension Result where Success == Void, Failure == HistoryPasteFailure {
         return failure
     }
 }
+
+@MainActor
+final class PanelEdgeControllerTests: XCTestCase {
+    func testChangingSharedEdgeRelocatesBothLivePanelsWithoutResettingContent() async throws {
+        let suite = "Qipli.EdgeController.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preferences = PanelPreferences(defaults: defaults)
+        let entry = HistoryEntry(id: UUID(), text: "synthetic fixture", activityAt: .now)
+        let others = (1...12).map { index in
+            HistoryEntry(id: UUID(), text: "fixture \(index)", activityAt: entry.activityAt.addingTimeInterval(Double(index)))
+        }
+        let history = HistoryViewModel(service: HistoryService(store: InMemoryHistoryStore(entries: others + [entry])))
+        await history.reload(selectFirstResult: true)
+        let session = StackSessionController()
+        session.startIfNeeded(captureAfterChangeCount: 0)
+        session.appendPersistedHistoryEntry(entry, observedChangeCount: 1, for: session.captureContext)
+        let occurrenceIDs = session.occurrences.map(\.id)
+        let io = PanelEdgeNoopIO()
+        let cut = FinderCutSessionController(contextProvider: io, pasteboard: io,
+            copyCommandDispatcher: io, moveCommandDispatcher: io, stackIsActive: { false })
+        let trace = Trace()
+        let paste = HistoryPasteExecutor(permissionService: FakeHistoryPermissionService(state: .granted),
+            pasteboardWriter: FakeHistoryPasteboardWriter(changeCount: 1, trace: trace),
+            registerSelfWrite: { _ in XCTFail("Relocation must not write the clipboard") },
+            commandDispatcher: FakePasteCommandDispatcher(trace: trace, result: false))
+        let controller = PanelController(permissionService: AccessibilityPermissionService(trustChecker: { true }),
+            historyViewModel: history, stackSessionController: session, finderCutSessionController: cut,
+            historyPasteExecutor: paste, frontmostApplicationCapture: io,
+            screenProvider: io, topNotchScreenProvider: io,
+            panelPreferences: preferences, openAccessibilitySettings: {})
+        defer { controller.closeAll() }
+        controller.showHistory()
+        controller.showPasteStack()
+        history.updateQuery("fixture")
+        await history.waitForPendingSearch()
+        history.select(id: entry.id)
+        let historyPanel = try XCTUnwrap(NSApp.windows.first { $0 is TopNotchHistoryPanel })
+        let stackPanel = try XCTUnwrap(NSApp.windows.first { $0.title == "Paste Stack" && $0.isVisible })
+        for edge in [PanelEdge.right, .bottom, .left, .top] {
+            preferences.setEdge(edge)
+            try await Task.sleep(for: .milliseconds(80))
+            XCTAssertEqual((historyPanel.contentView as? TopNotchHistorySurfaceView)?.edge, edge)
+            XCTAssertEqual((stackPanel.contentView as? TopNotchHistorySurfaceView)?.edge, edge)
+            XCTAssertEqual(history.query, "fixture")
+            XCTAssertEqual(history.selectedEntryID, entry.id)
+            let collection = try XCTUnwrap(findCollection(in: historyPanel.contentView))
+            let selectedPath = try XCTUnwrap(collection.selectionIndexPaths.first)
+            let attributes = try XCTUnwrap(collection.collectionViewLayout?.layoutAttributesForItem(at: selectedPath))
+            XCTAssertTrue(collection.visibleRect.intersects(attributes.frame), "Selected card must stay visible after relocation to \(edge)")
+            XCTAssertEqual(session.occurrences.map(\.id), occurrenceIDs)
+            XCTAssertTrue(historyPanel.isVisible)
+            XCTAssertTrue(stackPanel.isVisible)
+            XCTAssertFalse(stackPanel.canBecomeKey)
+            XCTAssertEqual(historyPanel.animationBehavior, .none)
+            XCTAssertEqual(stackPanel.animationBehavior, .none)
+            if edge != .top {
+                XCTAssertEqual(historyPanel.frame, PanelEdgeGeometry.expandedFrame(edge: edge, visibleFrame: io.currentVisibleFrame(), isStack: false))
+                XCTAssertEqual(stackPanel.frame, PanelEdgeGeometry.compactGeometry(edge: edge, visibleFrame: io.currentVisibleFrame()).panelFrame)
+            }
+        }
+        XCTAssertTrue(trace.events.isEmpty)
+        // Let obsolete reveal completions fire; they must not restore an old frame.
+        try await Task.sleep(for: .milliseconds(350))
+        XCTAssertEqual((historyPanel.contentView as? TopNotchHistorySurfaceView)?.edge, .top)
+        XCTAssertEqual(history.query, "fixture")
+    }
+    private func findCollection(in view: NSView?) -> NSCollectionView? {
+        guard let view else { return nil }
+        if let collection = view as? NSCollectionView { return collection }
+        return view.subviews.lazy.compactMap { self.findCollection(in: $0) }.first
+    }
+}
+
+private final class PanelEdgeNoopIO: FinderContextProviding, FinderCutPasteboardReading,
+    TaggedCopyCommandDispatching, TaggedMoveCommandDispatching, FrontmostApplicationCapturing,
+    PanelScreenProviding, TopNotchScreenProviding {
+    var changeCount: Int { 0 }
+    func currentContext() -> FinderCutContext? { nil }
+    func fileURLs() -> [URL] { [] }
+    func postTaggedCommandC() -> Bool { XCTFail("Unexpected Copy"); return false }
+    func postTaggedCommandMove() -> Bool { XCTFail("Unexpected move"); return false }
+    func capturePriorApplication() -> HistoryPasteTarget? { nil }
+    func currentVisibleFrame() -> NSRect { NSRect(x: 0, y: 0, width: 1200, height: 800) }
+    func currentScreen() -> NSScreen? { nil }
+}

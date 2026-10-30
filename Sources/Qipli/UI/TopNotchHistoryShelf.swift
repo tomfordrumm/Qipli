@@ -195,12 +195,12 @@ struct PasteStackCompactGeometry: Equatable {
 }
 
 enum TopNotchHistoryGeometry {
-    static let defaultPanelSize = NSSize(width: 1_080, height: 276)
+    static let defaultPanelSize = NSSize(width: 1_080, height: 296)
     static let minimumPanelSize = NSSize(width: 560, height: 220)
-    static let pasteStackPanelSize = NSSize(width: 1_080, height: 224)
+    static let pasteStackPanelSize = NSSize(width: 1_080, height: 264)
     static let pasteStackMinimumPanelSize = NSSize(width: 560, height: 190)
-    static let topCornerRadius: CGFloat = 32
-    static let bottomCornerRadius: CGFloat = 36
+    static let topCornerRadius: CGFloat = 24
+    static let bottomCornerRadius: CGFloat = 32
     static let contentHorizontalInset = topCornerRadius + 14
     private static let notchlessRevealWidth: CGFloat = 160
 
@@ -291,9 +291,18 @@ enum TopNotchDisplaySelection {
 @MainActor
 final class TopNotchHistoryLayoutModel: ObservableObject {
     @Published var topContentInset: CGFloat = 0
+    @Published var edgeContentInset: CGFloat = 0
+    @Published var edge: PanelEdge = .top
 }
 
 final class TopNotchHistorySurfaceView: NSView {
+    var edge: PanelEdge = .top {
+        didSet {
+            guard edge != oldValue else { return }
+            shapeMask.removeAllAnimations()
+            updateMaskForCurrentLayout()
+        }
+    }
     private let shapeMask = CAShapeLayer()
     private weak var presentationContentView: NSView?
     private var maskTarget: MaskTarget = .expanded
@@ -469,16 +478,12 @@ final class TopNotchHistorySurfaceView: NSView {
         shapeMask.path = toPath
         CATransaction.commit()
 
-        let animation = CABasicAnimation(keyPath: "path")
-        animation.fromValue = fromPath
-        animation.toValue = toPath
+        let animation = CAKeyframeAnimation(keyPath: "path")
+        let expanding: Bool
+        if case .expanded = target { expanding = true } else { expanding = false }
+        animation.values = PanelLiquidMotion.paths(from: fromPath, to: toPath, edge: edge, expanding: expanding)
+        animation.calculationMode = .linear
         animation.duration = duration
-        animation.timingFunction = CAMediaTimingFunction(
-            controlPoints: 0.23,
-            1,
-            0.32,
-            1
-        )
         shapeMask.add(animation, forKey: "topNotchMaskTransition")
     }
 
@@ -499,14 +504,22 @@ final class TopNotchHistorySurfaceView: NSView {
     }
 
     private func path(for target: MaskTarget) -> CGPath {
-        switch target {
+        return switch target {
         case .expanded:
-            Self.surfacePath(in: bounds)
+            PanelLiquidContour.path(in: PanelLiquidMotion.restingRect(in: bounds, edge: edge), edge: edge)
         case let .compact(rect):
-            Self.surfacePath(in: rect.intersection(bounds))
+            PanelLiquidContour.path(in: rect.intersection(bounds), edge: edge, compact: true)
         case let .compactRegions(regions):
-            Self.compactSurfacePath(for: regions.map { $0.intersection(bounds) })
+            compoundCompactPath(regions)
         }
+    }
+
+    private func compoundCompactPath(_ regions: [CGRect]) -> CGPath {
+        let result = CGMutablePath()
+        for region in regions {
+            result.addPath(PanelLiquidContour.path(in: region.intersection(bounds), edge: edge, compact: true))
+        }
+        return result
     }
 
     private func rebuildTrackingAreas() {
@@ -525,7 +538,7 @@ final class TopNotchHistorySurfaceView: NSView {
         }
     }
 
-    static func surfacePath(in bounds: CGRect, topCornerRadius: CGFloat = TopNotchHistoryGeometry.topCornerRadius, bottomCornerRadius: CGFloat = TopNotchHistoryGeometry.bottomCornerRadius) -> CGPath {
+    static func surfacePath(in bounds: CGRect, topCornerRadius: CGFloat = TopNotchHistoryGeometry.topCornerRadius, bottomCornerRadius: CGFloat = TopNotchHistoryGeometry.bottomCornerRadius, edgeBleed: CGFloat = 0) -> CGPath {
         let topRadius = min(
             topCornerRadius,
             bounds.width / 4,
@@ -541,10 +554,10 @@ final class TopNotchHistorySurfaceView: NSView {
         // The top ears remain flush with the display edge and curl inward to
         // the panel walls. Bottom corners continue from those same walls, so
         // the outline has no flare or pointed wing at either lower corner.
-        path.move(to: CGPoint(x: bounds.minX, y: bounds.minY))
+        path.move(to: CGPoint(x: bounds.minX, y: bounds.minY - edgeBleed))
         path.addQuadCurve(
             to: CGPoint(x: bounds.minX + topRadius, y: bounds.minY + topRadius),
-            control: CGPoint(x: bounds.minX + topRadius, y: bounds.minY)
+            control: CGPoint(x: bounds.minX + topRadius, y: bounds.minY - edgeBleed)
         )
         path.addLine(to: CGPoint(x: bounds.minX + topRadius, y: bounds.maxY - bottomRadius))
         path.addQuadCurve(
@@ -561,10 +574,10 @@ final class TopNotchHistorySurfaceView: NSView {
         )
         path.addLine(to: CGPoint(x: bounds.maxX - topRadius, y: bounds.minY + topRadius))
         path.addQuadCurve(
-            to: CGPoint(x: bounds.maxX, y: bounds.minY),
-            control: CGPoint(x: bounds.maxX - topRadius, y: bounds.minY)
+            to: CGPoint(x: bounds.maxX, y: bounds.minY - edgeBleed),
+            control: CGPoint(x: bounds.maxX - topRadius, y: bounds.minY - edgeBleed)
         )
-        path.addLine(to: CGPoint(x: bounds.minX, y: bounds.minY))
+        path.addLine(to: CGPoint(x: bounds.minX, y: bounds.minY - edgeBleed))
         path.closeSubpath()
         return path
     }
@@ -684,7 +697,7 @@ final class TopNotchHistoryInteractionBridge {
         if scroll, let targetIndexPath {
             collectionView.scrollToItems(
                 at: [targetIndexPath],
-                scrollPosition: .centeredHorizontally
+                scrollPosition: (collectionView.collectionViewLayout as? NSCollectionViewFlowLayout)?.scrollDirection == .vertical ? .centeredVertically : .centeredHorizontally
             )
         }
     }
@@ -795,41 +808,30 @@ struct TopNotchHistoryShelfView: View {
     @FocusState private var searchIsFocused: Bool
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            VStack(alignment: .leading, spacing: 10) {
-                searchField
-                if let notice = viewModel.captureNotice {
-                    Label(notice, systemImage: "exclamationmark.triangle")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if let notice = viewModel.deletionNotice {
-                    Label(notice, systemImage: "exclamationmark.triangle")
-                        .font(.caption2)
-                        .foregroundStyle(.yellow)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                content
-                footer
+        VStack(alignment: .leading, spacing: 14) {
+            header
+            if let notice = viewModel.captureNotice {
+                Label(notice, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.top, layoutModel.topContentInset + 14)
-            .padding(.horizontal, TopNotchHistoryGeometry.contentHorizontalInset)
-            .padding(.bottom, 14)
-
-            favoriteToggle
-                .padding(.top, 14)
-                .padding(.leading, TopNotchHistoryGeometry.contentHorizontalInset)
+            if let notice = viewModel.deletionNotice {
+                Label(notice, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.yellow)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            content
+            footer
         }
-        .frame(
-            minWidth: TopNotchHistoryGeometry.minimumPanelSize.width,
-            idealWidth: TopNotchHistoryGeometry.defaultPanelSize.width,
-            maxWidth: .infinity,
-            minHeight: TopNotchHistoryGeometry.minimumPanelSize.height,
-            idealHeight: TopNotchHistoryGeometry.defaultPanelSize.height,
-            maxHeight: .infinity,
-            alignment: .topLeading
-        )
+        .padding(.top, layoutModel.topContentInset + (layoutModel.edge.isVertical ? 38 : 18))
+        .padding(.horizontal, layoutModel.edge.isVertical ? PanelDesign.contentInset : TopNotchHistoryGeometry.contentHorizontalInset)
+        .padding(.bottom, layoutModel.edge.isVertical ? 38 : 18)
+        .padding(.leading, layoutModel.edge == .left ? layoutModel.edgeContentInset : 0)
+        .padding(.trailing, layoutModel.edge == .right ? layoutModel.edgeContentInset : 0)
+        .padding(.bottom, layoutModel.edge == .bottom ? layoutModel.edgeContentInset : 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .environment(\.colorScheme, .dark)
         .onAppear {
             HistoryKeyboardActionScheduler.deferToNextMainRunLoop {
@@ -843,15 +845,51 @@ struct TopNotchHistoryShelfView: View {
         }
     }
 
+    private var header: some View {
+        Group {
+            if layoutModel.edge.isVertical {
+                VStack(spacing: 14) {
+                    HStack(spacing: 8) {
+                        historyTitle
+                        Spacer(minLength: 0)
+                        favoriteToggle
+                        closeButton
+                    }
+                    searchField
+                }
+            } else {
+                HStack(spacing: 14) {
+                    historyTitle
+                    favoriteToggle
+                    searchField
+                    closeButton
+                }
+            }
+        }
+    }
+
+    private var historyTitle: some View {
+        Text(viewModel.mode == .favorites ? "Favorites" : "History")
+            .font(.system(size: 15, weight: .semibold))
+            .fixedSize()
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private var closeButton: some View {
+        Button(action: close) { Image(systemName: "xmark") }
+            .buttonStyle(PanelControlStyle())
+            .accessibilityLabel("Close History")
+            .help("Close History")
+    }
+
     private var favoriteToggle: some View {
         Button {
             viewModel.switchMode(to: viewModel.mode == .history ? .favorites : .history)
         } label: {
             Image(systemName: viewModel.mode == .favorites ? "star.fill" : "star")
-                .frame(width: 18, height: 18)
-                .frame(width: 30, height: 30)
+
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PanelControlStyle())
         .foregroundStyle(viewModel.mode == .favorites ? .yellow : .secondary)
         .contentShape(Rectangle())
         .accessibilityLabel(viewModel.mode == .favorites ? "Show all History" : "Show Favorites")
@@ -871,7 +909,7 @@ struct TopNotchHistoryShelfView: View {
             .textFieldStyle(.plain)
             .focused($searchIsFocused)
             .accessibilityIdentifier("top-notch-history-search")
-            .accessibilityHint("Type to filter history. Use Left and Right Arrow to choose an entry.")
+            .accessibilityHint(layoutModel.edge.isVertical ? "Type to filter history. Use Up and Down Arrow to choose an entry." : "Type to filter history. Use Left and Right Arrow to choose an entry.")
             .background {
                 TopNotchHistoryDeleteKeyMonitor(
                     isSearchFocused: { searchIsFocused },
@@ -886,22 +924,18 @@ struct TopNotchHistoryShelfView: View {
                 .frame(width: 0, height: 0)
             }
             Spacer(minLength: 0)
-            Button(action: close) {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close History")
+
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 12)
+        .frame(height: 36)
         .background {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
+            RoundedRectangle(cornerRadius: PanelDesign.controlRadius, style: .continuous)
+                .fill(PanelDesign.controlFill)
         }
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                .stroke(searchIsFocused ? Color.accentColor.opacity(0.7) : Color.clear, lineWidth: 1)
         }
     }
 
@@ -953,7 +987,8 @@ struct TopNotchHistoryShelfView: View {
                     },
                     loadMore: {
                         Task { @MainActor in await viewModel.loadMore() }
-                    }
+                    },
+                    isVertical: layoutModel.edge.isVertical
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -1000,8 +1035,8 @@ struct TopNotchHistoryShelfView: View {
                 }
                 Spacer(minLength: 0)
                 HStack(spacing: 4) {
-                    keyboardHintKey(systemName: "arrow.left")
-                    keyboardHintKey(systemName: "arrow.right")
+                    keyboardHintKey(systemName: layoutModel.edge.isVertical ? "arrow.up" : "arrow.left")
+                    keyboardHintKey(systemName: layoutModel.edge.isVertical ? "arrow.down" : "arrow.right")
                     Text("Navigate  ·")
                     keyboardHintKey(systemName: "return")
                     Text("Paste  ·")
@@ -1011,7 +1046,7 @@ struct TopNotchHistoryShelfView: View {
                 }
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .accessibilityLabel("Use Left and Right Arrow to navigate. Press Return to paste with formatting. Press Shift-Return to paste as plain text.")
+                    .accessibilityLabel("Use \(layoutModel.edge.isVertical ? "Up and Down" : "Left and Right") Arrow to navigate. Press Return to paste with formatting. Press Shift-Return to paste as plain text.")
             }
         }
     }
@@ -1036,10 +1071,44 @@ struct TopNotchHistoryShelfView: View {
     }
 }
 
+final class HistoryCardFlowLayout: NSCollectionViewFlowLayout {
+    func updateItemSize(viewport: NSSize) {
+        // SwiftUI creates the representable at zero size before laying it out.
+        // Never cache that provisional size as a one-point row or column.
+        guard viewport.width > 4, viewport.height > 4 else { return }
+        let size = scrollDirection == .vertical
+            ? NSSize(width: max(1, viewport.width - sectionInset.left - sectionInset.right), height: 154)
+            : NSSize(width: 220, height: max(1, min(168, viewport.height - sectionInset.top - sectionInset.bottom)))
+        guard itemSize != size else { return }
+        itemSize = size
+        invalidateLayout()
+    }
+
+    override func prepare() {
+        if let size = collectionView?.enclosingScrollView?.contentSize {
+            updateItemSize(viewport: size)
+        }
+        super.prepare()
+    }
+
+    override func shouldInvalidateLayout(forBoundsChange newBounds: NSRect) -> Bool {
+        newBounds.size != collectionView?.bounds.size
+    }
+}
+
+final class HistoryCardsScrollView: NSScrollView {
+    override func tile() {
+        super.tile()
+        guard let collection = documentView as? NSCollectionView,
+              let layout = collection.collectionViewLayout as? HistoryCardFlowLayout else { return }
+        layout.updateItemSize(viewport: contentSize)
+    }
+}
+
 struct TopNotchHistoryCollectionView: NSViewRepresentable {
     let cards: [TopNotchHistoryCardDescriptor]
     let snapshotRevision: Int
-        let thumbnailUpdateRevisionsByEntryID: [UUID: Int]
+    let thumbnailUpdateRevisionsByEntryID: [UUID: Int]
     let selectedEntryID: UUID?
     let interactionBridge: TopNotchHistoryInteractionBridge
     let thumbnailData: (UUID) -> Data?
@@ -1048,15 +1117,16 @@ struct TopNotchHistoryCollectionView: NSViewRepresentable {
     let pasteEntry: (UUID, HistoryPasteMode) -> Void
     let toggleFavorite: (UUID, Bool) -> Void
     let loadMore: () -> Void
+    var isVertical = false
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let layout = NSCollectionViewFlowLayout()
-        layout.scrollDirection = .horizontal
+        let layout = HistoryCardFlowLayout()
+        layout.scrollDirection = isVertical ? .vertical : .horizontal
         layout.itemSize = NSSize(width: 220, height: 168)
-        layout.minimumInteritemSpacing = 10
-        layout.minimumLineSpacing = 10
+        layout.minimumInteritemSpacing = PanelDesign.cardGap
+        layout.minimumLineSpacing = PanelDesign.cardGap
         layout.sectionInset = NSEdgeInsets(top: 2, left: 2, bottom: 2, right: 2)
 
         let collectionView = NSCollectionView()
@@ -1073,10 +1143,10 @@ struct TopNotchHistoryCollectionView: NSViewRepresentable {
         collectionView.delegate = context.coordinator
         collectionView.setAccessibilityLabel("History cards")
 
-        let scrollView = NSScrollView()
+        let scrollView = HistoryCardsScrollView()
         scrollView.drawsBackground = false
-        scrollView.hasHorizontalScroller = true
-        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = !isVertical
+        scrollView.hasVerticalScroller = isVertical
         scrollView.autohidesScrollers = true
         scrollView.documentView = collectionView
         interactionBridge.attach(collectionView: collectionView)
@@ -1086,7 +1156,24 @@ struct TopNotchHistoryCollectionView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let collectionView = scrollView.documentView as? NSCollectionView else { return }
+        var axisChanged = false
+        if let layout = collectionView.collectionViewLayout as? NSCollectionViewFlowLayout {
+            let direction: NSCollectionView.ScrollDirection = isVertical ? .vertical : .horizontal
+            if layout.scrollDirection != direction {
+                axisChanged = true
+                layout.scrollDirection = direction
+                (layout as? HistoryCardFlowLayout)?.updateItemSize(viewport: scrollView.contentSize)
+                layout.invalidateLayout()
+                scrollView.contentView.scroll(to: .zero)
+            }
+        }
+        scrollView.hasHorizontalScroller = !isVertical
+        scrollView.hasVerticalScroller = isVertical
         context.coordinator.apply(parent: self, to: collectionView, force: false)
+        if axisChanged {
+            collectionView.layoutSubtreeIfNeeded()
+            interactionBridge.applySelection(id: selectedEntryID)
+        }
     }
 
     final class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionViewDelegate {
@@ -1552,12 +1639,14 @@ private final class TopNotchHistoryCardView: NSView {
         super.mouseEntered(with: event)
         isHovered = true
         favoriteButton.isHidden = false
+        updateSelection(isSelected)
     }
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         isHovered = false
         favoriteButton.isHidden = !(isFavorite || isSelected)
+        updateSelection(isSelected)
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -1568,7 +1657,7 @@ private final class TopNotchHistoryCardView: NSView {
     private func configureView() {
         wantsLayer = true
         layer?.cornerCurve = .continuous
-        layer?.cornerRadius = 14
+        layer?.cornerRadius = PanelDesign.cardRadius
         layer?.masksToBounds = true
         layer?.borderWidth = 1
 
@@ -1585,7 +1674,7 @@ private final class TopNotchHistoryCardView: NSView {
         imageFallbackView.imageScaling = .scaleProportionallyUpOrDown
         imageFallbackView.contentTintColor = .secondaryLabelColor
 
-        detailLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        detailLabel.font = .systemFont(ofSize: 13, weight: .regular)
         TopNotchHistoryCardTextLayout.configure(detailLabel)
 
         favoriteButton.isBordered = false
@@ -1639,12 +1728,16 @@ private final class TopNotchHistoryCardView: NSView {
 
     fileprivate func updateSelection(_ isSelected: Bool) {
         self.isSelected = isSelected
-        layer?.borderWidth = isSelected ? 2 : 1
-        let baseColor = NSColor(calibratedWhite: 0.08, alpha: 1)
-        layer?.backgroundColor = (isSelected ? NSColor.controlAccentColor : baseColor)
-            .withAlphaComponent(isSelected ? 0.30 : 1)
-            .cgColor
-        layer?.borderColor = (isSelected ? NSColor.controlAccentColor : NSColor.separatorColor).cgColor
+        let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        let base = NSColor(calibratedWhite: isHovered ? 0.15 : 0.10, alpha: 1)
+        let fill = isSelected ? (base.blended(withFraction: 0.16, of: .controlAccentColor) ?? base) : base
+        let border = isSelected ? NSColor.controlAccentColor : NSColor(calibratedWhite: contrast ? 0.55 : 0.22, alpha: 1)
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : PanelDesign.feedbackDuration)
+        layer?.borderWidth = isSelected || contrast ? 2 : 1
+        layer?.backgroundColor = fill.cgColor
+        layer?.borderColor = border.cgColor
+        CATransaction.commit()
         setAccessibilityValue(isSelected ? "Selected" : nil)
         favoriteButton.isHidden = !(isFavorite || isSelected || isHovered)
     }

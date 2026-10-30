@@ -248,6 +248,7 @@ S023 + S024 + S025 + S027 -> S029
 | BR-039–BR-040 | S037 |
 | NFR-037 | S037 |
 | FR-055, BR-041, NFR-038 | S038 |
+| FR-056, BR-042, NFR-039 | S039 |
 
 Каждое must-have требование покрыто хотя бы одним активным срезом. Отложенные FR-034 и BR-025 сохранены в BL-004/S028 вне текущей поставки. FR-035 и BR-026 покрывает активный S029. Детальные acceptance criteria и verification находятся только в соответствующих slice-файлах.
 
@@ -281,3 +282,7 @@ S023 + S024 + S025 + S027 -> S029
 38. [S038: Opt-in локальные журналы](slices/S038-local-diagnostics.md), D-054, зависимости S010/S037. Сначала bounded writer и privacy schema, затем Settings и correction checkpoints, automated/build verification и installed smoke.
 
 Уточнение 2026-10-15: S037/FR-053–054, BR-039–040, NFR-037 реализуются по D-056. Срез и coverage сохраняются: сначала bounded key buffer и native Copy transaction/replay, затем coordinator/race/clipboard tests, signed owned-field probe и Final Cut text-field acceptance.
+
+## Milestone M19: Дизайн и размещение панелей
+
+39. [S039: Дизайн панелей и выбор края экрана](slices/S039-panel-design-screen-edge.md), D-059, зависимости S010/S027/S033. Общая Appearance preference, geometry/layout, motion и polish, затем automated/native render verification и installed matrix. Альтернативные стороны возвращены в scope по запросу пользователя 2026-10-29.

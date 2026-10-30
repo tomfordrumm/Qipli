@@ -83,6 +83,7 @@ final class PanelMaterialProviderTests: XCTestCase {
             configuration.applyPresentation(to: panel)
 
             XCTAssertEqual(panel.title, expectedTitles[kind])
+            XCTAssertEqual(panel.animationBehavior, .none, "System orderFront zoom must not detach the custom mask from the screen edge")
             XCTAssertTrue(panel.isFloatingPanel)
             XCTAssertEqual(panel.level, .floating)
             XCTAssertEqual(panel.collectionBehavior, [.canJoinAllSpaces, .fullScreenAuxiliary])
@@ -93,7 +94,7 @@ final class PanelMaterialProviderTests: XCTestCase {
 
         let topNotchConfiguration = PanelWindowConfiguration.make(for: .topNotchHistory)
         XCTAssertEqual(topNotchConfiguration.chrome, PanelWindowChrome(cornerRadius: 20))
-        XCTAssertEqual(topNotchConfiguration.contentRect.size, NSSize(width: 1_080, height: 276))
+        XCTAssertEqual(topNotchConfiguration.contentRect.size, NSSize(width: 1_080, height: 296))
         XCTAssertTrue(topNotchConfiguration.dismissesOnOutsideClick)
         XCTAssertFalse(topNotchConfiguration.styleMask.contains(.titled))
         XCTAssertTrue(topNotchConfiguration.styleMask.contains(.nonactivatingPanel))

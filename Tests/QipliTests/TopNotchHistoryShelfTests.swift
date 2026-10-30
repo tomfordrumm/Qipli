@@ -350,7 +350,7 @@ final class TopNotchHistoryShelfTests: XCTestCase {
             TopNotchHistoryGeometry.contentHorizontalInset,
             TopNotchHistoryGeometry.topCornerRadius
         )
-        XCTAssertEqual(TopNotchHistoryGeometry.contentHorizontalInset, 46, accuracy: 0.001)
+        XCTAssertEqual(TopNotchHistoryGeometry.contentHorizontalInset - TopNotchHistoryGeometry.topCornerRadius, 14, accuracy: 0.001)
     }
 
     func testPresentationStateMachineHandlesShowDismissAndInterruption() {
@@ -719,5 +719,220 @@ final class LayoutCorrectionNoticeTests: XCTestCase {
         XCTAssertEqual(HistoryCardPasteAdmission.mode(for: [.shift, .capsLock]), .plainText)
         XCTAssertEqual(HistoryCardPasteAdmission.mode(for: []), .rich)
         XCTAssertEqual(HistoryCardPasteAdmission.mode(for: .capsLock), .rich)
+    }
+}
+
+@MainActor
+final class PanelEdgePresentationTests: XCTestCase {
+    func testSharedPreferenceDefaultsPersistsAndRecoversUnknownValue() throws {
+        let suite = "Qipli.PanelEdgeTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preferences = PanelPreferences(defaults: defaults)
+        XCTAssertEqual(preferences.edge, .top)
+        for edge in PanelEdge.allCases {
+            preferences.setEdge(edge)
+            XCTAssertEqual(PanelPreferences(defaults: defaults).edge, edge)
+        }
+        defaults.set("future-edge", forKey: PanelPreferences.edgeKey)
+        XCTAssertEqual(PanelPreferences(defaults: defaults).edge, .top)
+    }
+
+    func testPanelsMeetPhysicalEdgeWhileControlsClearDockAndContainCompactEndpoint() {
+        // Dock on either side/bottom, a secondary display with negative origin,
+        // and a small display. The available frame is supplied by NSScreen.
+        let frames = [
+            (NSRect(x: 0, y: 0, width: 1512, height: 982), NSRect(x: 80, y: 0, width: 1432, height: 945)),
+            (NSRect(x: 0, y: 0, width: 1512, height: 982), NSRect(x: 0, y: 0, width: 1432, height: 945)),
+            (NSRect(x: 0, y: 0, width: 1512, height: 982), NSRect(x: 0, y: 80, width: 1512, height: 865)),
+            (NSRect(x: -1920, y: -200, width: 1920, height: 1080), NSRect(x: -1920, y: -200, width: 1920, height: 1056)),
+            (NSRect(x: 100, y: 50, width: 480, height: 384), NSRect(x: 100, y: 50, width: 480, height: 360))
+        ]
+        for edge in [PanelEdge.left, .right, .bottom] {
+            for (screen, frame) in frames {
+                for stack in [false, true] {
+                    let expanded = PanelEdgeGeometry.expandedFrame(edge: edge, screenFrame: screen, visibleFrame: frame, isStack: stack)
+                    let compact = PanelEdgeGeometry.compactGeometry(edge: edge, screenFrame: screen, visibleFrame: frame)
+                    XCTAssertTrue(screen.contains(expanded), "\(edge)")
+                    for attached in [expanded, compact.panelFrame] {
+                        switch edge {
+                        case .left: XCTAssertEqual(attached.minX, screen.minX)
+                        case .right: XCTAssertEqual(attached.maxX, screen.maxX)
+                        case .bottom: XCTAssertEqual(attached.minY, screen.minY)
+                        case .top: break
+                        }
+                    }
+                    XCTAssertTrue(expanded.contains(compact.panelFrame), "\(edge)")
+                    XCTAssertTrue(CGRect(origin: .zero, size: expanded.size).contains(
+                        PanelEdgeGeometry.localRect(compact.panelFrame, in: expanded)))
+                    XCTAssertTrue(compact.panelFrame.contains(compact.leftContentRect))
+                    XCTAssertTrue(compact.panelFrame.contains(compact.rightContentRect))
+                    XCTAssertTrue(frame.contains(compact.leftContentRect))
+                    XCTAssertTrue(frame.contains(compact.rightContentRect))
+                }
+            }
+        }
+    }
+
+    func testRevealEndpointUsesChosenEdgeInFlippedSurfaceCoordinates() {
+        let expanded = NSRect(x: -500, y: 120, width: 360, height: 640)
+        for edge in PanelEdge.allCases {
+            let collapsed = PanelEdgeGeometry.collapsedFrame(edge: edge, expandedFrame: expanded)
+            let local = PanelEdgeGeometry.localRect(collapsed, in: expanded)
+            XCTAssertTrue(CGRect(origin: .zero, size: expanded.size).contains(local))
+            switch edge {
+            case .top: XCTAssertEqual(local.minY, 0)
+            case .bottom: XCTAssertEqual(local.maxY, expanded.height)
+            case .left: XCTAssertEqual(local.minX, 0)
+            case .right: XCTAssertEqual(local.maxX, expanded.width)
+            }
+        }
+    }
+
+    func testRelocatingStackDuringCollapseInvalidatesOldCompletion() {
+        let model = PasteStackPresentationModel()
+        let visible = NSRect(x: 0, y: 0, width: 1200, height: 800)
+        model.beginSession(geometry: PanelEdgeGeometry.compactGeometry(edge: .left, visibleFrame: visible))
+        model.requestExpand(source: .accessibility)
+        model.finishExpansion(token: model.generation)
+        model.requestExplicitCollapse()
+        let oldToken = model.generation
+        model.edge = .right
+        model.updateGeometry(PanelEdgeGeometry.compactGeometry(edge: .right, visibleFrame: visible))
+        XCTAssertEqual(model.state, .compact)
+        XCTAssertFalse(model.isCurrent(token: oldToken, state: .collapsing))
+        model.finishCollapse(token: oldToken)
+        XCTAssertEqual(model.state, .compact)
+        XCTAssertEqual(model.compactGeometry?.panelFrame.maxX, visible.maxX)
+    }
+
+    func testRelocatingExpandedStackPreservesAccessibilityHold() {
+        let model = PasteStackPresentationModel()
+        let visible = NSRect(x: 0, y: 0, width: 1200, height: 800)
+        model.beginSession(geometry: PanelEdgeGeometry.compactGeometry(edge: .left, visibleFrame: visible))
+        model.requestExpand(source: .accessibility)
+        model.finishExpansion(token: model.generation)
+        model.edge = .bottom
+        model.updateGeometry(PanelEdgeGeometry.compactGeometry(edge: .bottom, visibleFrame: visible))
+        model.pointerExited()
+        XCTAssertEqual(model.state, .expanded)
+        model.requestExplicitCollapse()
+        XCTAssertEqual(model.state, .collapsing)
+    }
+
+    func testVerticalCollectionUsesOneColumnAndTracksResize() {
+        let layout = HistoryCardFlowLayout()
+        layout.scrollDirection = .vertical
+        layout.sectionInset = NSEdgeInsets(top: 2, left: 2, bottom: 2, right: 2)
+        let collection = NSCollectionView()
+        collection.collectionViewLayout = layout
+        let scroll = HistoryCardsScrollView(frame: .zero)
+        scroll.documentView = collection
+        layout.prepare()
+        scroll.setFrameSize(NSSize(width: 320, height: 480))
+        scroll.tile()
+        layout.prepare()
+        XCTAssertEqual(layout.itemSize.width, scroll.contentSize.width - 4, accuracy: 0.01)
+        scroll.setFrameSize(NSSize(width: 280, height: 480))
+        layout.prepare()
+        XCTAssertEqual(layout.itemSize.width, scroll.contentSize.width - 4, accuracy: 0.01)
+        layout.scrollDirection = .horizontal
+        layout.prepare()
+        XCTAssertEqual(layout.itemSize.width, 220)
+    }
+
+    func testMaskOnlyOverscansAttachmentAcrossCompactAndExpandedStates() throws {
+        let surface = TopNotchHistorySurfaceView(frame: NSRect(x: 0, y: 0, width: 360, height: 640))
+        for edge in [PanelEdge.left, .right, .bottom] {
+            surface.edge = edge
+            surface.prepareForExpandedPresentation()
+            let mask = try XCTUnwrap(surface.layer?.mask as? CAShapeLayer)
+            let actual = try XCTUnwrap(mask.path).boundingBoxOfPath.intersection(surface.bounds)
+            let expected = PanelLiquidMotion.restingRect(in: surface.bounds, edge: edge)
+            XCTAssertEqual(actual.minX, expected.minX, accuracy: 0.001)
+            XCTAssertEqual(actual.minY, expected.minY, accuracy: 0.001)
+            XCTAssertEqual(actual.width, expected.width, accuracy: 0.001)
+            XCTAssertEqual(actual.height, expected.height, accuracy: 0.001)
+            let compact = PanelEdgeGeometry.localRect(
+                PanelEdgeGeometry.collapsedFrame(edge: edge, expandedFrame: surface.bounds), in: surface.bounds)
+            surface.prepareForReveal(from: compact)
+            XCTAssertEqual(try XCTUnwrap(mask.path).boundingBoxOfPath.intersection(surface.bounds), compact)
+        }
+    }
+
+    func testLiquidRevealAndInterruptedReturnNeverDetachFromAnyEdge() throws {
+        let bounds = CGRect(x: 0, y: 0, width: 360, height: 640)
+        for edge in PanelEdge.allCases {
+            let compact = PanelEdgeGeometry.localRect(
+                PanelEdgeGeometry.collapsedFrame(edge: edge, expandedFrame: bounds), in: bounds)
+            let start = PanelLiquidContour.path(in: compact, edge: edge, compact: true)
+            let end = PanelLiquidContour.path(in: PanelLiquidMotion.restingRect(in: bounds, edge: edge), edge: edge)
+            let entry = PanelLiquidMotion.paths(from: start, to: end, edge: edge, expanding: true)
+            let interrupted = entry[19]
+            let exit = PanelLiquidMotion.paths(from: interrupted, to: start, edge: edge, expanding: false)
+            XCTAssertEqual(entry.first, start)
+            XCTAssertEqual(entry.last, end)
+            XCTAssertEqual(exit.first, interrupted)
+            XCTAssertEqual(exit.last, start)
+            for path in entry + exit {
+                let outline = path.boundingBoxOfPath.intersection(bounds)
+                for fraction in [CGFloat(0.25), 0.5, 0.75] {
+                    let contact: CGPoint
+                    switch edge {
+                    case .top: contact = CGPoint(x: outline.minX + outline.width * fraction, y: 0)
+                    case .bottom: contact = CGPoint(x: outline.minX + outline.width * fraction, y: bounds.maxY)
+                    case .left: contact = CGPoint(x: 0, y: outline.minY + outline.height * fraction)
+                    case .right: contact = CGPoint(x: bounds.maxX, y: outline.minY + outline.height * fraction)
+                    }
+                    XCTAssertTrue(path.contains(contact), "Gap at \(edge), \(contact)")
+                }
+            }
+        }
+    }
+
+    func testLiquidSpreadLeadsDepthAndSurfaceInstallsKeyframes() throws {
+        let bounds = CGRect(x: 0, y: 0, width: 1080, height: 328)
+        let seed = CGRect(x: 430, y: 0, width: 220, height: 38)
+        let surface = TopNotchHistorySurfaceView(frame: bounds)
+        surface.prepareForReveal(from: seed)
+        surface.animateReveal(duration: PanelDesign.revealDuration)
+        let mask = try XCTUnwrap(surface.layer?.mask as? CAShapeLayer)
+        let animation = try XCTUnwrap(mask.animation(forKey: "topNotchMaskTransition") as? CAKeyframeAnimation)
+        let paths = try XCTUnwrap(animation.values as? [CGPath])
+        XCTAssertGreaterThan(paths.count, 30)
+        let early = paths[paths.count / 4].boundingBoxOfPath.intersection(bounds)
+        let widthProgress = (early.width - seed.width) / (bounds.width - seed.width)
+        let depthProgress = (early.height - seed.height) / (bounds.height - seed.height)
+        XCTAssertGreaterThan(widthProgress, depthProgress + 0.1)
+        surface.restoreExpandedPresentation()
+        XCTAssertNil(mask.animation(forKey: "topNotchMaskTransition"))
+    }
+
+    func testLiquidRevealHasOneSmallSettlingReturnWithoutClipping() {
+        for edge in PanelEdge.allCases {
+            let bounds = edge.isVertical ? CGRect(x: 0, y: 0, width: 360, height: 640)
+                : CGRect(x: 0, y: 0, width: 1080, height: 328)
+            let seed = PanelEdgeGeometry.localRect(PanelEdgeGeometry.collapsedFrame(edge: edge, expandedFrame: bounds), in: bounds)
+            let start = PanelLiquidContour.path(in: seed, edge: edge, compact: true)
+            let target = PanelLiquidContour.path(in: PanelLiquidMotion.restingRect(in: bounds, edge: edge), edge: edge)
+            let paths = PanelLiquidMotion.paths(from: start, to: target, edge: edge, expanding: true)
+            let depths = paths.map { edge.isVertical ? $0.boundingBoxOfPath.width : $0.boundingBoxOfPath.height }
+            let rest = depths.last!
+            let peak = depths.max()!
+            XCTAssertGreaterThan(peak - rest, 1, "The settling should be perceptible")
+            XCTAssertLessThan(peak / rest, 1.016, "No strong bounce")
+            let peakIndex = depths.firstIndex(of: peak)!
+            XCTAssertGreaterThan(peakIndex, depths.count / 2)
+            XCTAssertTrue(zip(depths[peakIndex...], depths[(peakIndex + 1)...]).allSatisfy { $0 >= $1 }, "Only one return, without oscillation")
+            for path in paths {
+                let rect = path.boundingBoxOfPath
+                switch edge {
+                case .top: XCTAssertLessThanOrEqual(rect.maxY, bounds.maxY); XCTAssertLessThan(rect.minY, bounds.minY)
+                case .bottom: XCTAssertGreaterThanOrEqual(rect.minY, bounds.minY); XCTAssertGreaterThan(rect.maxY, bounds.maxY)
+                case .left: XCTAssertLessThanOrEqual(rect.maxX, bounds.maxX); XCTAssertLessThan(rect.minX, bounds.minX)
+                case .right: XCTAssertGreaterThanOrEqual(rect.minX, bounds.minX); XCTAssertGreaterThan(rect.maxX, bounds.maxX)
+                }
+            }
+        }
     }
 }

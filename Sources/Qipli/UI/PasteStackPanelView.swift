@@ -11,6 +11,10 @@ struct PasteStackPanelView: View {
     let expand: () -> Void
     let collapse: () -> Void
     let close: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    private var isVertical: Bool { presentationModel.edge.isVertical }
 
     var body: some View {
         Group {
@@ -25,7 +29,7 @@ struct PasteStackPanelView: View {
     }
 
     private var expandedPanel: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 14) {
             header
             stackContent
             if let statusMessage {
@@ -36,18 +40,13 @@ struct PasteStackPanelView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.top, (presentationModel.compactGeometry?.panelFrame.height ?? 0) + 4)
-        .padding(.horizontal, TopNotchHistoryGeometry.contentHorizontalInset)
-        .padding(.bottom, 8)
-        .frame(
-            minWidth: TopNotchHistoryGeometry.pasteStackMinimumPanelSize.width,
-            idealWidth: TopNotchHistoryGeometry.pasteStackPanelSize.width,
-            maxWidth: .infinity,
-            minHeight: TopNotchHistoryGeometry.pasteStackMinimumPanelSize.height,
-            idealHeight: TopNotchHistoryGeometry.pasteStackPanelSize.height,
-            maxHeight: .infinity,
-            alignment: .topLeading
-        )
+        .padding(.top, presentationModel.edge == .top ? (presentationModel.compactGeometry?.panelFrame.height ?? 0) + 14 : (isVertical ? 38 : 18))
+        .padding(.horizontal, isVertical ? PanelDesign.contentInset : TopNotchHistoryGeometry.contentHorizontalInset)
+        .padding(.bottom, isVertical ? 38 : 18)
+        .padding(.leading, presentationModel.edge == .left ? presentationModel.edgeContentInset : 0)
+        .padding(.trailing, presentationModel.edge == .right ? presentationModel.edgeContentInset : 0)
+        .padding(.bottom, presentationModel.edge == .bottom ? presentationModel.edgeContentInset : 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .environment(\.colorScheme, .dark)
     }
 
@@ -127,6 +126,8 @@ struct PasteStackPanelView: View {
             }
             Text("\(sessionController.occurrences.count)")
                 .font(.system(size: 17, weight: .semibold).monospacedDigit())
+                .contentTransition(.numericText())
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: sessionController.occurrences.count)
                 .accessibilityLabel("Copied items")
         }
         .padding(.trailing, 8)
@@ -194,34 +195,32 @@ struct PasteStackPanelView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            Button(action: close) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Paste Stack")
+                    .font(.system(size: 15, weight: .semibold))
+                    .lineLimit(1)
+                    .accessibilityAddTraits(.isHeader)
+                Text("\(pendingCount) remaining")
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
-            .modifier(PasteStackHeaderButtonChrome())
-            .accessibilityLabel("Cancel Paste Stack")
-            .accessibilityHint("Cancels the unfinished stack.")
-            .help("Cancel Paste Stack")
-
+            Spacer(minLength: 0)
+            directionToggle
             Button(action: collapse) {
-                Image(systemName: "arrow.up.to.line")
-                    .font(.system(size: 13, weight: .semibold))
+                Image(systemName: presentationModel.edge.collapseSymbol)
             }
-            .modifier(PasteStackHeaderButtonChrome())
+            .buttonStyle(PanelControlStyle())
             .accessibilityLabel("Collapse Paste Stack")
             .accessibilityHint("Returns to the compact Paste Stack strip.")
             .help("Collapse Paste Stack")
-
-            Text("Paste Stack")
-                .font(.system(size: 15, weight: .semibold))
-                .lineLimit(1)
-                .accessibilityAddTraits(.isHeader)
-
-            Spacer(minLength: 0)
-            directionToggle
+            Button(action: close) { Image(systemName: "xmark") }
+                .buttonStyle(PanelControlStyle())
+                .accessibilityLabel("Cancel Paste Stack")
+                .accessibilityHint("Cancels the unfinished stack.")
+                .help("Cancel Paste Stack")
         }
-        .frame(height: 30)
+        .frame(height: 36)
         .accessibilityAction(named: "Collapse Paste Stack") {
             presentationModel.requestExplicitCollapse()
         }
@@ -231,19 +230,28 @@ struct PasteStackPanelView: View {
     private var stackContent: some View {
         if sessionController.occurrences.isEmpty {
             ContentUnavailableView(
-                "Copy text to add it",
+                "Copy something to add it",
                 systemImage: "doc.on.clipboard",
                 description: Text("This stack starts empty and collects new copies only.")
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            ScrollView(.horizontal) {
-                LazyHStack(spacing: 10) {
-                    ForEach(sessionController.occurrences) { occurrence in
-                        occurrenceCard(occurrence)
+            ScrollView(isVertical ? .vertical : .horizontal) {
+                if isVertical {
+                    LazyVStack(spacing: PanelDesign.cardGap) {
+                        ForEach(sessionController.occurrences) { occurrence in
+                            occurrenceCard(occurrence)
+                        }
                     }
+                    .padding(2)
+                } else {
+                    LazyHStack(spacing: PanelDesign.cardGap) {
+                        ForEach(sessionController.occurrences) { occurrence in
+                            occurrenceCard(occurrence)
+                        }
+                    }
+                    .padding(2)
                 }
-                .padding(.vertical, 2)
             }
             .scrollIndicators(.hidden)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -275,10 +283,10 @@ struct PasteStackPanelView: View {
         return Button {
             execute(.setTraversalDirection(configuration.nextDirection))
         } label: {
-            Image(systemName: configuration.iconSystemName)
+            Image(systemName: isVertical ? configuration.iconSystemName : (sessionController.traversalDirection == .direct ? "arrow.right" : "arrow.left"))
                 .font(.system(size: 13, weight: .semibold))
         }
-        .modifier(PasteStackHeaderButtonChrome())
+        .buttonStyle(PanelControlStyle())
         .disabled(!canChooseDirection)
         .accessibilityLabel(PasteStackPanelAccessibility.directionLabel)
         .accessibilityValue(configuration.accessibilityValue)
@@ -333,7 +341,7 @@ struct PasteStackPanelView: View {
                     Button {
                         execute(.moveOccurrence(occurrence.id, by: -1))
                     } label: {
-                        Image(systemName: "chevron.left")
+                        Image(systemName: isVertical ? "chevron.up" : "chevron.left")
                     }
                     .modifier(PasteStackCardButtonChrome())
                     .disabled(!accessibleMoves.contains(.up))
@@ -342,7 +350,7 @@ struct PasteStackPanelView: View {
                     Button {
                         execute(.moveOccurrence(occurrence.id, by: 1))
                     } label: {
-                        Image(systemName: "chevron.right")
+                        Image(systemName: isVertical ? "chevron.down" : "chevron.right")
                     }
                     .modifier(PasteStackCardButtonChrome())
                     .disabled(!accessibleMoves.contains(.down))
@@ -362,18 +370,28 @@ struct PasteStackPanelView: View {
                 }
             }
         }
-        .padding(10)
-        .frame(width: 208, height: 136, alignment: .topLeading)
+        .padding(14)
+        .frame(width: isVertical ? nil : 220, height: 156, alignment: .topLeading)
+        .frame(maxWidth: isVertical ? .infinity : nil, alignment: .topLeading)
         .textSelection(.disabled)
         .opacity(isUsed && !isReactivationPriority ? 0.55 : 1)
         .background {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(isPriorityNext ? Color.accentColor.opacity(0.16) : Color.white.opacity(0.08))
+            RoundedRectangle(cornerRadius: PanelDesign.cardRadius, style: .continuous)
+                .fill(PanelDesign.cardFill)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(isPriorityNext ? Color.accentColor.opacity(0.60) : Color.white.opacity(0.12))
+                    if isPriorityNext {
+                        RoundedRectangle(cornerRadius: PanelDesign.cardRadius, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.14))
+                    }
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: PanelDesign.cardRadius, style: .continuous)
+                        .strokeBorder(isPriorityNext ? Color.accentColor : Color.white.opacity(contrast == .increased ? 0.55 : 0.14),
+                                      lineWidth: isPriorityNext || contrast == .increased ? 2 : 1)
                 }
         }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: isPriorityNext)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: isUsed)
         .accessibilityElement(children: .contain)
         .accessibilityActions {
             if accessibleMoves.contains(.up) {
@@ -431,7 +449,7 @@ struct PasteStackPanelView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text(StackPreview.text(for: occurrence.text))
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 13, weight: .regular))
                     .lineLimit(3)
             }
         }
@@ -466,32 +484,8 @@ struct PasteStackPanelView: View {
 }
 
 private struct PasteStackCardButtonChrome: ViewModifier {
-    @Environment(\.isEnabled) private var isEnabled
-
     func body(content: Content) -> some View {
-        content
-            .buttonStyle(.plain)
-            .foregroundStyle(isEnabled ? Color.primary : Color.secondary.opacity(0.45))
-            .frame(width: 26, height: 26)
-            .background(Color.white.opacity(isEnabled ? 0.08 : 0.03), in: Circle())
-    }
-}
-
-private struct PasteStackHeaderButtonChrome: ViewModifier {
-    @Environment(\.isEnabled) private var isEnabled
-    @State private var isHovered = false
-
-    func body(content: Content) -> some View {
-        content
-            .buttonStyle(.plain)
-            .foregroundStyle(isEnabled ? Color.primary : Color.secondary.opacity(0.55))
-            .frame(width: 28, height: 28)
-            .background {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isHovered && isEnabled ? Color.primary.opacity(0.08) : Color.clear)
-            }
-            .contentShape(Rectangle())
-            .onHover { isHovered = $0 }
+        content.buttonStyle(PanelControlStyle())
     }
 }
 

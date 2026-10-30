@@ -568,3 +568,11 @@ D-044 расширяет прежний text-only Stack после S033. Огр�
 | FR-055 | Settings General позволяет включить локальную диагностику, открыть папку журналов и очистить её. По умолчанию диагностика выключена; выбор сохраняется после relaunch отдельно для Dev/Release. |
 | BR-041 | Opt-in журналы сохраняют восстанавливаемую последовательность correction: schema/sequence, session/operation IDs, version/build/OS, этапы и именованные проверки, конкретные AX API/attributes, числовые AXError/OSStatus, типы ответа, durations/deadline, числовые ranges/counts, булевы comparisons/admission, transport/dispatch/postconditions/clipboard restore и terminal outcome с последней конкретной причиной. Допустима только фиксированная категория target chrome/safari/firefox/edge/other и operation-local source ordinals. Потеря событий отмечается явно. Запрещены payload и его hashes, клавиши/символы/keyboard stream, raw source/app/window identities, URLs, filenames/paths, media metadata и произвольные strings/error descriptions. Диагностика не инициирует дополнительные payload reads или input mutations. |
 | NFR-038 | Запись выполняется вне input/main thread с ограниченной очередью; максимум 10 MiB и 7 дней при работающем приложении. Нет сети/telemetry; выключение прекращает новые события, очистка не затрагивает History/clipboard. Ошибка журнала не мешает correction. |
+
+## Панели и сторона экрана: S039
+
+| ID | Требование |
+|---|---|
+| FR-056 | Одна настройка Appearance выбирает Top/Right/Bottom/Left для History и Paste Stack, default Top, сохраняется после relaunch. Боковые панели вертикальны, верхняя/нижняя горизонтальны. |
+| BR-042 | Смена стороны сохраняет History query/selection и Stack session. History keyboard axis соответствует layout; paste/focus/cancel/hover/accessibility hold сохраняются. Finder Cut и correction feedback остаются сверху. |
+| NFR-039 | Чёрная оболочка History/Stack соединяется с выбранным физическим краем экрана без зазора, включая промежуточные кадры раскрытия/сворачивания. Controls учитывают Dock и camera band внутри оболочки. Поддерживаются смена экрана и Reduce Motion/Increase Contrast. Единые spacing/radii/motion tokens, bounded reusable/lazy cards, без payload logs, новых permissions или dependencies. |
