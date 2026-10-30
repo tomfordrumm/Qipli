@@ -71,6 +71,11 @@ History, Paste Stack, and Reactivate Previous shortcuts can be changed in
 Settings and restored to their defaults. Enable Launch at Login if you want Qipli
 to open when you sign in to your Mac.
 
+In Settings > Appearance, choose a screen edge for both History and Paste Stack.
+Top keeps the notch presentation; Left and Right use vertical cards, and Bottom
+uses a horizontal shelf. The choice is saved automatically. Panel animations
+follow Reduce Motion in macOS Accessibility settings.
+
 ### Updates you control
 
 Use `Check for Updates…` from the menu bar or Settings for a manual check.

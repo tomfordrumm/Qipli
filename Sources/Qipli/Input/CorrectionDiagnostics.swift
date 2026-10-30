@@ -4,7 +4,7 @@ import Foundation
 // text, identifiers, hashes of payload, raw AX roles or error descriptions here.
 enum DiagnosticStep: String, Codable, Sendable {
     case admission, capture, read, matches, validate, replacement, leftContext, rightContext
-    case preDispatchValidation, selectReplacement, waitSelection, selectedText, dispatch
+    case postDispatchValidation, preDispatchValidation, selectReplacement, waitSelection, selectedText, dispatch
     case waitPaste, verifyContext, finalSelection, waitFinalSelection, clipboardSnapshot
     case clipboardWrite, clipboardRestore, clipboardFinish, sourceSelection, worker, completion
     case wordSpaceRead, wordLeftRead, wordRightRead, wordRead, cycleRead, selectedRead
@@ -27,7 +27,7 @@ enum DiagnosticCheck: String, Codable, Sendable {
     case clipboardRegistration, clipboardItemLimit, clipboardRepresentationLimit, clipboardReadable
     case clipboardByteLimit, clipboardCopy, clipboardUnchanged, clipboardWrite, clipboardOwned, clipboardRestored
     case eventCreation, pasteCount, pasteCaret, pasteText, finalTarget, finalText, finalRange
-    case inputEpoch, gateEpoch, compositionCertain, cycleAge, cycleSources, cycleSource, cycleTarget, cycleRange, cycleText
+    case inputEpoch, modifierEpoch, gateEpoch, compositionCertain, cycleAge, cycleSources, cycleSource, cycleTarget, cycleRange, cycleText
     case currentSource, mappingSource, sourceExists, sourceEnabled, sourceSelectable, sourceConfirmed, deadline
 }
 enum DiagnosticValueType: String, Codable, Sendable { case missing, string, number, boolean, array, axElement, axValue, data, other }
@@ -122,8 +122,7 @@ final class CorrectionDiagnosticTrace: @unchecked Sendable {
                     if details == nil { details = DiagnosticDetails() }
                     details?.lastFailure = lastFailure
                 }
-            } else if stage != .checkpoint && reason != .started && reason != .passed &&
-                reason != .restored && reason != .restoreSkipped && reason != .restoreDeferred {
+            } else if stage != .checkpoint && reason.isFailure {
                 if lastFailure == nil || details?.api != nil || details?.check != nil {
                     lastFailure = DiagnosticFailure(stage: stage, reason: reason, step: details?.step,
                         api: details?.api, attribute: details?.attribute, check: details?.check,

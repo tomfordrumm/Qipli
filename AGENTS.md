@@ -54,6 +54,7 @@
 
 - `docs/slices/S037-manual-layout-correction.md` — ручное исправление выделения или последнего слова левым Option, системные раскладки и циклическое преобразование; до реализации требуется macOS platform probe.
 - `docs/slices/S038-local-diagnostics.md` — выключенная по умолчанию локальная диагностика, Settings, ротация и payload-free correction traces.
+- `docs/slices/S039-panel-design-screen-edge.md` — проработка панелей и общая настройка Top/Right/Bottom/Left.
 
 ### Подход к поставке
 

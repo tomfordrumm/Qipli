@@ -219,12 +219,14 @@ final class ApplicationShell: NSObject {
             }
         )
         historyPasteExecutor = pasteExecutor
+        let panelPreferences = PanelPreferences()
         let panelController = PanelController(
             permissionService: permissionService,
             historyViewModel: historyViewModel,
             stackSessionController: stackSessionController,
             finderCutSessionController: finderCutSessionController,
             historyPasteExecutor: pasteExecutor,
+            panelPreferences: panelPreferences,
             openAccessibilitySettings: { [weak permissionService] in
                 permissionService?.openSystemSettings()
             }
@@ -284,7 +286,8 @@ final class ApplicationShell: NSObject {
             secureUpdater: resolvedSecureUpdater,
             correctionPreferences: correctionPreferences,
             correctionSourceCatalog: correctionCatalog,
-            diagnostics: diagnostics
+            diagnostics: diagnostics,
+            panelPreferences: panelPreferences
         )
         super.init()
 

@@ -72,6 +72,8 @@
 		A0010000000000000000009D /* CorrectionTriggerGesture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0020000000000000000009D /* CorrectionTriggerGesture.swift */; };
 		A0010000000000000000009E /* LayoutCorrectionPreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0020000000000000000009E /* LayoutCorrectionPreferencesTests.swift */; };
 		A0010000000000000000009F /* LayoutCorrectionClipboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0020000000000000000009F /* LayoutCorrectionClipboardTests.swift */; };
+		A001000000000000000000B1 /* PanelPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = A002000000000000000000B1 /* PanelPreferences.swift */; };
+		A001000000000000000000B2 /* PanelDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = A002000000000000000000B2 /* PanelDesign.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -154,6 +156,8 @@
 		A0020000000000000000009D /* CorrectionTriggerGesture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CorrectionTriggerGesture.swift; sourceTree = "<group>"; };
 		A0020000000000000000009E /* LayoutCorrectionPreferencesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutCorrectionPreferencesTests.swift; sourceTree = "<group>"; };
 		A0020000000000000000009F /* LayoutCorrectionClipboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutCorrectionClipboardTests.swift; sourceTree = "<group>"; };
+		A002000000000000000000B1 /* PanelPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelPreferences.swift; sourceTree = "<group>"; };
+		A002000000000000000000B2 /* PanelDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelDesign.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -243,6 +247,7 @@
 				A00200000000000000000091 /* FinderCutPanelView.swift */,
 				A00200000000000000000090 /* PasteStackPresentation.swift */,
 				A00200000000000000000029 /* PanelMaterialProvider.swift */,
+				A002000000000000000000B2 /* PanelDesign.swift */,
 				A00200000000000000000047 /* TopNotchHistoryShelf.swift */,
 				A00200000000000000000034 /* SettingsWindowController.swift */,
 				A00200000000000000000037 /* OnboardingWindowController.swift */,
@@ -333,6 +338,7 @@
 				A00200000000000000000031 /* ShortcutPreferences.swift */,
 				A00200000000000000000032 /* LaunchAtLoginService.swift */,
 				A00200000000000000000033 /* SettingsViewModel.swift */,
+				A002000000000000000000B1 /* PanelPreferences.swift */,
                 DA0200000000000000000001 /* LocalDiagnostics.swift */,
 			);
 			path = Settings;
@@ -486,10 +492,12 @@
 				A00100000000000000000091 /* FinderCutPanelView.swift in Sources */,
 				A00100000000000000000090 /* PasteStackPresentation.swift in Sources */,
 				A00100000000000000000029 /* PanelMaterialProvider.swift in Sources */,
+				A001000000000000000000B2 /* PanelDesign.swift in Sources */,
 				A00100000000000000000047 /* TopNotchHistoryShelf.swift in Sources */,
 				A00100000000000000000031 /* ShortcutPreferences.swift in Sources */,
 				A00100000000000000000032 /* LaunchAtLoginService.swift in Sources */,
 				A00100000000000000000033 /* SettingsViewModel.swift in Sources */,
+				A001000000000000000000B1 /* PanelPreferences.swift in Sources */,
                 DA0100000000000000000001 /* LocalDiagnostics.swift in Sources */,
 				A00100000000000000000034 /* SettingsWindowController.swift in Sources */,
 				A00100000000000000000036 /* OnboardingCoordinator.swift in Sources */,

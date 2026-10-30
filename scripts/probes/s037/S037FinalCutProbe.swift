@@ -62,21 +62,21 @@ final class S037FinalCutProbe: NSObject, NSApplicationDelegate {
 #endif
             try await Task.sleep(nanoseconds: 150_000_000)
             _ = try element(pid)
-            transport.finish()
+            await transport.finish()
             stage = "verificationCopy"
             // Re-copy the known synthetic field solely to verify the actual editor result.
             try command(CGKeyCode(kVK_ANSI_A), pid: pid)
             guard try await transport.copySelection(pid: pid, isFresh: { true }) == "привет" else {
                 throw CorrectionAXError.verification
             }
-            transport.finish()
+            await transport.finish()
 #if S037_WORD_PROBE
             finish("PASS transport=key-replay actualText=true searchField=true sourceSwitch=notExercised trigger=notExercised")
 #else
             finish("PASS transport=copy-paste actualText=true searchField=true sourceSwitch=notExercised trigger=notExercised")
 #endif
         } catch {
-            transport.finish()
+            await transport.finish()
             let reason = (error as? CorrectionAXError).map { DiagnosticReason(ax: $0).rawValue } ?? "unexpected"
             finish("FAIL stage=\(stage) reason=\(reason) inputMayHaveBeenSent=\(transport.mutationBegan)")
         }

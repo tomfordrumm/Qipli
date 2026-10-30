@@ -160,6 +160,9 @@ struct PanelWindowConfiguration {
 
     func applyPresentation(to panel: NSPanel) {
         panel.title = title
+        // Our mask owns the transition. AppKit's inferred orderFront zoom
+        // scales the entire window away from the display edge for a few frames.
+        panel.animationBehavior = .none
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]

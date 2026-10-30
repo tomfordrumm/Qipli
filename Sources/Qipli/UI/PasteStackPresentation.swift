@@ -16,6 +16,8 @@ enum PasteStackPresentationIntent {
 
 @MainActor
 final class PasteStackPresentationModel: ObservableObject {
+    @Published var edge: PanelEdge = .top
+    @Published var edgeContentInset: CGFloat = 0
     @Published private(set) var state: PasteStackPresentationState = .hidden
     @Published private(set) var compactGeometry: PasteStackCompactGeometry?
 

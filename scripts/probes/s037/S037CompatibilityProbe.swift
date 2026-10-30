@@ -84,13 +84,19 @@ final class S037CompatibilityProbe: NSObject, NSApplicationDelegate {
                 guard equalsFixture(element, "привет") else { throw CorrectionAXError.verification }
                 _ = try await reset.prepare(pid: pid)
                 try await reset.replay(deleteCount: 6, text: "ghbdtn", pid: pid, isFresh: { true })
-                reset.finish()
+                await reset.finish()
                 guard equalsFixture(element, "ghbdtn") else { throw CorrectionAXError.verification }
-            } catch { reset.finish(); complete("FAIL resetSyntheticField=true"); return }
+            } catch { await reset.finish(); complete("FAIL resetSyntheticField=true"); return }
         }
         do {
             let element = try focused(pid)
             guard equalsFixture(element, "ghbdtn") else { throw CorrectionAXError.verification }
+            // The word reset restores text, not the source. Start selection in Latin
+            // too, so this case exercises an actual switch to the destination.
+            catalog.refresh()
+            guard let latin = catalog.sources.compactMap(\.source).first(where: { $0.keyMap.values.contains("g") }),
+                  catalog.select(latin.id) else { throw CorrectionAXError.unsupported }
+            lastSelectedSource = latin.id
             for down in [true, false] {
                 guard let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_ANSI_A), keyDown: down) else { throw CorrectionAXError.unavailable }
                 event.flags = .maskCommand
@@ -122,10 +128,14 @@ final class S037CompatibilityProbe: NSObject, NSApplicationDelegate {
         let transport = NativeLayoutCorrectionTransport(replayMethod: method)
         transport.configurePasteboard(registerSelfWrite: { _ in }, beginCopy: {}, endCopy: {})
         var stage = "seedAdmission"
-        defer { transport.finish() }
         do {
             let element = try focused(pid)
             guard equalsFixture(element, "ghbdtn") else { throw CorrectionAXError.verification }
+            stage = "sourceAdmission"
+            catalog.refresh()
+            guard let ru = catalog.sources.compactMap(\.source).first(where: { $0.keyMap.values.contains("п") }) else {
+                throw CorrectionAXError.unsupported
+            }
             stage = "prepare"
             let empty = try await transport.prepare(pid: pid)
             stage = "input"
@@ -136,19 +146,25 @@ final class S037CompatibilityProbe: NSObject, NSApplicationDelegate {
                 guard empty == true else { throw CorrectionAXError.verification }
                 try await transport.replay(deleteCount: 6, text: "привет", pid: pid, isFresh: { true })
             }
-            stage = "actualText"
-            try await Task.sleep(nanoseconds: 200_000_000)
-            guard CFEqual(element, try focused(pid)), equalsFixture(element, "привет") else { throw CorrectionAXError.verification }
+            // Match production: no sleep or AX text read between dispatch and source switch.
             stage = "sourceSwitch"
-            catalog.refresh()
-            guard let ru = catalog.sources.compactMap(\.source).first(where: { $0.keyMap.values.contains("п") }),
-                  catalog.select(ru.id) else { throw CorrectionAXError.verification }
+            guard catalog.select(ru.id) else { throw CorrectionAXError.verification }
             lastSelectedSource = ru.id
-            complete("PASS actualText=true sourceSwitch=true trigger=notExercised")
+            stage = "clipboardGrace"
+            await transport.finish()
+            stage = "actualText"
+            // Unicode comparison has no pasteboard grace; let that editor process replay
+            // only after switching. Paste paths already waited in the real finish().
+            if !selection && method == .unicode { try await Task.sleep(nanoseconds: 200_000_000) }
+            guard CFEqual(element, try focused(pid)), equalsFixture(element, "привет") else { throw CorrectionAXError.verification }
+            catalog.refreshCurrentSelection()
+            guard catalog.currentSourceID == ru.id else { throw CorrectionAXError.verification }
+            complete("PASS actualText=true sourceSwitch=true switchBeforeGrace=true trigger=notExercised")
         } catch {
             let reason = (error as? CorrectionAXError).map { DiagnosticReason(ax: $0).rawValue } ?? "unexpected"
             let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
             let kind = front == "com.google.Chrome" ? "chrome" : front == "com.tdesktop.Telegram" ? "telegram" : front == "com.qipli.app.dev" ? "probe" : "other"
+            await transport.finish()
             complete("FAIL stage=\(stage) reason=\(reason) mutation=\(transport.mutationBegan) frontmost=\(kind)")
         }
     }
