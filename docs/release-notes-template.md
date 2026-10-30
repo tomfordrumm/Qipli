@@ -14,8 +14,9 @@ and notarized by Apple; the ZIP remains the immutable Sparkle update artifact.
 
 Onboarding explains the local clipboard history and can be skipped or reopened
 from Settings. Settings contains Accessibility status, configurable Qipli
-shortcuts, an opt-in Launch at Login control, manual update checks, and an
-off-by-default periodic update check.
+shortcuts, a shared screen-edge setting for History and Paste Stack, an opt-in
+Launch at Login control, manual update checks, and an off-by-default periodic
+update check.
 
 ## Privacy
 
@@ -32,15 +33,16 @@ Source code and license: https://github.com/tomfordrumm/Qipli
 
 ## Changes
 
-- Restore keyboard input automatically after macOS disables the listener. Successful reconnects no longer consume a permanent retry budget; failed reconnects retry with a delay. Qipli shows a message while input is unavailable.
-- Stop layout correction without deleting text when selection Copy fails. Recheck the focused field before Copy and replacement, including changes between fields in the same application.
-- Replace buffered words using paced Backspace and native Paste. Prepare the clipboard before deleting text, preserve newer external copies, and never retry a partially dispatched correction.
-- Recover word correction after an uncertain composition ends at a safe boundary. The in-memory buffer now lasts up to 30 seconds after typing, instead of five, and remains limited to 256 physical keys.
+- Redesigned History and Paste Stack as black panels connected to the screen edge, with refined spacing, controls, and soft liquid expansion that settles gently.
+- Choose Top, Right, Bottom, or Left in Settings → Appearance. One setting applies to both panels. Side panels show cards vertically, and History uses Up/Down navigation there.
+- Remove the thin gap during opening by disabling the system window zoom underneath the custom animation. Reduce Motion keeps a short fade.
+- Switch the keyboard layout immediately after correction is dispatched, before the clipboard restoration delay. Typing during that delay no longer turns a completed layout switch into a stale failure; the original clipboard is restored only while Qipli still owns it.
+- Keep the last meaningful correction failure in optional local diagnostics and distinguish the stages and guards that interrupted a correction. Diagnostics remain off by default and contain no copied or corrected text.
 
 Enable manual layout correction in Settings and tap the left Option key after typing, or select text before the tap. Correction requires a compatible editable field and supported static keyboard layouts enabled in macOS. Password/Secure Input fields and active IME composition are excluded.
 
-The physical-key buffer is cleared on navigation, clicks, context changes, or disabling the feature. Neither keys nor corrected text are written to diagnostics or sent over the network. Optional local diagnostics remain off by default; enable them in Settings → General → Diagnostics before reproducing an incident.
+The physical-key buffer is cleared on navigation, clicks, context changes, or disabling the feature. Neither keys nor corrected text are written to diagnostics or sent over the network.
 
-Chrome and Telegram compatibility, installed Option/cycling behavior, clipboard restoration, and Undo still need user acceptance testing for this version. Input dispatch is not proof that an editor accepted the replacement. If correction is interrupted after sending input, inspect the text before trying again. Undo grouping depends on the editor.
+Correction behavior, clipboard restoration, and Undo depend on the target editor. Full Chrome/Telegram/Final Cut, accessibility, and multi-display acceptance remains separate from local automated checks. If correction is interrupted after sending input, inspect the text before trying again. Undo grouping depends on the editor.
 
-Existing History, favorites, shortcuts, Accessibility permissions, and diagnostic preferences are preserved. This release does not change the database schema.
+Existing History, favorites, shortcuts, and diagnostic preferences are retained. The screen edge defaults to Top. This release does not change the database schema or permission requirements.
