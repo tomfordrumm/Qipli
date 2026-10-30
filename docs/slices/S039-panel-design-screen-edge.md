@@ -66,3 +66,13 @@ Pure geometry на четырёх краях, Dock со всех сторон и
 ### Пользовательская приёмка, 2026-10-30
 
 Пользователь проверил финальную Dev после исправления native-window seam и настройки упругости: «теперь то, что надо». Визуальная приёмка дизайна и анимаций подтверждена. Запрошена локальная подготовка общего релиза с D-058. Это не подтверждает автоматически весь installed accessibility/display или correction matrix.
+
+### Исправление карточек после смены стороны, 2026-10-30
+
+Воспроизведён stale flow-layout cache при переключении существующей History между горизонтальным и вертикальным расположением: при viewport 320 pt рассчитанный itemSize уже составлял 316 pt, но layout attributes сохраняли ширину 1036 pt и x = −358 pt. Текст уходил за видимую область, изображения чрезмерно обрезались. Обновление itemSize вынесено из `prepare()` в resize/tile scroll view; перед синхронным resize задаются подходящие размеры, после него полностью инвалидируются flow metrics и attributes.
+
+Новый regression test проверяет все 12 направленных переходов Top/Right/Bottom/Left на одном переиспользуемом collection для каждой исходной стороны: фактические attributes/frame, cross-axis bounds, текст, thumbnail frame и сохранение selection при неизменном snapshot. До исправления тест воспроизводил 66 assertion failures, после исправления проходит без invalid-size предупреждений AppKit. Полный SwiftPM suite вне sandbox: 386 tests, 0 failures, 0 skips. Нативные captures настоящей History с отдельной synthetic SQLite и загруженным искусственным изображением проверены для всех 12 переходов; runner, captures и contact sheet находятся в `/private/tmp/qipli-side-diagnosis/`. Пользовательская история и system clipboard в visual fixture не использовались. Исправление локальное, версия/build и установленное приложение не менялись; новый релиз не публиковался.
+
+Для проверки пользователем пересобрана Apple Development-signed universal Debug arm64/x86_64 из текущих исходников с исправлением. `codesign --verify --deep --strict` PASS; bundle `com.qipli.app.dev`, локальная версия 1.0.17/build18. Запущена из прежнего `/private/tmp/qipli-panel-design-build/Build/Products/Debug/Qipli Dev.app`, процесс подтверждён после старта. Других работающих экземпляров Qipli перед запуском не было. Build log: `/private/tmp/qipli-side-diagnosis/dev-build.log`. Installed Release не заменялась; пользовательская проверка переключений ожидается.
+
+Пользователь проверил эту Dev и подтвердил 2026-10-30, что переключения работают; разрешил публикацию исправления. Выбран следующий patch 1.0.19/build20 после проверки актуальных GitHub releases. Остальная accessibility/display matrix S039 остаётся открытой.
