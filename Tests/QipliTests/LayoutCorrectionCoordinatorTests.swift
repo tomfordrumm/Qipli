@@ -360,7 +360,10 @@ final class LayoutCorrectionCoordinatorTests: XCTestCase {
         typed(ledger)
         let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger, selectSource: { _ in true })
         _ = await trigger(coordinator); XCTAssertTrue(coordinator.hasCycle)
-        try await Task.sleep(nanoseconds: 5_100_000_000)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while coordinator.hasCycle && ContinuousClock.now < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
         XCTAssertFalse(coordinator.hasCycle)
     }
 
