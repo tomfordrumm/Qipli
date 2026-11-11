@@ -33,6 +33,8 @@ Source code and license: https://github.com/tomfordrumm/Qipli
 
 ## Changes
 
-- Fix History cards becoming blank or excessively cropping image previews after switching the screen edge to Left or Right. Card sizes now refresh for the new panel dimensions, and text and previews remain correctly positioned when switching between all four edges.
+- Avoid duplicate image History entries when Hex restores the previous clipboard after dictation. Detection applies when Qipli observes the temporary marked text followed by the same image. Repeated user copies remain separate entries.
+- Layout correction now selects and verifies the previous word or cyclic result before replacing it with one paste. Losing Accessibility access before paste preserves the original text.
+- If the selected range or copied text cannot be verified, correction stops and asks you to select the text explicitly. The selection may remain in place.
 
 Existing History, favorites, shortcuts, and preferences are retained. This release does not change the database schema or permission requirements.
