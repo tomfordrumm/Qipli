@@ -156,7 +156,7 @@ final class LayoutCorrectionCoordinator {
                 if next.keys == nil, !continuing {
                     try await transport.pasteSelection(mapped, pid: targetPID, isFresh: fresh)
                 } else {
-                    try await transport.replay(deleteCount: next.inserted.count, text: mapped, pid: targetPID, isFresh: fresh)
+                    try await transport.replay(originalText: next.inserted, text: mapped, pid: targetPID, isFresh: fresh)
                 }
                 validationStep = .postDispatchValidation
                 guard fresh() else { throw CorrectionAXError.stale }
@@ -208,6 +208,7 @@ final class LayoutCorrectionCoordinator {
         case CorrectionAXError.unsupported: "Focus an editable text field outside Secure Input."
         case CorrectionAXError.stale: "The input context changed; correction stopped."
         case CorrectionAXError.limit: "Select up to 12,288 characters for layout correction."
+        case CorrectionAXError.verification: "The expected text could not be safely selected. Select the text and try again."
         case CorrectionMappingError.unchanged: "The text already matches that keyboard layout."
         case is CorrectionMappingError: "This text cannot be mapped to the next keyboard layout."
         default: "No selection or recent typed word is available for correction."

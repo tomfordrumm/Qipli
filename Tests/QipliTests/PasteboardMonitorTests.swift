@@ -288,6 +288,108 @@ final class PasteboardMonitorTests: XCTestCase {
         XCTAssertEqual(captured.first?.imageItems.first?.representations.first?.data, Data([2]))
     }
 
+    func testMarkedDictationRestoresAreSkippedAndAnExplicitRecopyIsCaptured() async throws {
+        let pasteboard = try requireNamedPasteboard()
+        defer { pasteboard.releaseGlobally() }
+        let firstImage = expectation(description: "original image captured")
+        let firstTranscript = expectation(description: "first temporary text observed")
+        let secondTranscript = expectation(description: "second temporary text observed")
+        let restoredImages = expectation(description: "restored image must not be captured")
+        restoredImages.isInverted = true
+        let explicitRecopy = expectation(description: "explicit recopy captured")
+        let differentImage = expectation(description: "different image captured after marked text")
+        var imageExpectation = firstImage
+        var textExpectation = firstTranscript
+        let monitor = PasteboardMonitor(
+            pasteboard: SystemPasteboardReader(pasteboard: pasteboard),
+            scheduler: FakePasteboardPollScheduler(),
+            onExternalText: { _ in textExpectation.fulfill() },
+            onExternalChange: { _ in imageExpectation.fulfill() }
+        )
+        monitor.start()
+        defer { monitor.stop() }
+
+        func pollImage(_ byte: UInt8) throws {
+            let item = NSPasteboardItem()
+            XCTAssertTrue(item.setData(Data([byte]), forType: .png))
+            pasteboard.clearContents()
+            try requirePasteboardWrite([item], to: pasteboard)
+            monitor.poll()
+        }
+        func pollTranscript() throws {
+            pasteboard.clearContents()
+            try requirePasteboardWrite([makeMarkedTranscript()], to: pasteboard)
+            monitor.poll()
+        }
+
+        try pollImage(1)
+        await fulfillment(of: [firstImage], timeout: 1)
+        try pollTranscript()
+        await fulfillment(of: [firstTranscript], timeout: 1)
+        imageExpectation = restoredImages
+        try pollImage(1)
+        await fulfillment(of: [restoredImages], timeout: 0.15)
+
+        textExpectation = secondTranscript
+        try pollTranscript()
+        await fulfillment(of: [secondTranscript], timeout: 1)
+        let secondRestore = expectation(description: "second restored image must not be captured")
+        secondRestore.isInverted = true
+        imageExpectation = secondRestore
+        try pollImage(1)
+        await fulfillment(of: [secondRestore], timeout: 0.15)
+
+        imageExpectation = explicitRecopy
+        try pollImage(1)
+        await fulfillment(of: [explicitRecopy], timeout: 1)
+
+        let thirdTranscript = expectation(description: "third temporary text observed")
+        textExpectation = thirdTranscript
+        try pollTranscript()
+        await fulfillment(of: [thirdTranscript], timeout: 1)
+        imageExpectation = differentImage
+        try pollImage(2)
+        await fulfillment(of: [differentImage], timeout: 1)
+    }
+
+    func testSameImageAfterMissedRestoreIsCaptured() async throws {
+        let pasteboard = try requireNamedPasteboard()
+        defer { pasteboard.releaseGlobally() }
+        let firstImage = expectation(description: "original image captured")
+        let transcript = expectation(description: "temporary text observed")
+        let explicitRecopy = expectation(description: "new copy after unobserved restore captured")
+        var imageExpectation = firstImage
+        let monitor = PasteboardMonitor(
+            pasteboard: SystemPasteboardReader(pasteboard: pasteboard),
+            scheduler: FakePasteboardPollScheduler(),
+            onExternalText: { _ in transcript.fulfill() },
+            onExternalChange: { _ in imageExpectation.fulfill() }
+        )
+        monitor.start()
+        defer { monitor.stop() }
+
+        func writeImage() throws {
+            let item = NSPasteboardItem()
+            XCTAssertTrue(item.setData(Data([1]), forType: .png))
+            pasteboard.clearContents()
+            try requirePasteboardWrite([item], to: pasteboard)
+        }
+
+        try writeImage()
+        monitor.poll()
+        await fulfillment(of: [firstImage], timeout: 1)
+        pasteboard.clearContents()
+        try requirePasteboardWrite([makeMarkedTranscript()], to: pasteboard)
+        monitor.poll()
+        await fulfillment(of: [transcript], timeout: 1)
+
+        imageExpectation = explicitRecopy
+        try writeImage() // Hex restore happens between polls.
+        try writeImage() // The user copies the same image before the next poll.
+        monitor.poll()
+        await fulfillment(of: [explicitRecopy], timeout: 1)
+    }
+
     func testTypedChangeClassifiesWebURLAndFinderFileWithoutReadingFileBytes() throws {
         let pasteboard = try requireNamedPasteboard()
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("fixture.txt")
@@ -430,6 +532,15 @@ final class PasteboardMonitorTests: XCTestCase {
 
     private func requireNamedPasteboard() throws -> NSPasteboard {
         try unwrapNamedPasteboard(NSPasteboard(name: NSPasteboard.Name("QipliTests.\(UUID().uuidString)")))
+    }
+
+    private func makeMarkedTranscript() -> NSPasteboardItem {
+        let item = NSPasteboardItem()
+        XCTAssertTrue(item.setString("dictation fixture", forType: .string))
+        for marker in ["org.nspasteboard.TransientType", "org.nspasteboard.AutoGeneratedType"] {
+            XCTAssertTrue(item.setData(Data(), forType: NSPasteboard.PasteboardType(marker)))
+        }
+        return item
     }
 
     private func requirePasteboardWrite(

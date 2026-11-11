@@ -20,11 +20,30 @@ covers:
 
 Запрос от 2026-10-01 подтверждает ручное исправление только что введённого или выделенного текста. Пользователь отдельно подтвердил последнее введённое слово, включая слово сразу перед пробелом, выбрал левый Option и попросил использовать раскладки, включённые в системе. При трёх и более раскладках подтверждён переход по кругу; повторный левый Option переводит тот же фрагмент дальше. Остальные предлагаемые defaults ниже остаются предположениями. Источники: раздел S037 в [PRODUCT.md](../PRODUCT.md) и [TECHNICAL.md](../TECHNICAL.md), D-050 в [DECISIONS.md](../DECISIONS.md). Operational-статус ведётся только в [STATE.md](../STATE.md).
 
-## Актуальное поведение D-056
+## Актуальное поведение D-060
 
-Контракт [D-056](../DECISIONS.md#d-056-copypaste-выделения-и-replay-недавнего-слова) заменяет AX replacement D-052. Выделение получает приоритет через native Copy, заменяется Paste. Без выделения недавнее слово восстанавливается из bounded physical-key buffer и заменяется Backspace + Unicode replay. Системные enabled/selectable static layouts и циклический seed сохраняются. Не требуются writable AXValue, AXStringForRange или character count. Единственный metadata preflight защищает текстовый focus/password; неизменный PID/input epoch проверяется перед отправками.
+Контракт [D-060](../DECISIONS.md#d-060-проверенное-выделение-перед-заменой-предыдущего-текста) заменяет Backspace word/cycle transport D-056/D-057. Явное выделение получает приоритет через native Copy/Paste. Слово из physical-key buffer и ранее вставленный cyclic result выделяются Shift+←, сверяются с вычисленным UTF-16 диапазоном и точным verification Copy, затем заменяются одним Paste. Читаемый AX selected range нужен для автоматического выделения. AXValue, AX range setter, AXStringForRange и character count не требуются. Доступ к тому же полю, permissions, input epoch и clipboard ownership проверяются до Paste. Отказ сохраняет исходный текст, выделение может остаться.
 
-Buffer ≤256 keys, trailing spaces ≤8, freshness/automatic payload release 5 s. Навигация, click, modified input, source/app/settings/tap/permission changes сбрасывают buffer. После native replacement caret находится в конце; native Undo grouping определяется target. Cycle 5 s idle/30 s hard, без AX verification и без blind retry после mutation. Copy clipboard transaction сохраняет исходные representations, подавляет внутренний capture и уважает более новую Copy.
+Buffer ≤256 keys, trailing spaces ≤8, freshness/automatic payload release 30 s по D-057. Навигация, click, modified input, source/app/settings/tap/permission changes сбрасывают buffer. После native replacement caret находится в конце; native Undo grouping определяется target. Cycle 5 s idle/30 s hard, без повторной отправки после mutation. Один clipboard lease охватывает verification Copy и Paste, сохраняет исходные representations, подавляет внутренний capture и уважает более новую Copy.
+
+### Verification D-060
+
+- [x] Regression и полный SwiftPM suite, 390/390 без skips/failures.
+- [x] Apple Development-signed universal Debug, strict/deep codesign, unsigned universal Release, privacy/version/runtime-linking/diff checks.
+- [x] Signed two-process owned-field probe: word +0/+3 spaces, selection 6/12 288 UTF-16, actual text/caret/native Undo/clipboard.
+- [ ] Installed Option/cycle в пользовательских редакторах, включая отказ при потере AX.
+
+Предыдущие PASS ниже относятся к D-056/D-057/D-058 и не закрывают runtime acceptance D-060.
+
+### Implementation report D-060, 2026-11-11
+
+Production word/cycle transport получает предыдущий exact originalText, выделяет его Shift+←, сверяет AX UTF-16 range и exact native Copy, затем выполняет один Paste. Проверка range ждёт до 200 ms, отдельные AX calls сохраняют bounded timeout. Content mutation начинается только с отправки Paste; при отказе во время выделения/Copy текст сохраняется. Verification Copy использует тот же clipboard lease, поэтому исходные representations переживают весь путь. Debug Unicode comparison также вводит поверх проверенного выделения.
+
+Regression использует production transport/lease/timer, отдельный named NSPasteboard и настоящий NSTextView для native grapheme selection и вставки. Подменяются AX client и доставка CGEvent, поэтому это editor model, без глобального focus/keyboard path. Проверены успешная одиночная вставка, потеря AX сразу после выделения, несовпадение Copy, изменение range/field, новая внешняя Copy, input invalidation и Copy timeout. Для failures сохранён весь исходный текст, Paste/Backspace не отправлены, clipboard восстановлен либо сохранена новая внешняя запись. Отдельно проверены emoji/combining marks/trailing spaces, UTF-16 range, caret и exact previous result при циклическом преобразовании.
+
+Полный SwiftPM 390/390, финальный focused run 27/27 без failures/skips и compiler warnings. Signed universal Debug и unsigned universal Release собраны из итогового кода, strict/deep codesign PASS. Версия/build локального кандидата 1.0.19/20. Dev artifact: `/private/tmp/qipli-selection-replacement-build/Build/Products/Debug/Qipli Dev.app`. Логи проверок: `/private/tmp/qipli-selection-final-tests.log`, `/private/tmp/qipli-selection-final-focused.log`, `/private/tmp/qipli-selection-debug-final-build.log`, `/private/tmp/qipli-selection-release-final-build.log`. Native/compatibility/Final Cut probes, включая условный word path, typecheck PASS; в старых probe activation calls остаются deprecation warnings macOS.
+
+Release preflight 2026-11-11: development-signed two-process probe прошёл все четыре cases с реальной доставкой CGEvent. Word +0/+3 spaces использовал verified-selection-paste, явное выделение 6/12 288 UTF-16 — Copy/Paste. Exact text, соседний context, caret, один native Undo и исходный clipboard PASS; 24 self-write registrations. Report: `/private/tmp/qipli-s037-native-paste-report.txt`. Source switch mock, реальный Option/TIS cycle и пользовательские редакторы остаются installed acceptance. Для изоляции capture Release временно закрыта и затем запущена снова.
 
 ## Acceptance и verification D-056
 

@@ -83,7 +83,7 @@ final class S037CompatibilityProbe: NSObject, NSApplicationDelegate {
                 let element = try focused(pid)
                 guard equalsFixture(element, "привет") else { throw CorrectionAXError.verification }
                 _ = try await reset.prepare(pid: pid)
-                try await reset.replay(deleteCount: 6, text: "ghbdtn", pid: pid, isFresh: { true })
+                try await reset.replay(originalText: "привет", text: "ghbdtn", pid: pid, isFresh: { true })
                 await reset.finish()
                 guard equalsFixture(element, "ghbdtn") else { throw CorrectionAXError.verification }
             } catch { await reset.finish(); complete("FAIL resetSyntheticField=true"); return }
@@ -144,7 +144,7 @@ final class S037CompatibilityProbe: NSObject, NSApplicationDelegate {
                 try await transport.pasteSelection("привет", pid: pid, isFresh: { true })
             } else {
                 guard empty == true else { throw CorrectionAXError.verification }
-                try await transport.replay(deleteCount: 6, text: "привет", pid: pid, isFresh: { true })
+                try await transport.replay(originalText: "ghbdtn", text: "привет", pid: pid, isFresh: { true })
             }
             // Match production: no sleep or AX text read between dispatch and source switch.
             stage = "sourceSwitch"

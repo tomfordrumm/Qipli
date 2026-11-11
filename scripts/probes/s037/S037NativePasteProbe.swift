@@ -196,7 +196,7 @@ final class S037NativePasteProbe: NSObject, NSApplicationDelegate {
                     guard let self else { return }
                     let after = self.snapshot()
                     guard self.same(self.clipboardBefore, after) else { self.finish("nativePaste=FAIL clipboardRestore=false"); return }
-                    self.lines.append("case=\(index) PASS spaces=\(spaces) selected=\(selected) transport=\(selected ? "copy-paste" : "key-replay") nativeUndo=true caret=true clipboardRestore=true preinputMonitor=false")
+                    self.lines.append("case=\(index) PASS spaces=\(spaces) selected=\(selected) transport=\(selected ? "copy-paste" : "verified-selection-paste") nativeUndo=true caret=true clipboardRestore=true preinputMonitor=false")
                     self.caseIndex += 1
                     if self.caseIndex < 4 {
                         self.fixture?.terminate(); self.fixture = nil

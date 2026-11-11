@@ -3,14 +3,14 @@ import ApplicationServices
 import Carbon.HIToolbox
 import CoreGraphics
 
-/// Native transport deliberately has no text-range, AXValue or postcondition API.
+/// Native replacement verifies selection metadata and native Copy before inserting.
 @MainActor
 protocol LayoutCorrectionTransport: AnyObject {
     var mutationBegan: Bool { get }
     func prepare(pid: pid_t) async throws -> Bool? // true only when AX reports an empty selection
     func copySelection(pid: pid_t, isFresh: () -> Bool) async throws -> String?
     func pasteSelection(_ text: String, pid: pid_t, isFresh: () -> Bool) async throws
-    func replay(deleteCount: Int, text: String, pid: pid_t, isFresh: () -> Bool) async throws
+    func replay(originalText: String, text: String, pid: pid_t, isFresh: () -> Bool) async throws
     func finish() async
     func setTrace(_ trace: CorrectionDiagnosticTrace?)
 }
@@ -24,7 +24,8 @@ final class NativeLayoutCorrectionTransport: LayoutCorrectionTransport {
     private let postEvent: (CGEvent, pid_t) -> Void
     private struct Focus: @unchecked Sendable {
         let element: AXUIElement
-        let selectionEmpty: Bool?
+        let selection: CFRange?
+        var selectionEmpty: Bool? { selection.map { $0.length == 0 } }
     }
     private var focus: Focus?
     private let pasteboard: NSPasteboard
@@ -115,17 +116,17 @@ final class NativeLayoutCorrectionTransport: LayoutCorrectionTransport {
         // Missing selected-range support is allowed. Copy supplies the selection.
         // A timeout is also optional here: no text mutation relies on this metadata.
         let (rangeStatus, rangeValue) = client.copyAttribute(element, kAXSelectedTextRangeAttribute as CFString)
-        guard rangeStatus == .success, let value = rangeValue, CFGetTypeID(value) == AXValueGetTypeID() else { return Focus(element: element, selectionEmpty: nil) }
+        guard rangeStatus == .success, let value = rangeValue, CFGetTypeID(value) == AXValueGetTypeID() else { return Focus(element: element, selection: nil) }
         var range = CFRange()
-        guard AXValueGetValue(unsafeBitCast(value, to: AXValue.self), .cfRange, &range), range.location >= 0, range.length >= 0 else { return Focus(element: element, selectionEmpty: nil) }
-        return Focus(element: element, selectionEmpty: range.length == 0)
+        guard AXValueGetValue(unsafeBitCast(value, to: AXValue.self), .cfRange, &range), range.location >= 0, range.length >= 0 else { return Focus(element: element, selection: nil) }
+        return Focus(element: element, selection: range)
     }
 
     func copySelection(pid: pid_t, isFresh: () -> Bool) async throws -> String? {
         try await verifyFocus(pid: pid, isFresh: isFresh)
         try check(pid: pid, isFresh: isFresh)
         guard let registerSelfWrite, let beginCopyObservation, let endCopyObservation else { throw CorrectionAXError.unavailable }
-        let transaction = try CorrectionClipboardLease(pasteboard: pasteboard,
+        let transaction = try lease ?? CorrectionClipboardLease(pasteboard: pasteboard,
             registerSelfWrite: registerSelfWrite, trace: trace)
         lease = transaction
         beginCopyObservation()
@@ -149,7 +150,12 @@ final class NativeLayoutCorrectionTransport: LayoutCorrectionTransport {
     }
 
     func pasteSelection(_ text: String, pid: pid_t, isFresh: () -> Bool) async throws {
-        try await verifyFocus(pid: pid, isFresh: isFresh)
+        try await pasteSelection(text, pid: pid, expectedRange: nil, isFresh: isFresh)
+    }
+
+    private func pasteSelection(_ text: String, pid: pid_t, expectedRange: CFRange?, isFresh: () -> Bool) async throws {
+        let selection = try await verifyFocus(pid: pid, isFresh: isFresh)
+        if let expectedRange { try verifySelection(selection, equals: expectedRange) }
         try check(pid: pid, isFresh: isFresh)
         guard let lease else { throw CorrectionAXError.unavailable }
         try lease.write(text)
@@ -159,11 +165,10 @@ final class NativeLayoutCorrectionTransport: LayoutCorrectionTransport {
         pasteDispatched = true
     }
 
-    func replay(deleteCount: Int, text: String, pid: pid_t, isFresh: () -> Bool) async throws {
-        guard deleteCount > 0, deleteCount <= LayoutCorrectionLimits.maximumTextUTF16Units,
+    func replay(originalText: String, text: String, pid: pid_t, isFresh: () -> Bool) async throws {
+        guard !originalText.isEmpty, originalText.utf16.count <= LayoutCorrectionLimits.maximumTextUTF16Units,
               !text.isEmpty, text.utf16.count <= LayoutCorrectionLimits.maximumTextUTF16Units else { throw CorrectionAXError.limit }
-        // Construct every event before deletion so allocation failure cannot strand a deleted word.
-        let delete = try events(key: CGKeyCode(kVK_Delete), flags: [])
+        let selectPrevious = try events(key: CGKeyCode(kVK_LeftArrow), flags: .maskShift)
         let chunks: [[CGEvent]]
         if replayMethod == .unicode {
             let unicodeChunks = Self.unicodeChunks(text)
@@ -177,45 +182,72 @@ final class NativeLayoutCorrectionTransport: LayoutCorrectionTransport {
                 return pair
             }
         } else { chunks = [] }
-        let paste = try events(key: CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
-        // Snapshot and prepare the pasteboard before any deletion. A clipboard
-        // failure must never leave a deleted word behind.
-        if replayMethod == .paste {
-            if lease == nil {
-                guard let registerSelfWrite else { throw CorrectionAXError.unavailable }
-                lease = try CorrectionClipboardLease(pasteboard: pasteboard,
-                    registerSelfWrite: registerSelfWrite, trace: trace)
-            }
-            try lease?.write(text)
+        // Preserve the original clipboard once, including across the verification Copy.
+        if lease == nil {
+            guard let registerSelfWrite else { throw CorrectionAXError.unavailable }
+            lease = try CorrectionClipboardLease(pasteboard: pasteboard,
+                registerSelfWrite: registerSelfWrite, trace: trace)
         }
-        try await verifyFocus(pid: pid, isFresh: isFresh)
+        let selection = try await verifyFocus(pid: pid, isFresh: isFresh)
+        guard let caret = selection, caret.length == 0,
+              caret.location >= originalText.utf16.count else { throw CorrectionAXError.verification }
+        let expectedRange = CFRange(location: caret.location - originalText.utf16.count,
+                                    length: originalText.utf16.count)
         try check(pid: pid, isFresh: isFresh)
-        trace?(.keyReplay, .started)
-        for _ in 0..<deleteCount {
+        trace?(.selection, .started, DiagnosticDetails(step: .selectReplacement))
+        for _ in originalText {
             try check(pid: pid, isFresh: isFresh)
-            if replayMethod == .paste, lease?.isOwned() != true { throw CorrectionAXError.stale }
-            mutationBegan = true
-            for event in delete {
+            guard lease?.isOwned() == true else { throw CorrectionAXError.stale }
+            for event in selectPrevious {
                 postEvent(event, pid)
                 try await Task.sleep(nanoseconds: 1_500_000)
             }
         }
-        try await Task.sleep(nanoseconds: 8_000_000)
-        try await verifyFocus(pid: pid, isFresh: isFresh)
+        try await waitForSelection(expectedRange, pid: pid, isFresh: isFresh)
+        guard let copied = try await copySelection(pid: pid, isFresh: isFresh) else {
+            throw CorrectionAXError.unavailable
+        }
+        let matches = copied.utf16.elementsEqual(originalText.utf16)
+        trace?(.validation, matches ? .passed : .mismatch,
+            DiagnosticDetails(step: .selectedText, check: .expectedTextMatches, matches: matches))
+        guard matches else { throw CorrectionAXError.verification }
         if replayMethod == .paste {
-            guard lease?.isOwned() == true else { throw CorrectionAXError.stale }
-            try check(pid: pid, isFresh: isFresh)
-            for event in paste { postEvent(event, pid) }
-            trace?(.nativePaste, .passed, DiagnosticDetails(dispatched: true, confirmed: false))
-            pasteDispatched = true
+            try await pasteSelection(text, pid: pid, expectedRange: expectedRange, isFresh: isFresh)
         } else {
+            let selection = try await verifyFocus(pid: pid, isFresh: isFresh)
+            try verifySelection(selection, equals: expectedRange)
+            guard lease?.isOwned() == true else { throw CorrectionAXError.stale }
             for pair in chunks {
                 try check(pid: pid, isFresh: isFresh)
+                mutationBegan = true
                 for event in pair { postEvent(event, pid) }
                 try await Task.sleep(nanoseconds: 1_000_000)
             }
+            pasteDispatched = true
+            trace?(.unicodePaste, .passed, DiagnosticDetails(dispatched: true, confirmed: false))
         }
-        trace?(.keyReplay, .passed, DiagnosticDetails(dispatched: true, confirmed: false))
+    }
+
+    private func waitForSelection(_ expected: CFRange, pid: pid_t, isFresh: () -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .milliseconds(200))
+        while true {
+            let selection = try await verifyFocus(pid: pid, isFresh: isFresh)
+            if selection?.location == expected.location && selection?.length == expected.length ||
+                selection == nil || ContinuousClock.now >= deadline {
+                try verifySelection(selection, equals: expected)
+                return
+            }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
+
+    private func verifySelection(_ selection: CFRange?, equals expected: CFRange) throws {
+        let matches = selection?.location == expected.location && selection?.length == expected.length
+        trace?(.validation, matches ? .passed : .mismatch,
+            DiagnosticDetails(step: .waitSelection, check: .selectionMatches,
+                rangeLocation: expected.location, rangeLength: expected.length,
+                selectionLocation: selection?.location, selectionLength: selection?.length, matches: matches))
+        guard matches else { throw CorrectionAXError.verification }
     }
 
     nonisolated static func unicodeChunks(_ text: String) -> [String] {
@@ -243,30 +275,34 @@ final class NativeLayoutCorrectionTransport: LayoutCorrectionTransport {
         lease?.restore(); lease = nil; focus = nil; trace = nil; pasteDispatched = false
     }
 
-    private func verifyFocus(pid: pid_t, isFresh: () -> Bool) async throws {
+    @discardableResult
+    private func verifyFocus(pid: pid_t, isFresh: () -> Bool) async throws -> CFRange? {
         try check(pid: pid, isFresh: isFresh)
         guard let expected = focus else { throw CorrectionAXError.stale }
         let diagnosticTrace = trace, client = axClient
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        let selection: CFRange? = try await withCheckedThrowingContinuation { continuation in
             CorrectionAXWorker.queue.async {
                 do {
-                    try Self.validateFocusedElement(expected.element, pid: pid, client: client, trace: diagnosticTrace)
-                    continuation.resume()
+                    let selection = try Self.validateFocusedElement(expected.element, pid: pid, client: client, trace: diagnosticTrace)
+                    continuation.resume(returning: selection)
                 }
                 catch { continuation.resume(throwing: error) }
             }
         }
         try check(pid: pid, isFresh: isFresh)
+        return selection
     }
 
+    @discardableResult
     nonisolated static func validateFocusedElement(_ expected: AXUIElement, pid: pid_t,
                                                    client: any CorrectionAXClient = SystemCorrectionAXClient(),
-                                                   trace: CorrectionDiagnosticTrace? = nil) throws {
+                                                   trace: CorrectionDiagnosticTrace? = nil) throws -> CFRange? {
         let current = try textFieldContext(pid: pid, client: client, trace: trace, step: .verifyContext)
         guard CFEqual(expected, current.element) else {
             trace?(.validation, .stale, DiagnosticDetails(step: .verifyContext, check: .elementMatches, matches: false))
             throw CorrectionAXError.stale
         }
+        return current.selection
     }
 
     private func check(pid: pid_t, isFresh: () -> Bool, step: DiagnosticStep = .preDispatchValidation) throws {
