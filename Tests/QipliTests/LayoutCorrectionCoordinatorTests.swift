@@ -9,6 +9,8 @@ private final class NativeMetadataClient: CorrectionAXClient, @unchecked Sendabl
     var subrole: String?
     var subroleStatus: AXError = .attributeUnsupported
     var rangeStatus: AXError = .attributeUnsupported
+    var selectedRange: CFRange?
+    var focusedStatus: AXError = .success
     var editableStatus: AXError = .attributeUnsupported
     var editable: Bool?
     var elementPID: pid_t = 77
@@ -17,11 +19,13 @@ private final class NativeMetadataClient: CorrectionAXClient, @unchecked Sendabl
     func copyAttribute(_ element: AXUIElement, _ name: CFString) -> (AXError, CFTypeRef?) {
         let name = name as String; requested.append(name)
         switch name {
-        case kAXFocusedUIElementAttribute: return (.success, focusedElement)
+        case kAXFocusedUIElementAttribute: return (focusedStatus, focusedStatus == .success ? focusedElement : nil)
         case kAXRoleAttribute: return (.success, role as CFString)
         case kAXSubroleAttribute: return (subroleStatus, subrole.map { $0 as CFString })
         case "AXEditable": return editable.map { (.success, $0 as CFBoolean) } ?? (editableStatus, nil)
-        case kAXSelectedTextRangeAttribute: return (rangeStatus, nil)
+        case kAXSelectedTextRangeAttribute:
+            guard var range = selectedRange else { return (rangeStatus, nil) }
+            return (.success, AXValueCreate(.cfRange, &range))
         default: XCTFail("Unexpected metadata read"); return (.failure, nil)
         }
     }
@@ -49,7 +53,7 @@ private final class FakeNativeCorrection: LayoutCorrectionTransport {
     var onDispatchReturn: (() -> Void)?
     var prepared = 0, copies = 0, finishes = 0
     var pastes: [String] = []
-    var replays: [(Int, String)] = []
+    var replays: [(Int, String, String)] = []
     func setTrace(_ trace: CorrectionDiagnosticTrace?) {}
     func prepare(pid: pid_t) async throws -> Bool? {
         mutationBegan = false; prepared += 1; onPrepare?()
@@ -65,9 +69,9 @@ private final class FakeNativeCorrection: LayoutCorrectionTransport {
         guard isFresh() else { throw CorrectionAXError.stale }
         mutationBegan = true; pastes.append(text)
     }
-    func replay(deleteCount: Int, text: String, pid: pid_t, isFresh: () -> Bool) async throws {
+    func replay(originalText: String, text: String, pid: pid_t, isFresh: () -> Bool) async throws {
         guard isFresh() else { throw CorrectionAXError.stale }
-        mutationBegan = true; replays.append((deleteCount, text)); onReplay?()
+        mutationBegan = true; replays.append((originalText.count, text, originalText)); onReplay?()
         guard isFresh() else { throw CorrectionAXError.stale }
         onDispatchReturn?()
     }
@@ -137,7 +141,7 @@ final class LayoutCorrectionCoordinatorTests: XCTestCase {
         XCTAssertThrowsError(try NativeLayoutCorrectionTransport.textFieldMetadata(pid: 77, client: wrongPID))
     }
 
-    func testWordReplaysKeysAndTrailingSpacesWithoutCopyOrAXText() async {
+    func testWordMappingUsesPhysicalKeysAndPassesTrailingSpacesToTransport() async {
         for spaces in [0, 1, 3, 8] {
             let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
             typed(ledger, spaces: spaces)
@@ -208,7 +212,7 @@ final class LayoutCorrectionCoordinatorTests: XCTestCase {
         XCTAssertTrue(native.pastes.isEmpty); XCTAssertTrue(native.replays.isEmpty)
     }
 
-    func testUnsupportedOrOversizedCopyNeverFallsBackToDeletingWord() async {
+    func testUnsupportedOrOversizedCopyNeverFallsBackToReplacingWord() async {
         for error in [CorrectionAXError.unsupported, .limit, .stale] {
             let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
             typed(ledger); native.selectionEmpty = nil; native.copyError = error
@@ -218,13 +222,14 @@ final class LayoutCorrectionCoordinatorTests: XCTestCase {
         }
     }
 
-    func testWordCycleUsesOriginalPhysicalKeysAndDoesNotCopy() async {
+    func testWordCyclePassesThePreviousResultToTransport() async {
         let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
         typed(ledger, spaces: 3)
         let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger, selectSource: { _ in true })
         for current in ["A", "B", "C"] { _ = await trigger(coordinator, current: current) }
         XCTAssertEqual(native.replays.map { $0.1 }, ["b   ", "c   ", "a   "])
         XCTAssertEqual(native.replays.map { $0.0 }, [4, 4, 4])
+        XCTAssertEqual(native.replays.map { $0.2 }, ["a   ", "b   ", "c   "])
         XCTAssertEqual(native.copies, 0)
     }
 
@@ -235,6 +240,7 @@ final class LayoutCorrectionCoordinatorTests: XCTestCase {
         for current in ["A", "B", "C"] { _ = await trigger(coordinator, current: current) }
         XCTAssertEqual(native.pastes, ["b b"])
         XCTAssertEqual(native.replays.map { $0.1 }, ["c c", "a a"])
+        XCTAssertEqual(native.replays.map { $0.2 }, ["b b", "c c"])
         XCTAssertEqual(native.copies, 1)
     }
 
@@ -358,16 +364,27 @@ final class LayoutCorrectionCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.hasCycle)
     }
 
-    private func nativeTransport(_ board: NSPasteboard, onPaste: @escaping () -> Void = {}) -> NativeLayoutCorrectionTransport {
-        let native = NativeLayoutCorrectionTransport(pasteboard: board, axClient: NativeMetadataClient(),
+    private func nativeTransport(_ board: NSPasteboard, selection: Bool = false,
+                                 onPaste: @escaping () -> Void = {}) -> NativeLayoutCorrectionTransport {
+        let client = NativeMetadataClient()
+        let editor = NSTextView()
+        editor.string = "synthetic selection"
+        editor.setSelectedRange(selection ? NSRange(location: 0, length: editor.string.utf16.count)
+                                          : NSRange(location: editor.string.utf16.count, length: 0))
+        client.selectedRange = CFRange(location: editor.selectedRange().location, length: editor.selectedRange().length)
+        let native = NativeLayoutCorrectionTransport(pasteboard: board, axClient: client,
             frontmostPID: { 77 }, postEvent: { event, pid in
                 XCTAssertEqual(pid, 77)
                 XCTAssertEqual(event.getIntegerValueField(.eventSourceUserData), SyntheticEventMarker.sourceUserData)
                 guard event.type == .keyUp else { return }
                 switch event.getIntegerValueField(.keyboardEventKeycode) {
+                case Int64(kVK_LeftArrow):
+                    XCTAssertEqual(event.flags, .maskShift)
+                    editor.moveLeftAndModifySelection(nil)
+                    client.selectedRange = CFRange(location: editor.selectedRange().location, length: editor.selectedRange().length)
                 case Int64(kVK_ANSI_C):
                     board.clearContents()
-                    XCTAssertTrue(board.setString("synthetic selection", forType: .string))
+                    XCTAssertTrue(board.setString((editor.string as NSString).substring(with: editor.selectedRange()), forType: .string))
                 case Int64(kVK_ANSI_V): onPaste()
                 default: break
                 }
@@ -383,7 +400,7 @@ final class LayoutCorrectionCoordinatorTests: XCTestCase {
             XCTAssertEqual(copied, "synthetic selection")
             try await native.pasteSelection("synthetic replacement", pid: 77, isFresh: { true })
         } else {
-            try await native.replay(deleteCount: 1, text: "synthetic replacement", pid: 77, isFresh: { true })
+            try await native.replay(originalText: "synthetic selection", text: "synthetic replacement", pid: 77, isFresh: { true })
         }
     }
 
@@ -398,7 +415,7 @@ final class LayoutCorrectionCoordinatorTests: XCTestCase {
             XCTAssertTrue(board.writeObjects([first, second]))
             var returnedFromPaste = false, finished = false
             let returnedBeforeQueuedWork = expectation(description: "dispatch returns without clipboard grace")
-            let native = nativeTransport(board) {
+            let native = nativeTransport(board, selection: selection) {
                 DispatchQueue.main.async {
                     XCTAssertTrue(returnedFromPaste, "Paste must return before yielding for clipboard grace")
                     returnedBeforeQueuedWork.fulfill()
@@ -476,6 +493,116 @@ final class LayoutCorrectionCoordinatorTests: XCTestCase {
                 if let externalCount { XCTAssertEqual(board.changeCount, externalCount) }
             }
         }
+    }
+
+    func testPreviousTextReplacementPreservesTextUntilOneVerifiedPaste() async throws {
+        enum Failure: CaseIterable {
+            case none, accessLostAfterSelection, copyMismatch, rangeChangedAfterCopy
+            case focusChangedAfterCopy, externalCopy, inputChanged, copyTimeout
+        }
+        for failure in Failure.allCases {
+            let board = NSPasteboard(name: .init("QipliNativeReplacementTests.\(UUID())"))
+            defer { board.releaseGlobally() }
+            XCTAssertTrue(board.setString("synthetic original clipboard", forType: .string))
+            let original = "ghbdtn   ", replacement = "привет   "
+            let editor = NSTextView()
+            let seed = "before " + original + " after"
+            editor.string = seed
+            editor.setSelectedRange(NSRange(location: 7 + original.utf16.count, length: 0))
+            let client = NativeMetadataClient()
+            client.selectedRange = CFRange(location: editor.selectedRange().location, length: 0)
+            var keys: [Int64] = [], fresh = true
+            let native = NativeLayoutCorrectionTransport(pasteboard: board, axClient: client,
+                frontmostPID: { 77 }, postEvent: { event, _ in
+                    XCTAssertEqual(event.getIntegerValueField(.eventSourceUserData), SyntheticEventMarker.sourceUserData)
+                    guard event.type == .keyUp else { return }
+                    let key = event.getIntegerValueField(.keyboardEventKeycode)
+                    keys.append(key)
+                    switch key {
+                    case Int64(kVK_LeftArrow):
+                        XCTAssertEqual(event.flags, .maskShift)
+                        editor.moveLeftAndModifySelection(nil)
+                        client.selectedRange = CFRange(location: editor.selectedRange().location, length: editor.selectedRange().length)
+                        if editor.selectedRange().length == original.utf16.count {
+                            if failure == .accessLostAfterSelection { client.focusedStatus = .cannotComplete }
+                            if failure == .inputChanged { fresh = false }
+                        }
+                    case Int64(kVK_ANSI_C):
+                        if failure == .copyTimeout { break }
+                        let copied = (editor.string as NSString).substring(with: editor.selectedRange())
+                        board.clearContents()
+                        XCTAssertTrue(board.setString(failure == .copyMismatch ? "different" : copied, forType: .string))
+                        if failure == .rangeChangedAfterCopy { client.selectedRange = CFRange(location: 0, length: original.utf16.count) }
+                        if failure == .focusChangedAfterCopy { client.focusedElement = AXUIElementCreateSystemWide() }
+                    case Int64(kVK_ANSI_V):
+                        editor.insertText(board.string(forType: .string)!, replacementRange: editor.selectedRange())
+                    default: XCTFail("Unexpected input during replacement")
+                    }
+                })
+            native.configurePasteboard(registerSelfWrite: { _ in }, beginCopy: {}, endCopy: {})
+            let publishExternalCopy: @MainActor @Sendable () -> Void = {
+                board.clearContents()
+                XCTAssertTrue(board.setString("synthetic newer copy", forType: .string))
+            }
+            native.setTrace(CorrectionDiagnosticTrace { stage, reason, details in
+                if failure == .externalCopy, stage == .validation, reason == .passed,
+                   details?.check == .expectedTextMatches {
+                    MainActor.assumeIsolated { publishExternalCopy() }
+                }
+            })
+            _ = try await native.prepare(pid: 77)
+            do {
+                try await native.replay(originalText: original, text: replacement, pid: 77, isFresh: { fresh })
+                XCTAssertEqual(failure, .none)
+            } catch {
+                XCTAssertNotEqual(failure, .none, "Unexpected replacement failure: \(error)")
+            }
+            XCTAssertFalse(keys.contains(Int64(kVK_Delete)))
+            XCTAssertEqual(keys.filter { $0 == Int64(kVK_ANSI_V) }.count, failure == .none ? 1 : 0)
+            XCTAssertEqual(native.mutationBegan, failure == .none)
+            XCTAssertEqual(editor.string, failure == .none ? "before " + replacement + " after" : seed)
+            await native.finish()
+            XCTAssertEqual(board.string(forType: .string),
+                           failure == .externalCopy ? "synthetic newer copy" : "synthetic original clipboard")
+        }
+    }
+
+    func testPreviousTextReplacementUsesUTF16RangesAndNativeGraphemeSelection() async throws {
+        let original = "A👨‍👩‍👧‍👦e\u{301}  "
+        let replacement = "B👩🏽‍💻é  "
+        let board = NSPasteboard(name: .init("QipliNativeGraphemeTests.\(UUID())"))
+        defer { board.releaseGlobally() }
+        XCTAssertTrue(board.setString("synthetic clipboard", forType: .string))
+        let editor = NSTextView()
+        editor.string = "prefix " + original + " suffix"
+        editor.setSelectedRange(NSRange(location: 7 + original.utf16.count, length: 0))
+        let client = NativeMetadataClient()
+        client.selectedRange = CFRange(location: editor.selectedRange().location, length: 0)
+        var pastes = 0
+        let native = NativeLayoutCorrectionTransport(pasteboard: board, axClient: client,
+            frontmostPID: { 77 }, postEvent: { event, _ in
+                guard event.type == .keyUp else { return }
+                switch event.getIntegerValueField(.keyboardEventKeycode) {
+                case Int64(kVK_LeftArrow):
+                    editor.moveLeftAndModifySelection(nil)
+                    client.selectedRange = CFRange(location: editor.selectedRange().location, length: editor.selectedRange().length)
+                case Int64(kVK_ANSI_C):
+                    board.clearContents()
+                    XCTAssertTrue(board.setString((editor.string as NSString).substring(with: editor.selectedRange()), forType: .string))
+                case Int64(kVK_ANSI_V):
+                    pastes += 1
+                    editor.insertText(board.string(forType: .string)!, replacementRange: editor.selectedRange())
+                default: XCTFail("Unexpected input")
+                }
+            })
+        native.configurePasteboard(registerSelfWrite: { _ in }, beginCopy: {}, endCopy: {})
+        _ = try await native.prepare(pid: 77)
+        try await native.replay(originalText: original, text: replacement, pid: 77, isFresh: { true })
+        XCTAssertEqual(editor.string, "prefix " + replacement + " suffix")
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 7 + replacement.utf16.count, length: 0))
+        XCTAssertEqual(pastes, 1)
+        await native.finish()
+        XCTAssertEqual(board.string(forType: .string), "synthetic clipboard")
     }
 
     func testUnicodeChunksPreserveSurrogatesAndCombiningCharacters() {

@@ -55,7 +55,7 @@ final class S037FinalCutProbe: NSObject, NSApplicationDelegate {
             stage = "replay"
             // Collapse only the known six-character synthetic search selection.
             try plain(CGKeyCode(kVK_RightArrow), pid: pid)
-            try await transport.replay(deleteCount: 6, text: "привет", pid: pid, isFresh: { true })
+            try await transport.replay(originalText: "ghbdtn", text: "привет", pid: pid, isFresh: { true })
 #else
             stage = "paste"
             try await transport.pasteSelection("привет", pid: pid, isFresh: { true })
@@ -71,7 +71,7 @@ final class S037FinalCutProbe: NSObject, NSApplicationDelegate {
             }
             await transport.finish()
 #if S037_WORD_PROBE
-            finish("PASS transport=key-replay actualText=true searchField=true sourceSwitch=notExercised trigger=notExercised")
+            finish("PASS transport=verified-selection-paste actualText=true searchField=true sourceSwitch=notExercised trigger=notExercised")
 #else
             finish("PASS transport=copy-paste actualText=true searchField=true sourceSwitch=notExercised trigger=notExercised")
 #endif

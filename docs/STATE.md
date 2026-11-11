@@ -1,10 +1,20 @@
 # Qipli — текущее состояние проекта
 
-Последняя актуализация: 2026-10-30, приёмка дизайна S039 и локальная подготовка 1.0.18/build19 с исправлением S037/S038 по D-058. Метаданные GitHub releases и состояние release workflow перепроверены 2026-10-30; последняя публичная версия 1.0.17/build18.
+Последняя актуализация: 2026-11-11, локальные исправления word/cycle replacement D-060 и Hex image restore. Проверки установленного приложения остаются отдельными gates.
 
 Источник operational-статусов: этот файл. Исторические переходы и прежние verification snapshots находятся в [`STATE-HISTORY.md`](STATE-HISTORY.md).
 
 ## Текущее положение
+
+### Локальный кандидат: безопасная замена текста и Hex, 2026-11-11
+
+Ветка `feature/hex-clipboard-restore`. Восстановленная после помеченной диктовки Hex картинка пропускается при последовательных changeCount и exact image fingerprint; обычное повторное копирование сохраняется. Пропущенная временная запись диктовки оставляет обычный захват.
+
+S037/D-060 `needs_verification`: word/cycle replacement заменён Shift+← → проверка UTF-16 range и exact native Copy → один Paste. Потеря AX до Paste сохраняет текст, выделение может остаться. Regression с production transport/lease и NSTextView editor model, clipboard ownership/races, Unicode/caret и циклическим seed PASS; полный SwiftPM 390/390 и финальный focused 27/27 без skips/failures. Signed universal Debug, strict/deep codesign, unsigned universal Release, version/runtime-linking/privacy/diff checks PASS. Локальная Dev 1.0.19/build20: `/private/tmp/qipli-selection-replacement-build/Build/Products/Debug/Qipli Dev.app`. Детали в [S037](slices/S037-manual-layout-correction.md#verification-d-060). Signed two-process owned-field probe 4/4 PASS: actual text, caret, native Undo и clipboard подтверждены. Source switch mock. Следующее действие — публикация 1.0.20/build21; installed Option/TIS cycle и editor matrix проверяются отдельно.
+
+### Выпуск 1.0.19/build20: опубликован
+
+GitHub metadata и workflow перепроверены 2026-11-11: [v1.0.19](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.19) публичен/latest с 2026-10-30 17:04 UTC, build marker20, SHA `9fd50c37cf03e38c0a0146812365fc8299aa6cfb`. [Feature PR #44](https://github.com/tomfordrumm/Qipli/pull/44), [Release PR #45](https://github.com/tomfordrumm/Qipli/pull/45), [exact-main CI](https://github.com/tomfordrumm/Qipli/actions/runs/41091661245) и [Release/Pages run41092285708](https://github.com/tomfordrumm/Qipli/actions/runs/41092285708) SUCCESS. В этом этапе downloaded bytes и installed update1.0.19 отдельно не перепроверялись.
 
 ### S039: дизайн панелей и общий выбор стороны, 2026-10-30
 
