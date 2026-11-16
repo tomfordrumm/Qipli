@@ -1,18 +1,14 @@
 # Qipli — текущее состояние проекта
 
-Последняя актуализация: 2026-11-16, локальные исправления поверх 1.0.20/build21: текстовый возврат Hex (D-061, PR #49 слит в main) и bundle identifier целевого приложения в диагностике (D-062, PR #50). Проверки установленного приложения остаются отдельными gates.
+Последняя актуализация: 2026-11-16, опубликован и независимо проверен v1.0.21/build22: дедуп текстового возврата Hex (D-061, PR #49) и bundle identifier целевого приложения в opt-in диагностике (D-062, PR #50). Installed update и реальные smoke остаются отдельными gates.
 
 Источник operational-статусов: этот файл. Исторические переходы и прежние verification snapshots находятся в [`STATE-HISTORY.md`](STATE-HISTORY.md).
 
 ## Текущее положение
 
-### Локальное исправление: приложение в диагностике correction, 2026-11-16
+### Выпуск 1.0.21/build22: опубликован
 
-Ветка `feature/diagnostics-target-app`, PR #50, база origin/main `c907d55` (после merge PR #49). По явному запросу пользователя opt-in диагностика получила опциональный targetBundleID целевого приложения (NSWorkspace frontmostApplication на trigger); trace крепит его к terminal record вместе с lastFailure, чтобы отказы вроде AX -25204 в категории `other` можно было расследовать. Аддитивное поле внутри schema v2; PIDs/payload/произвольные strings по-прежнему запрещены, логи локальные без отправки. D-062, BR-041 и TECHNICAL S038 обновлены. Focused LocalDiagnostics/Coordinator 42/42 и полный SwiftPM 399/399 без failures/skips PASS. Версия и публикация не менялись; installed smoke и реальный инцидент с заполненным полем — отдельные gates.
-
-### Локальное исправление: текстовый возврат Hex, 2026-11-16
-
-Ветка `feature/hex-text-restore-dedup` от `origin/main` `e695d5c`, PR #49. Подавление возврата буфера после диктовки Hex расширено с изображений на plain/rich text по D-061: последовательные changeCount, окно 1 с, одноразовое ожидание; ручное повторное копирование того же полного содержимого в окне пропускается (принятый trade-off). После review (P2) текстовый fingerprint покрывает все упорядоченные item texts, а не только первый item: multi-item копия с изменённым хвостом захватывается, идентичный multi-item возврат подавляется; payload без текста хотя бы у одного item не подавляется. Focus PasteboardMonitorTests 32/32 и полный SwiftPM 397/397 без failures/skips. Версия и публикация не менялись; installed Hex smoke с текстовым буфером остаётся отдельным gate.
+[v1.0.21](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.21) публичен/latest с 2026-11-16 18:49 UTC, build marker22, tag/main SHA `27144e076d6c2267d15eaf2cf0eaf19e12b93493`. Содержит дедуп текстового возврата Hex (D-061, [PR #49](https://github.com/tomfordrumm/Qipli/pull/49), включая multi-item fingerprint после P2 review) и targetBundleID в opt-in диагностике (D-062, [PR #50](https://github.com/tomfordrumm/Qipli/pull/50)). [Release PR #51](https://github.com/tomfordrumm/Qipli/pull/51), exact-main CI и [release run 43924175689](https://github.com/tomfordrumm/Qipli/actions/runs/43924175689) SUCCESS; первый прогон упал на notarization из-за истёкшего соглашения Apple Developer Program, пользователь принял соглашение и разрешил повтор упавшего job, recovery прошёл без изменения тега. Скачанные ZIP/DMG checksums, stable alias, codesign/stapler/Gatekeeper и независимая CryptoKit проверка Sparkle-подписи PASS; публичный feed 1.0.21/build22 с immutable ZIP URL. Подробное evidence и recovery — в STATE-HISTORY. Installed Hex text smoke, реальный инцидент с заполненным targetBundleID и installed Sparkle update остаются отдельными gates.
 
 ### Локальный кандидат: безопасная замена текста и Hex, 2026-11-11
 
@@ -72,7 +68,7 @@ S038 остаётся `needs_verification`. Schema v2 опубликована �
 Статус: `needs_verification`. D-045 реализован: Debug `Qipli Dev.app` / `com.qipli.app.dev`, Apple Development, отдельные настройки, общий History store/assets и отключённый Sparkle. Подписанный universal `build-for-testing` прошёл; существующие `SecureUpdaterSettingsTests` 3/3; Release settings сохраняют `Qipli.app` / `com.qipli.app`. Strict codesign verification прошёл на копии в `/private/tmp/qipli-dev-identity-check/Qipli Dev.app` без Finder xattrs: Documents file provider повторно добавляет недопустимый FinderInfo к build test bundle. Проверка Accessibility остаётся за пользователем: обычный Cmd+R из Xcode, выдать Dev доступ, пересобрать и проверить сохранение доступа обеих версий. Версии запускать по очереди.
 
 
-- Последняя опубликованная версия [v1.0.17](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.17), build18 от 2026-10-22. Native correction D-056 и local diagnostics D-055 опубликованы. Installed update проверяется отдельно.
+- Последняя опубликованная версия [v1.0.21](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.21), build22 от 2026-11-16. Hex text restore dedup D-061 и diagnostics targetBundleID D-062 опубликованы. Installed update проверяется отдельно.
 - Milestones M1–M3 и M6–M9 завершены. M4/M5 сохраняют release gates S014/S008; M10 и M11 активны из-за оставшихся gates S031 и S032.
 - S001–S007, S009–S013, S015–S016, S017–S027 и S030 имеют статус `done`.
 - S028 остаётся в backlog по D-038. S029 возвращён в активный план по D-042; M12 описывает избранное в Top Notch.
@@ -125,7 +121,11 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 
 ## Последний выпуск
 
-`v1.0.17`, build `18`, tag/main SHA `2e16cbf5584a5079d89675f8e7f30eb0976e8ce4`, опубликован 2026-10-22. [Release](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.17), [workflow](https://github.com/tomfordrumm/Qipli/actions/runs/39791222699). Metadata/workflow перепроверены 2026-10-30, downloaded bytes и installed update не перепроверялись. Подробности предыдущего 1.0.16 сохранены выше и в STATE-HISTORY.
+`v1.0.21`, build `22`, tag/main SHA `27144e076d6c2267d15eaf2cf0eaf19e12b93493`, опубликован 2026-11-16. [Release](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.21), [workflow](https://github.com/tomfordrumm/Qipli/actions/runs/43924175689). [PR #49](https://github.com/tomfordrumm/Qipli/pull/49) и [PR #50](https://github.com/tomfordrumm/Qipli/pull/50) доставили исправления; [Release PR #51](https://github.com/tomfordrumm/Qipli/pull/51) содержал только version/build и release notes. Exact-SHA main CI SUCCESS; Environment approval оба раза выполнил пользователь. Первый прогон упал на notarization (истёкшее соглашение Apple Developer Program); после принятия соглашения пользователь разрешил повтор упавшего job, recovery прошёл на том же теге.
+
+Публичные ZIP/DMG SHA-256 PASS; стабильный `Qipli.dmg` идентичен версионному DMG. Workflow проверил codesign, notarization/stapling и Gatekeeper на публичных артефактах; скачанные DMG/ZIP приложения независимо прошли strict/deep codesign, stapler и Gatekeeper (`spctl -t execute` accepted Notarized Developer ID). [Sparkle appcast](https://tomfordrumm.github.io/Qipli/appcast.xml): 1.0.21/build22, minimum macOS14.0, immutable ZIP URL и длина совпадают; Ed25519 подпись ZIP независимо проверена публичным ключом из приложения.
+
+Локальные gates: SwiftPM 399/399 без failures/skips, unsigned universal Debug/Release, version/CI/release contracts и Sparkle runtime linking PASS. Installed Hex text smoke (D-061), реальный инцидент с заполненным targetBundleID (D-062) и installed Sparkle update не объявляются пройденными. Подробное release evidence и recovery находятся в STATE-HISTORY.
 
 ## Статусы срезов
 
@@ -168,7 +168,7 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 | S035 | Вырезание файлов с индикацией в чёлке | `needs_verification` | S033, S025; installed Finder/accessibility/display matrix и окончательное подтверждение D-046 |
 | S036 | Пять последних записей History в меню | `needs_verification` | реализация и automated checks; installed-app typed target/keyboard/VoiceOver/Light-Dark matrix, release gate S031 сохранён |
 | S037 | Исправление раскладки по хоткею | `needs_verification` | D-056 native transport: owned field и Final Cut search PASS; installed Option/cycle/TIS/title fields, permissions/VoiceOver/macOS14 matrix открыта |
-| S038 | Opt-in локальная диагностика | `needs_verification` | automated/build/UI render PASS; installed Settings/VoiceOver/Finder и correction smoke открыты |
+| S038 | Opt-in локальная диагностика | `needs_verification` | D-062 targetBundleID опубликован в v1.0.21; installed Settings/VoiceOver/Finder, correction smoke и реальный инцидент с заполненным полем открыты |
 | S039 | Дизайн панелей и общий выбор края экрана | `needs_verification` | 385 tests, signed universal Dev + strict codesign, native synthetic seam capture + elastic renders; повторная motion/display/accessibility приёмка открыта |
 
 ## Блокеры и recheck points
@@ -186,6 +186,8 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 - Ограничение BL-006, отключение дисплея во время Top Notch reveal, принято и не блокирует S030.
 
 ## Последняя проверка
+
+- 2026-11-16: v1.0.21/build22 опубликован после recovery (нотариальный отказ Apple PLA 403 устранён принятием соглашения; повтор упавшего job разрешён пользователем). Release/Pages SUCCESS; публичные ZIP/DMG checksums, stable alias, codesign/stapler/Gatekeeper и независимая Sparkle Ed25519 проверка PASS. Installed update не выполнялся.
 
 - 2026-10-16: v1.0.16/build17 publication и release/Pages SUCCESS; public ZIP/DMG/checksums/aliases, version, signing/notarization/Gatekeeper и Sparkle public-key signature PASS. Installed update не выполнялся.
 
@@ -225,6 +227,6 @@ Smoke test подтвердил migration, search, text/image/rich-text paste и
 
 ## Следующее действие
 
-Обновить установленную Release до 1.0.16/build17 через Check for Updates или опубликованный DMG. Проверить реальный левый Option, цикл системных раскладок, последнее слово и выделение в Final Cut, включая title/text fields, native Undo и сохранение clipboard. Effects-search transport paths уже подтверждены отдельно, детали в S037. Dev сборка для отдельных probes сохранена: `/private/tmp/qipli-native-correction-xcode/Build/Products/Debug/Qipli Dev.app`.
+Обновить установленную Release до 1.0.21/build22 через Check for Updates или опубликованный DMG; проверить сохранение History/favorites, Accessibility и diagnostics opt-in после relaunch. Это отдельный installed-update gate, публикация его не закрывает.
 
-Отдельно проверить installed Sparkle update с сохранением History/favorites/Accessibility/diagnostics opt-in и реальный correction trail schema v2. Installed Settings/VoiceOver/Finder/ChatGPT matrix и clean-machine macOS14 gate остаются открытыми. Опубликованные v1.0.16 tag/assets неизменяемы; исправления выходят новой версией.
+После обновления проверить реальный Hex/right-Alt сценарий с текстовым буфером: возврат после диктовки не создаёт дубль, обычное повторное копирование захватывается (D-061). При следующем инциденте коррекции убедиться, что opt-in диагностика записывает targetBundleID целевого приложения (D-062). Реальный левый Option, цикл раскладок и Final Cut title/text fields acceptance S037 остаются открытыми. Опубликованные v1.0.21 tag/assets неизменяемы; исправления выходят новой версией.
