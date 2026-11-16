@@ -555,6 +555,203 @@ final class PasteboardMonitorTests: XCTestCase {
         XCTAssertEqual(captured, ["previous fixture", "dictation fixture", "previous fixture"])
     }
 
+    func testDifferentSecondRichTextItemAfterTranscriptIsCaptured() async throws {
+        let pasteboard = try requireNamedPasteboard()
+        defer { pasteboard.releaseGlobally() }
+        let firstCopy = expectation(description: "original multi-item rich text captured")
+        let transcript = expectation(description: "temporary text observed")
+        let changedCopy = expectation(description: "copy with a different second item captured")
+        var typedExpectation = firstCopy
+        var captured: [[String?]] = []
+        let monitor = PasteboardMonitor(
+            pasteboard: SystemPasteboardReader(pasteboard: pasteboard),
+            scheduler: FakePasteboardPollScheduler(),
+            onExternalText: { _ in transcript.fulfill() },
+            onExternalChange: {
+                captured.append($0.richTextItems.map(\.canonicalText))
+                typedExpectation.fulfill()
+            }
+        )
+        monitor.start()
+        defer { monitor.stop() }
+
+        func pollRichItems(tail: String) throws {
+            let items = ["shared first fixture", tail].map { text -> NSPasteboardItem in
+                let item = NSPasteboardItem()
+                XCTAssertTrue(item.setString(text, forType: .string))
+                XCTAssertTrue(item.setData(Data("{\\rtf1 \(text)}".utf8), forType: .rtf))
+                return item
+            }
+            pasteboard.clearContents()
+            try requirePasteboardWrite(items, to: pasteboard)
+            monitor.poll()
+        }
+
+        try pollRichItems(tail: "original second fixture")
+        await fulfillment(of: [firstCopy], timeout: 1)
+        pasteboard.clearContents()
+        try requirePasteboardWrite([makeMarkedTranscript()], to: pasteboard)
+        monitor.poll()
+        await fulfillment(of: [transcript], timeout: 1)
+
+        typedExpectation = changedCopy
+        try pollRichItems(tail: "different second fixture")
+        await fulfillment(of: [changedCopy], timeout: 1)
+        XCTAssertEqual(captured, [
+            ["shared first fixture", "original second fixture"],
+            ["shared first fixture", "different second fixture"]
+        ])
+    }
+
+    func testIdenticalMultiItemRichTextRestoreIsSkippedAndRecopyIsCaptured() async throws {
+        let pasteboard = try requireNamedPasteboard()
+        defer { pasteboard.releaseGlobally() }
+        let firstCopy = expectation(description: "original multi-item rich text captured")
+        let transcript = expectation(description: "temporary text observed")
+        let restored = expectation(description: "identical multi-item restore must not be captured")
+        restored.isInverted = true
+        let recopy = expectation(description: "explicit multi-item recopy captured")
+        var typedExpectation = firstCopy
+        var capturedCounts: [Int] = []
+        let monitor = PasteboardMonitor(
+            pasteboard: SystemPasteboardReader(pasteboard: pasteboard),
+            scheduler: FakePasteboardPollScheduler(),
+            onExternalText: { _ in transcript.fulfill() },
+            onExternalChange: {
+                capturedCounts.append($0.changeCount)
+                typedExpectation.fulfill()
+            }
+        )
+        monitor.start()
+        defer { monitor.stop() }
+
+        func pollRichItems() throws {
+            let items = ["first fixture", "second fixture"].map { text -> NSPasteboardItem in
+                let item = NSPasteboardItem()
+                XCTAssertTrue(item.setString(text, forType: .string))
+                XCTAssertTrue(item.setData(Data("{\\rtf1 \(text)}".utf8), forType: .rtf))
+                return item
+            }
+            pasteboard.clearContents()
+            try requirePasteboardWrite(items, to: pasteboard)
+            monitor.poll()
+        }
+
+        try pollRichItems()
+        await fulfillment(of: [firstCopy], timeout: 1)
+        pasteboard.clearContents()
+        try requirePasteboardWrite([makeMarkedTranscript()], to: pasteboard)
+        monitor.poll()
+        await fulfillment(of: [transcript], timeout: 1)
+
+        typedExpectation = restored
+        try pollRichItems()
+        await fulfillment(of: [restored], timeout: 0.15)
+
+        typedExpectation = recopy
+        try pollRichItems()
+        await fulfillment(of: [recopy], timeout: 1)
+        XCTAssertEqual(capturedCounts.count, 2)
+    }
+
+    func testDifferentSecondPlainTextItemAfterTranscriptIsCaptured() async throws {
+        let pasteboard = try requireNamedPasteboard()
+        defer { pasteboard.releaseGlobally() }
+        let firstCopy = expectation(description: "original multi-item plain text captured")
+        let transcript = expectation(description: "temporary text observed")
+        let changedCopy = expectation(description: "copy with a different second item captured")
+        var capturedCounts: [Int] = []
+        var textExpectation = firstCopy
+        let monitor = PasteboardMonitor(
+            pasteboard: SystemPasteboardReader(pasteboard: pasteboard),
+            scheduler: FakePasteboardPollScheduler(),
+            onExternalText: {
+                capturedCounts.append($0.changeCount)
+                textExpectation.fulfill()
+            },
+            onExternalChange: { _ in XCTFail("plain text must not be routed as a typed change") }
+        )
+        monitor.start()
+        defer { monitor.stop() }
+
+        func pollPlainItems(tail: String) throws {
+            let items = ["shared first fixture", tail].map { text -> NSPasteboardItem in
+                let item = NSPasteboardItem()
+                XCTAssertTrue(item.setString(text, forType: .string))
+                return item
+            }
+            pasteboard.clearContents()
+            try requirePasteboardWrite(items, to: pasteboard)
+            monitor.poll()
+        }
+
+        try pollPlainItems(tail: "original second fixture")
+        await fulfillment(of: [firstCopy], timeout: 1)
+        textExpectation = transcript
+        pasteboard.clearContents()
+        try requirePasteboardWrite([makeMarkedTranscript()], to: pasteboard)
+        monitor.poll()
+        await fulfillment(of: [transcript], timeout: 1)
+
+        textExpectation = changedCopy
+        try pollPlainItems(tail: "different second fixture")
+        await fulfillment(of: [changedCopy], timeout: 1)
+        XCTAssertEqual(capturedCounts.count, 3)
+        XCTAssertEqual(Set(capturedCounts).count, 3)
+    }
+
+    func testIdenticalMultiItemPlainTextRestoreIsSkippedAndRecopyIsCaptured() async throws {
+        let pasteboard = try requireNamedPasteboard()
+        defer { pasteboard.releaseGlobally() }
+        let firstCopy = expectation(description: "original multi-item plain text captured")
+        let transcript = expectation(description: "temporary text observed")
+        let restored = expectation(description: "identical multi-item restore must not be captured")
+        restored.isInverted = true
+        let recopy = expectation(description: "explicit multi-item recopy captured")
+        var capturedCounts: [Int] = []
+        var textExpectation = firstCopy
+        let monitor = PasteboardMonitor(
+            pasteboard: SystemPasteboardReader(pasteboard: pasteboard),
+            scheduler: FakePasteboardPollScheduler(),
+            onExternalText: {
+                capturedCounts.append($0.changeCount)
+                textExpectation.fulfill()
+            },
+            onExternalChange: { _ in XCTFail("plain text must not be routed as a typed change") }
+        )
+        monitor.start()
+        defer { monitor.stop() }
+
+        func pollPlainItems() throws {
+            let items = ["first fixture", "second fixture"].map { text -> NSPasteboardItem in
+                let item = NSPasteboardItem()
+                XCTAssertTrue(item.setString(text, forType: .string))
+                return item
+            }
+            pasteboard.clearContents()
+            try requirePasteboardWrite(items, to: pasteboard)
+            monitor.poll()
+        }
+
+        try pollPlainItems()
+        await fulfillment(of: [firstCopy], timeout: 1)
+        textExpectation = transcript
+        pasteboard.clearContents()
+        try requirePasteboardWrite([makeMarkedTranscript()], to: pasteboard)
+        monitor.poll()
+        await fulfillment(of: [transcript], timeout: 1)
+
+        textExpectation = restored
+        try pollPlainItems()
+        await fulfillment(of: [restored], timeout: 0.15)
+
+        textExpectation = recopy
+        try pollPlainItems()
+        await fulfillment(of: [recopy], timeout: 1)
+        XCTAssertEqual(capturedCounts.count, 3)
+        XCTAssertEqual(Set(capturedCounts).count, 3)
+    }
+
     func testTypedChangeClassifiesWebURLAndFinderFileWithoutReadingFileBytes() throws {
         let pasteboard = try requireNamedPasteboard()
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("fixture.txt")
@@ -776,6 +973,8 @@ private final class FakeTypedPasteboard: PasteboardReading, TypedPasteboardReadi
         return "text fallback"
     }
 
+    func itemTexts() -> [String]? { nil }
+
     func publishImageChange() {
         storedChangeCount += 1
         pendingChange = PasteboardTypedChange(
@@ -814,6 +1013,8 @@ private final class BlockingTypedPasteboard: PasteboardReading, TypedPasteboardR
     }
 
     func textValue() -> String? { nil }
+
+    func itemTexts() -> [String]? { nil }
 
     func publishImageChange(marker: UInt8) {
         lock.withLock {

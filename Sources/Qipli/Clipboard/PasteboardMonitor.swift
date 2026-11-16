@@ -41,6 +41,8 @@ protocol PasteboardReading: AnyObject {
 
 protocol TypedPasteboardReading: PasteboardReading {
     func typedChange(changeCount: Int) -> PasteboardTypedChange?
+    /// Ordered plain strings of all items; nil when any item carries no text.
+    func itemTexts() -> [String]?
 }
 
 struct PasteboardTextChange: Equatable {
@@ -61,6 +63,16 @@ final class SystemPasteboardReader: TypedPasteboardReading, @unchecked Sendable 
 
     func textValue() -> String? {
         pasteboard.string(forType: .string)
+    }
+
+    func itemTexts() -> [String]? {
+        guard let items = pasteboard.pasteboardItems, !items.isEmpty else { return nil }
+        var texts: [String] = []
+        for item in items {
+            guard let text = item.string(forType: .string) else { return nil }
+            texts.append(text)
+        }
+        return texts
     }
 
     func typedChange(changeCount: Int) -> PasteboardTypedChange? {
@@ -336,13 +348,30 @@ private enum PasteboardRestoreFingerprint: Equatable, Sendable {
     case image(PasteboardImageFingerprint)
     case text(SHA256.Digest)
 
-    init?(_ change: PasteboardTypedChange?) {
+    init?(_ change: PasteboardTypedChange?, itemTexts: [String]?) {
         if let image = PasteboardImageFingerprint(change) {
             self = .image(image)
             return
         }
-        guard let change, !change.isTemporaryPlainText, let text = change.canonicalText else { return nil }
-        self = .text(SHA256.hash(data: Data(text.utf8)))
+        guard let change, !change.isTemporaryPlainText,
+              change.captureFailure == nil, change.referenceItems.isEmpty,
+              let texts = itemTexts, !texts.isEmpty else { return nil }
+        self = .text(Self.digest(texts))
+    }
+
+    init?(itemTexts: [String]?) {
+        guard let texts = itemTexts, !texts.isEmpty else { return nil }
+        self = .text(Self.digest(texts))
+    }
+
+    // Fixed-width per-item digests keep the ordered encoding unambiguous, so a
+    // changed tail item can never match the previous multi-item content.
+    private static func digest(_ texts: [String]) -> SHA256.Digest {
+        var joined = Data()
+        for text in texts {
+            joined.append(contentsOf: SHA256.hash(data: Data(text.utf8)))
+        }
+        return SHA256.hash(data: joined)
     }
 }
 
@@ -446,9 +475,10 @@ final class PasteboardMonitor {
             typedReadInFlight = true
             let generation = lifecycleGeneration
             Task { @MainActor [weak self] in
-                let (typedChange, fingerprint) = await Task.detached(priority: .userInitiated) {
+                let (typedChange, itemTexts, fingerprint) = await Task.detached(priority: .userInitiated) {
                     let change = typedReader.typedChange(changeCount: currentChangeCount)
-                    return (change, PasteboardRestoreFingerprint(change))
+                    let texts = typedReader.itemTexts()
+                    return (change, texts, PasteboardRestoreFingerprint(change, itemTexts: texts))
                 }.value
                 guard let self,
                       self.lifecycleGeneration == generation,
@@ -479,8 +509,8 @@ final class PasteboardMonitor {
                     return
                 }
                 guard let text = self.pasteboard.textValue() else { return }
-                if typedChange == nil {
-                    let fingerprint = PasteboardRestoreFingerprint.text(SHA256.hash(data: Data(text.utf8)))
+                if typedChange == nil,
+                   let fingerprint = PasteboardRestoreFingerprint(itemTexts: itemTexts) {
                     self.clipboardObservation = .content(fingerprint)
                     if case let .awaitingRestore(expected, deadline) = previousObservation,
                        observedAt <= deadline, fingerprint == expected {
