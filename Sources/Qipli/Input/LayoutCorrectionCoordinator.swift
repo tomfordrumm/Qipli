@@ -53,7 +53,7 @@ final class LayoutCorrectionCoordinator {
                        completion: @escaping (LayoutCorrectionOutcome) -> Void) {
         let id = UUID(), began = DispatchTime.now().uptimeNanoseconds
         let logger = diagnostics
-        let trace = CorrectionDiagnosticTrace { stage, reason, details in
+        let trace = CorrectionDiagnosticTrace(context: context) { stage, reason, details in
             logger?.record(operation: id, stage: stage, reason: reason,
                 elapsedMilliseconds: (DispatchTime.now().uptimeNanoseconds &- began) / 1_000_000, details: details)
         }
