@@ -41,6 +41,8 @@ protocol PasteboardReading: AnyObject {
 
 protocol TypedPasteboardReading: PasteboardReading {
     func typedChange(changeCount: Int) -> PasteboardTypedChange?
+    /// Ordered plain strings of all items; nil when any item carries no text.
+    func itemTexts() -> [String]?
 }
 
 struct PasteboardTextChange: Equatable {
@@ -61,6 +63,16 @@ final class SystemPasteboardReader: TypedPasteboardReading, @unchecked Sendable 
 
     func textValue() -> String? {
         pasteboard.string(forType: .string)
+    }
+
+    func itemTexts() -> [String]? {
+        guard let items = pasteboard.pasteboardItems, !items.isEmpty else { return nil }
+        var texts: [String] = []
+        for item in items {
+            guard let text = item.string(forType: .string) else { return nil }
+            texts.append(text)
+        }
+        return texts
     }
 
     func typedChange(changeCount: Int) -> PasteboardTypedChange? {
@@ -332,7 +344,38 @@ private struct PasteboardImageFingerprint: Equatable, Sendable {
     }
 }
 
-/// Polls the system pasteboard and filters internal writes and observed image restores.
+private enum PasteboardRestoreFingerprint: Equatable, Sendable {
+    case image(PasteboardImageFingerprint)
+    case text(SHA256.Digest)
+
+    init?(_ change: PasteboardTypedChange?, itemTexts: [String]?) {
+        if let image = PasteboardImageFingerprint(change) {
+            self = .image(image)
+            return
+        }
+        guard let change, !change.isTemporaryPlainText,
+              change.captureFailure == nil, change.referenceItems.isEmpty,
+              let texts = itemTexts, !texts.isEmpty else { return nil }
+        self = .text(Self.digest(texts))
+    }
+
+    init?(itemTexts: [String]?) {
+        guard let texts = itemTexts, !texts.isEmpty else { return nil }
+        self = .text(Self.digest(texts))
+    }
+
+    // Fixed-width per-item digests keep the ordered encoding unambiguous, so a
+    // changed tail item can never match the previous multi-item content.
+    private static func digest(_ texts: [String]) -> SHA256.Digest {
+        var joined = Data()
+        for text in texts {
+            joined.append(contentsOf: SHA256.hash(data: Data(text.utf8)))
+        }
+        return SHA256.hash(data: joined)
+    }
+}
+
+/// Polls the system pasteboard and filters internal writes and observed clipboard restores.
 @MainActor
 final class PasteboardMonitor {
     nonisolated static let productionInterval: TimeInterval = 0.35
@@ -350,11 +393,11 @@ final class PasteboardMonitor {
     private var scheduledPoll: PasteboardPollCancellation?
     private var typedReadInFlight = false
     private var lifecycleGeneration = 0
-    private enum ImageObservation {
-        case image(PasteboardImageFingerprint)
-        case awaitingRestore(PasteboardImageFingerprint, until: ContinuousClock.Instant)
+    private enum ClipboardObservation {
+        case content(PasteboardRestoreFingerprint)
+        case awaitingRestore(PasteboardRestoreFingerprint, until: ContinuousClock.Instant)
     }
-    private var imageObservation: ImageObservation?
+    private var clipboardObservation: ClipboardObservation?
 
     init(
         pasteboard: PasteboardReading = SystemPasteboardReader(),
@@ -389,7 +432,7 @@ final class PasteboardMonitor {
         scheduledPoll?.cancel()
         scheduledPoll = nil
         typedReadInFlight = false
-        imageObservation = nil
+        clipboardObservation = nil
     }
 
     /// Called by future Qipli writers immediately after their pasteboard write completes.
@@ -418,10 +461,10 @@ final class PasteboardMonitor {
         if pasteboard is TypedPasteboardReading, onExternalChange != nil, typedReadInFlight {
             return
         }
-        let previousImageObservation = currentChangeCount == lastChangeCount + 1 ? imageObservation : nil
+        let previousObservation = currentChangeCount == lastChangeCount + 1 ? clipboardObservation : nil
         let observedAt = ContinuousClock.now
         self.lastChangeCount = currentChangeCount
-        imageObservation = nil
+        clipboardObservation = nil
 
         // A newer external change makes every older expected self-write irrelevant.
         ignoredChanges = ignoredChanges.filter { $0 >= currentChangeCount }
@@ -432,9 +475,10 @@ final class PasteboardMonitor {
             typedReadInFlight = true
             let generation = lifecycleGeneration
             Task { @MainActor [weak self] in
-                let (typedChange, fingerprint) = await Task.detached(priority: .userInitiated) {
+                let (typedChange, itemTexts, fingerprint) = await Task.detached(priority: .userInitiated) {
                     let change = typedReader.typedChange(changeCount: currentChangeCount)
-                    return (change, PasteboardImageFingerprint(change))
+                    let texts = typedReader.itemTexts()
+                    return (change, texts, PasteboardRestoreFingerprint(change, itemTexts: texts))
                 }.value
                 guard let self,
                       self.lifecycleGeneration == generation,
@@ -450,21 +494,29 @@ final class PasteboardMonitor {
                     return
                 }
                 if let fingerprint {
-                    self.imageObservation = .image(fingerprint)
-                    if case let .awaitingRestore(previousImage, deadline) = previousImageObservation,
-                       observedAt <= deadline, fingerprint == previousImage {
+                    self.clipboardObservation = .content(fingerprint)
+                    if case let .awaitingRestore(expected, deadline) = previousObservation,
+                       observedAt <= deadline, fingerprint == expected {
                         return
                     }
                 }
                 if typedChange?.isTemporaryPlainText == true,
-                   case let .image(previousImage) = previousImageObservation {
-                    self.imageObservation = .awaitingRestore(previousImage, until: observedAt.advanced(by: .seconds(1)))
+                   case let .content(previous) = previousObservation {
+                    self.clipboardObservation = .awaitingRestore(previous, until: observedAt.advanced(by: .seconds(1)))
                 }
                 if let typedChange, !typedChange.isTemporaryPlainText {
                     self.onExternalChange?(typedChange)
                     return
                 }
                 guard let text = self.pasteboard.textValue() else { return }
+                if typedChange == nil,
+                   let fingerprint = PasteboardRestoreFingerprint(itemTexts: itemTexts) {
+                    self.clipboardObservation = .content(fingerprint)
+                    if case let .awaitingRestore(expected, deadline) = previousObservation,
+                       observedAt <= deadline, fingerprint == expected {
+                        return
+                    }
+                }
                 self.onExternalText(PasteboardTextChange(
                     changeCount: currentChangeCount,
                     text: text
