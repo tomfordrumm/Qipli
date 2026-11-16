@@ -390,6 +390,171 @@ final class PasteboardMonitorTests: XCTestCase {
         await fulfillment(of: [explicitRecopy], timeout: 1)
     }
 
+    func testMarkedDictationRestoresOfPlainTextAreSkippedAndAnExplicitRecopyIsCaptured() async throws {
+        let pasteboard = try requireNamedPasteboard()
+        defer { pasteboard.releaseGlobally() }
+        let firstCopy = expectation(description: "original text captured")
+        let firstTranscript = expectation(description: "first temporary text observed")
+        let secondTranscript = expectation(description: "second temporary text observed")
+        let thirdTranscript = expectation(description: "third temporary text observed")
+        let restoredText = expectation(description: "restored text must not be captured")
+        restoredText.isInverted = true
+        let secondRestore = expectation(description: "second restored text must not be captured")
+        secondRestore.isInverted = true
+        let explicitRecopy = expectation(description: "explicit recopy captured")
+        let differentText = expectation(description: "different text captured after marked text")
+        var captured: [String] = []
+        var textExpectation = firstCopy
+        let monitor = PasteboardMonitor(
+            pasteboard: SystemPasteboardReader(pasteboard: pasteboard),
+            scheduler: FakePasteboardPollScheduler(),
+            onExternalText: {
+                captured.append($0.text)
+                textExpectation.fulfill()
+            },
+            onExternalChange: { _ in XCTFail("plain text must not be routed as a typed change") }
+        )
+        monitor.start()
+        defer { monitor.stop() }
+
+        func pollText(_ text: String) throws {
+            let item = NSPasteboardItem()
+            XCTAssertTrue(item.setString(text, forType: .string))
+            pasteboard.clearContents()
+            try requirePasteboardWrite([item], to: pasteboard)
+            monitor.poll()
+        }
+        func pollTranscript() throws {
+            pasteboard.clearContents()
+            try requirePasteboardWrite([makeMarkedTranscript()], to: pasteboard)
+            monitor.poll()
+        }
+
+        try pollText("previous fixture")
+        await fulfillment(of: [firstCopy], timeout: 1)
+        textExpectation = firstTranscript
+        try pollTranscript()
+        await fulfillment(of: [firstTranscript], timeout: 1)
+        textExpectation = restoredText
+        try pollText("previous fixture")
+        await fulfillment(of: [restoredText], timeout: 0.15)
+
+        textExpectation = secondTranscript
+        try pollTranscript()
+        await fulfillment(of: [secondTranscript], timeout: 1)
+        textExpectation = secondRestore
+        try pollText("previous fixture")
+        await fulfillment(of: [secondRestore], timeout: 0.15)
+
+        textExpectation = explicitRecopy
+        try pollText("previous fixture")
+        await fulfillment(of: [explicitRecopy], timeout: 1)
+
+        textExpectation = thirdTranscript
+        try pollTranscript()
+        await fulfillment(of: [thirdTranscript], timeout: 1)
+        textExpectation = differentText
+        try pollText("different fixture")
+        await fulfillment(of: [differentText], timeout: 1)
+
+        XCTAssertEqual(captured, [
+            "previous fixture", "dictation fixture", "dictation fixture",
+            "previous fixture", "dictation fixture", "different fixture"
+        ])
+    }
+
+    func testMarkedDictationRestoresOfRichTextAreSkippedAndAnExplicitRecopyIsCaptured() async throws {
+        let pasteboard = try requireNamedPasteboard()
+        defer { pasteboard.releaseGlobally() }
+        let firstCopy = expectation(description: "original rich text captured")
+        let transcript = expectation(description: "temporary text observed")
+        let restoredRichText = expectation(description: "restored rich text must not be captured")
+        restoredRichText.isInverted = true
+        let explicitRecopy = expectation(description: "explicit rich recopy captured")
+        var typedExpectation = firstCopy
+        var capturedCounts: [Int] = []
+        let monitor = PasteboardMonitor(
+            pasteboard: SystemPasteboardReader(pasteboard: pasteboard),
+            scheduler: FakePasteboardPollScheduler(),
+            onExternalText: { _ in transcript.fulfill() },
+            onExternalChange: {
+                capturedCounts.append($0.changeCount)
+                typedExpectation.fulfill()
+            }
+        )
+        monitor.start()
+        defer { monitor.stop() }
+
+        func pollRichText() throws {
+            let item = NSPasteboardItem()
+            XCTAssertTrue(item.setString("formatted fixture", forType: .string))
+            XCTAssertTrue(item.setData(Data("{\\rtf1 formatted fixture}".utf8), forType: .rtf))
+            pasteboard.clearContents()
+            try requirePasteboardWrite([item], to: pasteboard)
+            monitor.poll()
+        }
+
+        try pollRichText()
+        await fulfillment(of: [firstCopy], timeout: 1)
+        pasteboard.clearContents()
+        try requirePasteboardWrite([makeMarkedTranscript()], to: pasteboard)
+        monitor.poll()
+        await fulfillment(of: [transcript], timeout: 1)
+
+        typedExpectation = restoredRichText
+        try pollRichText()
+        await fulfillment(of: [restoredRichText], timeout: 0.15)
+
+        typedExpectation = explicitRecopy
+        try pollRichText()
+        await fulfillment(of: [explicitRecopy], timeout: 1)
+        XCTAssertEqual(capturedCounts.count, 2)
+    }
+
+    func testSameTextAfterMissedRestoreIsCaptured() async throws {
+        let pasteboard = try requireNamedPasteboard()
+        defer { pasteboard.releaseGlobally() }
+        let firstCopy = expectation(description: "original text captured")
+        let transcript = expectation(description: "temporary text observed")
+        let explicitRecopy = expectation(description: "new copy after unobserved restore captured")
+        var captured: [String] = []
+        var textExpectation = firstCopy
+        let monitor = PasteboardMonitor(
+            pasteboard: SystemPasteboardReader(pasteboard: pasteboard),
+            scheduler: FakePasteboardPollScheduler(),
+            onExternalText: {
+                captured.append($0.text)
+                textExpectation.fulfill()
+            },
+            onExternalChange: { _ in XCTFail("plain text must not be routed as a typed change") }
+        )
+        monitor.start()
+        defer { monitor.stop() }
+
+        func writeText(_ text: String) throws {
+            let item = NSPasteboardItem()
+            XCTAssertTrue(item.setString(text, forType: .string))
+            pasteboard.clearContents()
+            try requirePasteboardWrite([item], to: pasteboard)
+        }
+
+        try writeText("previous fixture")
+        monitor.poll()
+        await fulfillment(of: [firstCopy], timeout: 1)
+        textExpectation = transcript
+        pasteboard.clearContents()
+        try requirePasteboardWrite([makeMarkedTranscript()], to: pasteboard)
+        monitor.poll()
+        await fulfillment(of: [transcript], timeout: 1)
+
+        textExpectation = explicitRecopy
+        try writeText("previous fixture") // Hex restore happens between polls.
+        try writeText("previous fixture") // The user copies the same text before the next poll.
+        monitor.poll()
+        await fulfillment(of: [explicitRecopy], timeout: 1)
+        XCTAssertEqual(captured, ["previous fixture", "dictation fixture", "previous fixture"])
+    }
+
     func testTypedChangeClassifiesWebURLAndFinderFileWithoutReadingFileBytes() throws {
         let pasteboard = try requireNamedPasteboard()
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("fixture.txt")
