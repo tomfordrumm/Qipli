@@ -27,14 +27,15 @@ images. It has no account, telemetry, cloud sync, or automatic secret filtering.
 keys can enter local history. Qipli uses the network only for a manual update
 check or periodic update checks after explicit opt-in; update requests do not
 include clipboard, URLs, filenames, paths, images, History, search, or preview
-values.
+values. Optional local diagnostics are off by default; when enabled they record
+correction stages and the target application's bundle identifier on this Mac,
+never clipboard content, and are never uploaded.
 
 Source code and license: https://github.com/tomfordrumm/Qipli
 
 ## Changes
 
-- Avoid duplicate image History entries when Hex restores the previous clipboard after dictation. Detection applies when Qipli observes the temporary marked text followed by the same image. Repeated user copies remain separate entries.
-- Layout correction now selects and verifies the previous word or cyclic result before replacing it with one paste. Losing Accessibility access before paste preserves the original text.
-- If the selected range or copied text cannot be verified, correction stops and asks you to select the text explicitly. The selection may remain in place.
+- Avoid duplicate text History entries when Hex restores the previous clipboard after dictation. Detection now covers plain and rich text alongside images, including multi-item copies: the restore is skipped only when every item's text matches the previous content. Copying the same content again within one second after dictation is treated as the restore and skipped; later copies are captured normally.
+- Opt-in local correction diagnostics now record the target application's bundle identifier with each operation's final outcome, so a failure can be attributed to a specific app. Diagnostics remain off by default and local-only, and never record clipboard content.
 
 Existing History, favorites, shortcuts, and preferences are retained. This release does not change the database schema or permission requirements.
