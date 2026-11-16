@@ -577,7 +577,8 @@ final class ApplicationShell: NSObject {
         layoutCorrectionSourceCatalog.refreshCurrentSelection()
         guard layoutCorrectionPreferences.settings.isEnabled,
               let coordinator = layoutCorrectionCoordinator else { return }
-        let targetPID = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        let targetPID = frontmost?.processIdentifier ?? 0
         let mayRun = inputCoordinator.status == .ready && !stackSessionController.isActive &&
             !finderCutSessionController.isActive && !coordinator.isOperationActive &&
             !historyPasteExecutor.hasActivePaste &&
@@ -588,7 +589,8 @@ final class ApplicationShell: NSObject {
             currentSourceID: layoutCorrectionSourceCatalog.currentSourceID,
             mayRun: mayRun,
             trigger: layoutCorrectionPreferences.settings.trigger,
-            context: DiagnosticDetails(targetKind: DiagnosticTargetKind(bundleIdentifier: NSWorkspace.shared.frontmostApplication?.bundleIdentifier),
+            context: DiagnosticDetails(targetKind: DiagnosticTargetKind(bundleIdentifier: frontmost?.bundleIdentifier),
+                targetBundleID: frontmost?.bundleIdentifier,
                 inputReady: inputCoordinator.status == .ready, stackActive: stackSessionController.isActive,
                 finderActive: finderCutSessionController.isActive, historyPasteActive: historyPasteExecutor.hasActivePaste,
                 operationActive: coordinator.isOperationActive, ownTarget: targetPID == ProcessInfo.processInfo.processIdentifier)

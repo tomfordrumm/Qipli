@@ -158,6 +158,37 @@ final class LocalDiagnosticsTests: XCTestCase {
         XCTAssertNil((final["details"] as? [String: Any])?["lastFailure"])
     }
 
+    func testTraceAttachesTargetIdentityOnlyToTerminalRecords() throws {
+        let writer = logger()
+        enable(writer)
+        let id = UUID()
+        let trace = CorrectionDiagnosticTrace(context: DiagnosticDetails(targetKind: .other, targetBundleID: "com.example.editor")) { stage, reason, details in
+            writer.record(operation: id, stage: stage, reason: reason, details: details)
+        }
+        trace(.admission, .started)
+        trace(.ax, .axFailure, DiagnosticDetails(step: .read, api: .copyStringForRange,
+            attribute: .stringForRange, axError: -25204))
+        trace(.finished, .unavailable)
+        writer.flush()
+        let rows = try records()
+        let admission = try XCTUnwrap(rows.first { $0["stage"] as? String == "admission" })
+        XCTAssertNil(admission["details"])
+        let final = try XCTUnwrap(rows.first { $0["stage"] as? String == "finished" })
+        let details = try XCTUnwrap(final["details"] as? [String: Any])
+        XCTAssertEqual(details["targetKind"] as? String, "other")
+        XCTAssertEqual(details["targetBundleID"] as? String, "com.example.editor")
+        XCTAssertEqual((details["lastFailure"] as? [String: Any])?["axError"] as? Int, -25204)
+
+        let plainID = UUID()
+        let plainTrace = CorrectionDiagnosticTrace { stage, reason, details in
+            writer.record(operation: plainID, stage: stage, reason: reason, details: details)
+        }
+        plainTrace(.finished, .inputBusy)
+        writer.flush()
+        let plain = try XCTUnwrap(records().first { $0["operation"] as? String == plainID.uuidString && $0["stage"] as? String == "finished" })
+        XCTAssertNil(plain["details"])
+    }
+
     func testRotationBoundsEveryFileAndTotalStorage() throws {
         let writer = logger(bytes: 700, files: 3)
         enable(writer)

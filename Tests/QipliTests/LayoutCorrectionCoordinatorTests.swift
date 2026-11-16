@@ -96,9 +96,10 @@ final class LayoutCorrectionCoordinatorTests: XCTestCase {
                 expectedUTF16Units: 1, isSpace: true, isExternal: true)
         }
     }
-    private func trigger(_ coordinator: LayoutCorrectionCoordinator, current: String = "A", mayRun: Bool = true) async -> LayoutCorrectionOutcome {
+    private func trigger(_ coordinator: LayoutCorrectionCoordinator, current: String = "A", mayRun: Bool = true,
+                         context: DiagnosticDetails? = nil) async -> LayoutCorrectionOutcome {
         await withCheckedContinuation { continuation in
-            coordinator.handleTrigger(targetPID: 77, sources: sources, currentSourceID: current, mayRun: mayRun) {
+            coordinator.handleTrigger(targetPID: 77, sources: sources, currentSourceID: current, mayRun: mayRun, context: context) {
                 continuation.resume(returning: $0)
             }
         }
@@ -346,6 +347,40 @@ final class LayoutCorrectionCoordinatorTests: XCTestCase {
         let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger, selectSource: { _ in false })
         _ = await trigger(coordinator)
         XCTAssertEqual(native.replays.count, 1); XCTAssertFalse(coordinator.hasCycle)
+    }
+
+    func testTerminalDiagnosticsIdentifyTargetApplication() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let suite = "QipliTargetIdentityTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.set(true, forKey: LocalDiagnostics.preferenceKey)
+        defer { try? FileManager.default.removeItem(at: root); defaults.removePersistentDomain(forName: suite) }
+        let logger = LocalDiagnostics(defaults: defaults, directory: root)
+        let context = DiagnosticDetails(targetKind: .other, targetBundleID: "com.example.editor")
+        let native = FakeNativeCorrection(), ledger = CorrectionInputLedger()
+        typed(ledger)
+        let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: ledger,
+            selectSource: { _ in true }, diagnostics: logger)
+        let result = await trigger(coordinator, context: context)
+        XCTAssertEqual(result, .completed(sourceID: "B"))
+        let emptyLedgerCoordinator = LayoutCorrectionCoordinator(transport: FakeNativeCorrection(),
+            ledger: CorrectionInputLedger(), selectSource: { _ in true }, diagnostics: logger)
+        if case .failed = await trigger(emptyLedgerCoordinator, context: context) {} else { XCTFail() }
+        logger.flush()
+        let rows = try Data(contentsOf: root.appendingPathComponent("diagnostics-0.jsonl")).split(separator: 10)
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let records = try rows.map { try decoder.decode(DiagnosticRecord.self, from: Data($0)) }
+        let triggerRecord = try XCTUnwrap(records.first { $0.stage == .trigger })
+        XCTAssertEqual(triggerRecord.details?.targetBundleID, "com.example.editor")
+        let terminals = records.filter { $0.stage == .finished }
+        XCTAssertEqual(terminals.count, 2)
+        for terminal in terminals {
+            XCTAssertEqual(terminal.details?.targetKind, .other)
+            XCTAssertEqual(terminal.details?.targetBundleID, "com.example.editor")
+        }
+        XCTAssertEqual(terminals.first?.reason, .completed)
+        XCTAssertEqual(terminals.last?.reason, .unavailable)
+        XCTAssertEqual(terminals.last?.details?.lastFailure?.stage, .wordProof)
     }
 
     func testCompetingOwnerDeniesBeforeNativeService() async {

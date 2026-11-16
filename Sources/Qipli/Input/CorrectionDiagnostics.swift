@@ -1,7 +1,8 @@
 import Foundation
 
-// Every string in the on-disk schema comes from these closed enums. Never add
-// text, identifiers, hashes of payload, raw AX roles or error descriptions here.
+// Every string in the on-disk schema comes from these closed enums, except the
+// target application's bundle identifier. Never add clipboard text, payload
+// identifiers or hashes, raw AX roles or error descriptions here.
 enum DiagnosticStep: String, Codable, Sendable {
     case admission, capture, read, matches, validate, replacement, leftContext, rightContext
     case postDispatchValidation, preDispatchValidation, selectReplacement, waitSelection, selectedText, dispatch
@@ -57,6 +58,7 @@ struct DiagnosticDetails: Codable, Sendable {
     var iteration: Int? = nil
     var role: DiagnosticFieldRole? = nil
     var targetKind: DiagnosticTargetKind? = nil
+    var targetBundleID: String? = nil
     var sourceCount: Int? = nil
     var sourceIndex: Int? = nil
     var destinationIndex: Int? = nil
@@ -109,8 +111,14 @@ struct DiagnosticFailure: Codable, Sendable {
 final class CorrectionDiagnosticTrace: @unchecked Sendable {
     private let lock = NSLock()
     private var lastFailure: DiagnosticFailure?
+    private let targetKind: DiagnosticTargetKind?
+    private let targetBundleID: String?
     let sink: @Sendable (DiagnosticStage, DiagnosticReason, DiagnosticDetails?) -> Void
-    init(sink: @escaping @Sendable (DiagnosticStage, DiagnosticReason, DiagnosticDetails?) -> Void) { self.sink = sink }
+    init(context: DiagnosticDetails? = nil, sink: @escaping @Sendable (DiagnosticStage, DiagnosticReason, DiagnosticDetails?) -> Void) {
+        self.targetKind = context?.targetKind
+        self.targetBundleID = context?.targetBundleID
+        self.sink = sink
+    }
 
     func callAsFunction(_ stage: DiagnosticStage, _ reason: DiagnosticReason, _ details: DiagnosticDetails? = nil) {
         var details = details
@@ -118,9 +126,13 @@ final class CorrectionDiagnosticTrace: @unchecked Sendable {
             // Keep the concrete cause in memory until the terminal record. Parent
             // scope unwinding must never replace an AX error with 'unavailable'.
             if stage == .finished {
-                if reason != .completed, let lastFailure {
-                    if details == nil { details = DiagnosticDetails() }
-                    details?.lastFailure = lastFailure
+                let failure = reason != .completed ? lastFailure : nil
+                if failure != nil || targetKind != nil || targetBundleID != nil {
+                    var merged = details ?? DiagnosticDetails()
+                    if let failure { merged.lastFailure = failure }
+                    merged.targetKind = merged.targetKind ?? targetKind
+                    merged.targetBundleID = merged.targetBundleID ?? targetBundleID
+                    details = merged
                 }
             } else if stage != .checkpoint && reason.isFailure {
                 if lastFailure == nil || details?.api != nil || details?.check != nil {
