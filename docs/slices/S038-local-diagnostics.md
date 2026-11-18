@@ -60,3 +60,7 @@ Writer: utility queue, максимум 256 admitted pending records, generation
 `leftOptionTrigger`/`shortcutTrigger`, passed и restore lifecycle больше не захватывают lastFailure. Coordinator пишет step и отдельные input/modifier/gate epoch checks с expected/observed; native guards показывают target process mismatch без PID, element mismatch, unsupported role, readonly field, permission и Secure Input. Payload-free schema v2 сохраняется с дополнительными enum values, исторические причины задним числом не восстанавливаются.
 
 Verification: full SwiftPM 372/372 и финальные focused 47/47 PASS. Regression tests проверяют обе trigger-причины, сохранение wordBlocked и конкретных epoch/phase evidence в terminal records; существующие overflow/privacy/schema tests прошли. Новый installed diagnostic trail ещё не получен.
+
+### 2026-11-18: причина потери слова и форма ответа Copy, D-063
+
+Отказ `wordProof` получает `wordReset` (класс события, удалившего непустой buffer) и `wordResetAgeMilliseconds`, оба поля дублируются в terminal `lastFailure`. Таймаут native Copy (`unavailable`) и смена владельца буфера (`stale`, check `clipboardOwned`) получают число изменений pasteboard, число items и наличие plain text. Поля аддитивные внутри schema v2, клавиши/key codes/text/representation types не записываются. Regression в LayoutCorrectionModelTests/LayoutCorrectionClipboardTests/LayoutCorrectionCoordinatorTests, полный SwiftPM 406/406. Installed trail с новыми полями не получен.

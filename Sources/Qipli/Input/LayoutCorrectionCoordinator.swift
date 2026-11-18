@@ -38,14 +38,14 @@ final class LayoutCorrectionCoordinator {
     }
     var hasCycle: Bool { cycle != nil }
     var isOperationActive: Bool { operationID != nil }
-    func invalidate() { generation &+= 1; cycle = nil; ledger.reset() }
+    func invalidate(reason: DiagnosticWordReset) { generation &+= 1; cycle = nil; ledger.reset(reason: reason) }
     func invalidateCyclePreservingWordBaseline() { generation &+= 1; cycle = nil }
     func sourceContextDidChange(sources: [CorrectionSource], currentSourceID: String?) {
         let ids = sources.filter(\.isEligible).map(\.id).sorted()
         guard ids != observedIDs || currentSourceID != observedSource else { return }
         observedIDs = ids; observedSource = currentSourceID
         if let cycle, cycle.sourceIDs == ids, cycle.current == currentSourceID { return }
-        invalidate()
+        invalidate(reason: .sourceChanged)
     }
 
     func handleTrigger(targetPID: pid_t, sources: [CorrectionSource], currentSourceID: String?, mayRun: Bool,
@@ -123,15 +123,24 @@ final class LayoutCorrectionCoordinator {
                         }
                         trace(.wordProof, .started)
                         let metadata = ledger.snapshot(), keys = ledger.recentKeys()
+                        // Event class and age of the last buffer loss only; no keys or text.
+                        var lossDetails = DiagnosticDetails()
+                        if let loss = ledger.lastWordLoss() {
+                            lossDetails.wordReset = loss.reason
+                            lossDetails.wordResetAgeMilliseconds = loss.ageMilliseconds
+                        }
                         if keys.isEmpty {
                             let expired = now >= metadata.timestamp && metadata.timestamp > 0 &&
                                 now - metadata.timestamp >= CorrectionInputLedger.wordLifetimeNanoseconds
-                            trace(.wordProof, ledger.isBlocked() || ledger.isCompositionUncertain() ? .wordBlocked : expired ? .wordExpired : .wordMissing)
+                            trace(.wordProof, ledger.isBlocked() || ledger.isCompositionUncertain() ? .wordBlocked : expired ? .wordExpired : .wordMissing,
+                                lossDetails)
                             throw CorrectionAXError.unavailable
                         }
                         guard metadata.targetPID == targetPID, metadata.sourceID == current,
                               let source = eligible.first(where: { $0.id == current }) else {
-                            trace(.wordProof, .wordMissing); throw CorrectionAXError.unavailable
+                            lossDetails.check = metadata.targetPID != targetPID ? .targetChanged : .sourceChanged
+                            lossDetails.matches = false
+                            trace(.wordProof, .wordMissing, lossDetails); throw CorrectionAXError.unavailable
                         }
                         let seed = try Self.render(keys, source: source) + String(repeating: " ", count: Int(metadata.trailingSpaces))
                         next = Cycle(pid: targetPID, seed: seed, keys: keys, origin: current,
@@ -165,7 +174,7 @@ final class LayoutCorrectionCoordinator {
                 trace(.layoutSwitch, .started)
                 let switched = selectSource?(destination.id) ?? sourceCatalog?.select(destination.id, trace: trace) ?? false
                 if !switched {
-                    invalidate(); trace(.finished, .switchFailed)
+                    invalidate(reason: .correctionFinished); trace(.finished, .switchFailed)
                     outcome = .failed("Text input was sent, but the keyboard layout could not be switched.")
                 } else {
                     let expiryID = next.lastUsed
@@ -179,7 +188,7 @@ final class LayoutCorrectionCoordinator {
                 }
             } catch {
                 let mutated = transport.mutationBegan
-                invalidate()
+                invalidate(reason: .correctionFinished)
                 let reason: DiagnosticReason
                 if let ax = error as? CorrectionAXError { reason = DiagnosticReason(ax: ax) }
                 else if error is SelectionCopyError { reason = .unavailable }

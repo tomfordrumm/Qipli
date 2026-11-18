@@ -45,6 +45,10 @@ Regression использует production transport/lease/timer, отдельн
 
 Release preflight 2026-11-11: development-signed two-process probe прошёл все четыре cases с реальной доставкой CGEvent. Word +0/+3 spaces использовал verified-selection-paste, явное выделение 6/12 288 UTF-16 — Copy/Paste. Exact text, соседний context, caret, один native Undo и исходный clipboard PASS; 24 self-write registrations. Report: `/private/tmp/qipli-s037-native-paste-report.txt`. Source switch mock, реальный Option/TIS cycle и пользовательские редакторы остаются installed acceptance. Для изоляции capture Release временно закрыта и затем запущена снова.
 
+### 2026-11-18: маппер и многошаговый Copy, D-063
+
+Разбор журналов 1.0.20–1.0.21 показал, что путь выделения проваливается на `, . ; ' [ ] \` (в русской раскладке б ю ж э х ъ ё): дубликаты на numpad и Caps Lock давали `ambiguousDestination`. Маппер теперь выбирает канонический tier кандидатов по [D-063](../DECISIONS.md#d-063-канонические-клавиши-маппера-многошаговый-ответ-copy-и-причина-потери-слова). Native Copy закрепляет первый changeCount ответа и ждёт в нём single-item plain text до прежнего deadline вместо мгновенного `unsupported` (Qt/Telegram); первый ответ обязан быть ровно `count + 1`, любая другая смена владельца буфера (включая скачок до первого опроса) даёт `stale` и сохраняет чужую запись. Отказ `wordProof` указывает класс события, удалившего buffer. Полный SwiftPM 406/406. Installed Telegram/Codex reproduction не выполнялся. Shift+←/AX range (Safari, Electron, iTerm2) и сброс по Backspace не менялись.
+
 ## Acceptance и verification D-056
 
 - [x] Production shell использует native transport, не AX text/range replacement.

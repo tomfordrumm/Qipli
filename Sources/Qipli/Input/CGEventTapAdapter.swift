@@ -108,7 +108,7 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         healthTimer?.invalidate(); healthTimer = nil
         historyHotKey.stop()
         correctionFreshWordMonitor?.stop()
-        correctionLedger.resetWordMetadata()
+        correctionLedger.resetWordMetadata(reason: .listenerInterrupted)
         correctionLedger.markCompositionUncertain()
         correctionGesture.reset(flags: [.maskAlternate])
         scheduleCorrectionInvalidation(preserveWordBaseline: false)
@@ -142,7 +142,7 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
 
     func installCorrectionSettings(enabled: Bool, trigger: CorrectionTrigger) {
         correctionSettingsLock.lock(); defer { correctionSettingsLock.unlock() }
-        if correctionEnabled != enabled || correctionTrigger != trigger { correctionLedger.reset() }
+        if correctionEnabled != enabled || correctionTrigger != trigger { correctionLedger.reset(reason: .settingsChanged) }
         correctionEnabled = enabled
         correctionTrigger = trigger
     }
@@ -189,7 +189,7 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             adapter.diagnostics?.record(stage: .inputListener,
                 reason: type == .tapDisabledByTimeout ? .tapTimeout : .tapDisabled)
-            adapter.correctionLedger.reset()
+            adapter.correctionLedger.reset(reason: .listenerInterrupted)
             adapter.correctionGesture.reset(flags: [.maskAlternate])
             adapter.scheduleCorrectionInvalidation(preserveWordBaseline: false)
             adapter.recoverFromDisabledTap()
@@ -242,7 +242,7 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         if SyntheticEventMarker.isQipliSynthetic(
             sourceUserData: event.getIntegerValueField(.eventSourceUserData)
         ) { return }
-        if IsSecureEventInputEnabled() { correctionLedger.reset(); return }
+        if IsSecureEventInputEnabled() { correctionLedger.reset(reason: .secureInput); return }
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         switch type {
         case .flagsChanged:
@@ -267,8 +267,8 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
             if correctionGesture.keyDown() {
                 if isCorrectionEnabledForInput {
                     let metadata = correctionClassifier.metadata(keyCode: keyCode, flags: event.flags)
-                    if metadata.uncertain { correctionLedger.markCompositionUncertain() }
-                    else { correctionLedger.resetWordMetadata() }
+                    if metadata.uncertain { correctionLedger.markCompositionUncertain(reason: .shortcut) }
+                    else { correctionLedger.resetWordMetadata(reason: .shortcut) }
                     scheduleCorrectionInvalidation(preserveWordBaseline: false)
                 }
                 return
@@ -276,7 +276,7 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
             guard isCorrectionEnabledForInput else { return }
             if [Int64(kVK_Escape), Int64(kVK_Return), Int64(kVK_Tab)].contains(keyCode),
                event.flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty {
-                correctionLedger.reset()
+                correctionLedger.reset(reason: .returnTabEscape)
                 scheduleCorrectionInvalidation(preserveWordBaseline: false)
                 return
             }
@@ -284,8 +284,8 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
                 // Modified typing, shortcuts and paste can never add fresh-word
                 // units. Start a new baseline for subsequent ordinary typing.
                 let metadata = correctionClassifier.metadata(keyCode: keyCode, flags: event.flags)
-                if metadata.uncertain { correctionLedger.markCompositionUncertain() }
-                else { correctionLedger.resetWordMetadata() }
+                if metadata.uncertain { correctionLedger.markCompositionUncertain(reason: .shortcut) }
+                else { correctionLedger.resetWordMetadata(reason: .shortcut) }
                 scheduleCorrectionInvalidation(preserveWordBaseline: false)
                 return
             }
@@ -296,7 +296,8 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
                 isSpace: metadata.isSpace, isExternal: true,
                 uncertainComposition: metadata.uncertain,
                 physicalKey: metadata.units == nil ? nil : CorrectionPhysicalKey(keyCode: UInt16(keyCode),
-                    level: (event.flags.contains(.maskShift) ? 1 : 0) | (event.flags.contains(.maskAlphaShift) ? 2 : 0)))
+                    level: (event.flags.contains(.maskShift) ? 1 : 0) | (event.flags.contains(.maskAlphaShift) ? 2 : 0)),
+                nonTextReason: Self.wordResetReason(keyCode: keyCode))
             if metadata.units == nil {
                 if metadata.uncertain { correctionLedger.markCompositionUncertain() }
                 else { correctionLedger.resetWordMetadata() }
@@ -308,17 +309,27 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
             correctionGesture.keyUp()
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
             diagnostics?.record(stage: .inputListener, reason: type == .tapDisabledByTimeout ? .tapTimeout : .tapDisabled)
-            correctionLedger.resetWordMetadata()
+            correctionLedger.resetWordMetadata(reason: .listenerInterrupted)
             correctionLedger.markCompositionUncertain()
             correctionGesture.reset(flags: [.maskAlternate])
             scheduleCorrectionInvalidation(preserveWordBaseline: false)
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             correctionGesture.mouseDown()
             guard isCorrectionEnabledForInput else { return }
-            correctionLedger.resetWordMetadata()
+            correctionLedger.resetWordMetadata(reason: .mouseDown)
             scheduleCorrectionInvalidation(preserveWordBaseline: false)
         default:
             break
+        }
+    }
+
+    /// Diagnostic class only; the key itself is never recorded.
+    static func wordResetReason(keyCode: Int64) -> DiagnosticWordReset {
+        switch Int(keyCode) {
+        case kVK_Delete, kVK_ForwardDelete: .deleteKey
+        case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
+             kVK_Home, kVK_End, kVK_PageUp, kVK_PageDown: .navigationKey
+        default: .nonTextKey
         }
     }
 
@@ -534,7 +545,7 @@ final class CGEventTapAdapter: GlobalInputEventAdapting, TaggedPasteCommandDispa
         let task = DispatchWorkItem { [weak self] in
             guard let self, self.lifecycle == token else { return }
             self.recoveryTask = nil
-            self.correctionLedger.reset()
+            self.correctionLedger.reset(reason: .listenerInterrupted)
             self.scheduleCorrectionInvalidation(preserveWordBaseline: false)
             self.disposeTap()
             _ = self.start()

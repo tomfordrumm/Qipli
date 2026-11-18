@@ -383,6 +383,32 @@ final class LayoutCorrectionCoordinatorTests: XCTestCase {
         XCTAssertEqual(terminals.last?.details?.lastFailure?.stage, .wordProof)
     }
 
+    func testTerminalRecordKeepsWordLossCause() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let suite = "QipliWordLossTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.set(true, forKey: LocalDiagnostics.preferenceKey)
+        defer { try? FileManager.default.removeItem(at: root); defaults.removePersistentDomain(forName: suite) }
+        let logger = LocalDiagnostics(defaults: defaults, directory: root)
+        let ledger = CorrectionInputLedger()
+        typed(ledger)
+        ledger.resetWordMetadata(reason: .mouseDown)
+        let coordinator = LayoutCorrectionCoordinator(transport: FakeNativeCorrection(), ledger: ledger,
+            selectSource: { _ in true }, diagnostics: logger)
+        if case .failed = await trigger(coordinator) {} else { XCTFail("Lost word admitted") }
+        logger.flush()
+        let rows = try Data(contentsOf: root.appendingPathComponent("diagnostics-0.jsonl")).split(separator: 10)
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let records = try rows.map { try decoder.decode(DiagnosticRecord.self, from: Data($0)) }
+        let proof = try XCTUnwrap(records.first { $0.stage == .wordProof && $0.reason == .wordMissing })
+        XCTAssertEqual(proof.details?.wordReset, .mouseDown)
+        XCTAssertNotNil(proof.details?.wordResetAgeMilliseconds)
+        let failure = try XCTUnwrap(records.last { $0.stage == .finished }?.details?.lastFailure)
+        XCTAssertEqual(failure.stage, .wordProof)
+        XCTAssertEqual(failure.wordReset, .mouseDown)
+        XCTAssertNotNil(failure.wordResetAgeMilliseconds)
+    }
+
     func testCompetingOwnerDeniesBeforeNativeService() async {
         let native = FakeNativeCorrection()
         let coordinator = LayoutCorrectionCoordinator(transport: native, ledger: CorrectionInputLedger())

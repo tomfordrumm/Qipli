@@ -311,7 +311,7 @@ final class ApplicationShell: NSObject {
         correctionSettingsObservation = correctionPreferences.$settings
             .removeDuplicates()
             .sink { [weak self] _ in
-                self?.layoutCorrectionCoordinator?.invalidate()
+                self?.layoutCorrectionCoordinator?.invalidate(reason: .settingsChanged)
                 self?.refreshLayoutCorrectionContext()
             }
 
@@ -359,7 +359,7 @@ final class ApplicationShell: NSObject {
         inputCoordinator.onStatusChange = { [weak self] status in
             guard let self else { return }
             self.settingsViewModel.updateInputStatus(status)
-            if status != .ready { self.layoutCorrectionCoordinator?.invalidate() }
+            if status != .ready { self.layoutCorrectionCoordinator?.invalidate(reason: .listenerInterrupted) }
             switch status {
             case .permissionRequired, .unavailable:
                 self.stackSessionController.recordInputUnavailable()
@@ -541,7 +541,7 @@ final class ApplicationShell: NSObject {
 
     private func refreshInputAvailability() {
         let status = inputCoordinator.refreshAndStart()
-        if status != .ready { layoutCorrectionCoordinator?.invalidate() }
+        if status != .ready { layoutCorrectionCoordinator?.invalidate(reason: .listenerInterrupted) }
     }
 
     private func refreshLayoutCorrectionContext(refreshSources: Bool = true) {
@@ -551,12 +551,12 @@ final class ApplicationShell: NSObject {
         let currentID = currentSource?.id
         let nextPID = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
         if correctionContextPID != nextPID {
-            correctionInputAdapter?.correctionLedger.reset()
-            layoutCorrectionCoordinator?.invalidate()
+            correctionInputAdapter?.correctionLedger.reset(reason: .applicationChanged)
+            layoutCorrectionCoordinator?.invalidate(reason: .applicationChanged)
             correctionContextPID = nextPID
         }
         if correctionContextSourceID != currentID {
-            correctionInputAdapter?.correctionLedger.reset()
+            correctionInputAdapter?.correctionLedger.reset(reason: .sourceChanged)
             correctionContextSourceID = currentID
         }
         correctionInputAdapter?.installCorrectionSettings(
