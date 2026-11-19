@@ -34,6 +34,12 @@ enum DiagnosticCheck: String, Codable, Sendable {
 enum DiagnosticValueType: String, Codable, Sendable { case missing, string, number, boolean, array, axElement, axValue, data, other }
 enum DiagnosticFieldRole: String, Codable, Sendable { case textArea, textField, secureTextField, other }
 enum DiagnosticTargetKind: String, Codable, Sendable { case chrome, safari, firefox, edge, other }
+/// The input event that discarded a non-empty fresh-word buffer. Event class only, never the key or text.
+enum DiagnosticWordReset: String, Codable, Sendable {
+    case mouseDown, deleteKey, navigationKey, nonTextKey, shortcut, returnTabEscape
+    case sourceChanged, applicationChanged, secureInput, settingsChanged, listenerInterrupted
+    case correctionFinished, composition, targetChanged, wordLimit, other
+}
 
 struct DiagnosticDetails: Codable, Sendable {
     var step: DiagnosticStep? = nil
@@ -65,6 +71,8 @@ struct DiagnosticDetails: Codable, Sendable {
     var wordUnits: UInt32? = nil
     var trailingSpaces: UInt8? = nil
     var wordAgeMilliseconds: UInt64? = nil
+    var wordReset: DiagnosticWordReset? = nil
+    var wordResetAgeMilliseconds: UInt64? = nil
     var inputGeneration: UInt64? = nil
     var gateGeneration: UInt64? = nil
     var blocked: Bool? = nil
@@ -106,6 +114,8 @@ struct DiagnosticFailure: Codable, Sendable {
     let selectionLocation: Int?
     let selectionLength: Int?
     let characterCount: Int?
+    var wordReset: DiagnosticWordReset? = nil
+    var wordResetAgeMilliseconds: UInt64? = nil
 }
 
 final class CorrectionDiagnosticTrace: @unchecked Sendable {
@@ -144,7 +154,8 @@ final class CorrectionDiagnosticTrace: @unchecked Sendable {
                         callMicroseconds: details?.callMicroseconds, remainingMilliseconds: details?.remainingMilliseconds,
                         rangeLocation: details?.rangeLocation, rangeLength: details?.rangeLength,
                         selectionLocation: details?.selectionLocation, selectionLength: details?.selectionLength,
-                        characterCount: details?.characterCount)
+                        characterCount: details?.characterCount,
+                        wordReset: details?.wordReset, wordResetAgeMilliseconds: details?.wordResetAgeMilliseconds)
                 }
             }
         }

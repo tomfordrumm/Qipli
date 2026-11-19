@@ -137,14 +137,27 @@ final class NativeLayoutCorrectionTransport: LayoutCorrectionTransport {
         let began = DispatchTime.now().uptimeNanoseconds
         while DispatchTime.now().uptimeNanoseconds - began < 200_000_000 {
             try check(pid: pid, isFresh: isFresh)
-            if let text = try transaction.acceptCopy(after: emptyCount) {
+            let accepted: String?
+            do { accepted = try transaction.acceptCopy(after: emptyCount) } catch CorrectionAXError.stale {
+                // Another writer changed the clipboard; it is left untouched. Structure only.
+                let shape = transaction.copyShape
+                trace?(.nativeCopy, .stale, DiagnosticDetails(step: .selectedText, check: .clipboardOwned,
+                    observedType: shape.hasText ? .string : .missing, expected: 1, observed: shape.items,
+                    matches: false, iteration: shape.changes))
+                throw CorrectionAXError.stale
+            }
+            if let text = accepted {
                 try await verifyFocus(pid: pid, isFresh: isFresh)
                 trace?(.nativeCopy, .passed)
                 return text
             }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        trace?(.nativeCopy, .unavailable)
+        // Structure only: change/item counts and whether plain text existed.
+        let shape = transaction.copyShape
+        trace?(.nativeCopy, .unavailable, DiagnosticDetails(step: .selectedText, check: .clipboardReadable,
+            observedType: shape.hasText ? .string : .missing, expected: 1, observed: shape.items,
+            matches: false, iteration: shape.changes))
         transaction.restore(); lease = nil
         return nil
     }

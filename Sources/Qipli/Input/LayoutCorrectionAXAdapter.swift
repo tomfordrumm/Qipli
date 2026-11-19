@@ -107,21 +107,49 @@ final class CorrectionClipboardLease {
         guard isOwned() else { throw CorrectionAXError.stale }
         ownedCount = pasteboard.clearContents()
         registerSelfWrite(ownedCount)
+        copyShape = CopyShape()
         return ownedCount
     }
 
+    /// Payload-free shape of the latest Copy response, for the deadline diagnostic.
+    struct CopyShape: Equatable, Sendable {
+        var changes = 0
+        var items = 0
+        var hasText = false
+    }
+    private(set) var copyShape = CopyShape()
+
     /// Called while monitor polling is suspended. Never accepts pre-Copy text.
+    /// The first changeCount after `beginCopy` is the target's Copy response and
+    /// is pinned. Some editors (Qt/Telegram) add the plain-text representation
+    /// to that response after clearing, without a new changeCount, so an
+    /// incomplete response stays pending until the caller's deadline. Any later
+    /// changeCount belongs to another writer: stop and never adopt or restore over it.
+    /// The pinned response must be exactly `count + 1`; a larger jump seen on the
+    /// first poll means another writer already followed it, so nothing is adopted.
     func acceptCopy(after count: Int) throws -> String? {
-        guard pasteboard.changeCount != count else { return nil }
-        ownedCount = pasteboard.changeCount
-        registerSelfWrite(ownedCount)
-        guard let items = pasteboard.pasteboardItems, items.count == 1,
-              items[0].data(forType: .fileURL) == nil,
-              let text = pasteboard.string(forType: .string), !text.isEmpty else {
-            throw CorrectionAXError.unsupported
+        let current = pasteboard.changeCount
+        guard current != count else { return nil }
+        if copyShape.changes == 0 {
+            guard current == count &+ 1 else {
+                copyShape.changes = current > count ? Int(clamping: current - count) : 2
+                throw CorrectionAXError.stale
+            }
+            copyShape.changes = 1
+            ownedCount = current
+            registerSelfWrite(ownedCount)
+        } else if current != ownedCount {
+            copyShape.changes += 1
+            throw CorrectionAXError.stale
         }
-        guard text.utf16.count <= LayoutCorrectionLimits.maximumTextUTF16Units else { throw CorrectionAXError.limit }
+        let items = pasteboard.pasteboardItems ?? []
+        let text = pasteboard.string(forType: .string)
+        copyShape.items = items.count
+        copyShape.hasText = text?.isEmpty == false
         guard pasteboard.changeCount == ownedCount else { throw CorrectionAXError.stale }
+        guard !items.contains(where: { $0.types.contains(.fileURL) }) else { throw CorrectionAXError.unsupported }
+        guard items.count == 1, let text, !text.isEmpty else { return nil }
+        guard text.utf16.count <= LayoutCorrectionLimits.maximumTextUTF16Units else { throw CorrectionAXError.limit }
         return text
     }
 

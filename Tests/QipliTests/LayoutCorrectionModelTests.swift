@@ -50,6 +50,40 @@ final class LayoutCorrectionModelTests: XCTestCase {
         XCTAssertTrue(ledger.recentKeys(now: now).isEmpty)
     }
 
+    func testLedgerRecordsOnlyEventClassThatDiscardedBufferedWord() {
+        let ledger = CorrectionInputLedger(), key = CorrectionPhysicalKey(keyCode: 0, level: 0)
+        let now = DispatchTime.now().uptimeNanoseconds
+        func type() {
+            ledger.noteKeyDown(timestamp: now, sourceID: "A", targetPID: 42,
+                expectedUTF16Units: 1, isSpace: false, isExternal: true, physicalKey: key)
+        }
+        XCTAssertNil(ledger.lastWordLoss())
+        type(); ledger.resetWordMetadata(reason: .mouseDown)
+        XCTAssertEqual(ledger.lastWordLoss()?.reason, .mouseDown)
+        // A reset with nothing buffered keeps the cause of the actual loss.
+        ledger.reset(reason: .correctionFinished)
+        XCTAssertEqual(ledger.lastWordLoss()?.reason, .mouseDown)
+        type()
+        ledger.noteKeyDown(timestamp: now, sourceID: "A", targetPID: 42, expectedUTF16Units: nil,
+            isSpace: false, isExternal: true, nonTextReason: .deleteKey)
+        XCTAssertEqual(ledger.lastWordLoss()?.reason, .deleteKey)
+        ledger.resetWordMetadata(reason: .nonTextKey) // adapter follow-up; nothing buffered, cause kept
+        XCTAssertEqual(ledger.lastWordLoss()?.reason, .deleteKey)
+        type()
+        ledger.noteKeyDown(timestamp: now, sourceID: "A", targetPID: 43, expectedUTF16Units: 1,
+            isSpace: false, isExternal: true, physicalKey: key)
+        XCTAssertEqual(ledger.lastWordLoss()?.reason, .targetChanged)
+        ledger.reset(); type(); ledger.setActiveSourceID("B")
+        XCTAssertEqual(ledger.lastWordLoss()?.reason, .sourceChanged)
+        // A new word supersedes the older cause, so expiry is not misattributed.
+        ledger.reset(); type()
+        XCTAssertNil(ledger.lastWordLoss())
+
+        XCTAssertEqual(CGEventTapAdapter.wordResetReason(keyCode: Int64(kVK_Delete)), .deleteKey)
+        XCTAssertEqual(CGEventTapAdapter.wordResetReason(keyCode: Int64(kVK_LeftArrow)), .navigationKey)
+        XCTAssertEqual(CGEventTapAdapter.wordResetReason(keyCode: Int64(kVK_F5)), .nonTextKey)
+    }
+
     func testMapperPreservesUnmappedUnicodeButRefusesCharactersOwnedByForeignSource() throws {
         let a = source("A", [(0, 0, "g"), (1, 0, "h"), (2, 0, "b")])
         let b = source("B", [(0, 0, "п"), (1, 0, "р"), (2, 0, "и")])
@@ -65,16 +99,52 @@ final class LayoutCorrectionModelTests: XCTestCase {
             from: [a, shared], activeSourceID: "missing"))
     }
 
-    func testShiftAndCapsCandidatesMustHaveIdenticalDestinationOutput() throws {
+    func testDuplicateCandidatesResolveThroughCanonicalTierOnly() throws {
         let sourceA = source("A", [(0, 0, "a"), (0, 1, "A")])
         let destination = source("B", [(0, 0, "ф"), (0, 1, "Ф")])
         XCTAssertEqual(try LayoutCorrectionMapper.map("A", from: [sourceA, destination],
             activeSourceID: "A", to: "B").text, "Ф")
 
-        let collision = source("B", [(0, 0, "я"), (0, 1, "Я")])
-        let collisionOrigin = source("A", [(0, 0, "a"), (0, 1, "a")])
+        // Caps Lock duplicates of punctuation keys and keypad keys never compete
+        // with the plain main key.
+        let decimal = UInt16(kVK_ANSI_KeypadDecimal)
+        let origin = source("A", [(43, 0, ","), (43, 2, ","), (47, 0, "."), (47, 2, "."), (decimal, 0, ".")])
+        let russian = source("B", [(43, 0, "б"), (43, 2, "Б"), (47, 0, "ю"), (47, 2, "Ю"), (decimal, 0, ",")])
+        XCTAssertEqual(try LayoutCorrectionMapper.map(",.", from: [origin, russian],
+            activeSourceID: "A", to: "B").text, "бю")
+
+        // A tier without any destination output falls through to the next tier.
+        let skipOrigin = source("A", [(10, 0, "§"), (50, 1, "§")])
+        let skipDestination = source("B", [(50, 1, "Ё")])
+        XCTAssertEqual(try LayoutCorrectionMapper.map("§", from: [skipOrigin, skipDestination],
+            activeSourceID: "A", to: "B").text, "Ё")
+
+        // Two main keys of the same tier with different outputs stay ambiguous.
+        let collisionOrigin = source("A", [(0, 0, "a"), (1, 0, "a")])
+        let collision = source("B", [(0, 0, "я"), (1, 0, "ч")])
         XCTAssertThrowsError(try LayoutCorrectionMapper.map("a", from: [collisionOrigin, collision],
-            activeSourceID: "A", to: "B"))
+            activeSourceID: "A", to: "B")) { XCTAssertEqual($0 as? CorrectionMappingError, .ambiguousDestination) }
+    }
+
+    func testSystemABCAndRussianPunctuationKeysMapBothWays() throws {
+        func system(_ id: String) throws -> CorrectionSource {
+            let list = TISCreateInputSourceList([kTISPropertyInputSourceID: id] as CFDictionary, true)?
+                .takeRetainedValue() as? [TISInputSource] ?? []
+            guard let input = list.first, let raw = TISGetInputSourceProperty(input, kTISPropertyUnicodeKeyLayoutData),
+                  let map = LayoutCorrectionSourceCatalog.buildMap(
+                    data: unsafeBitCast(raw, to: CFData.self) as Data, keyboardType: UInt32(LMGetKbdType())) else {
+                throw XCTSkip("\(id) keyboard layout is not installed")
+            }
+            return CorrectionSource(id: id, name: id, isCurrent: false, keyMap: map)
+        }
+        let abc = try system("com.apple.keylayout.ABC"), russian = try system("com.apple.keylayout.Russian")
+        let sources = [abc, russian]
+        XCTAssertEqual(try LayoutCorrectionMapper.map("j,sxyj ;bpym. 'nj [jhjij]", from: sources,
+            activeSourceID: abc.id, to: russian.id).text, "обычно жизнью это хорошоъ")
+        XCTAssertEqual(try LayoutCorrectionMapper.map("Ghbdtn, ,eltv", from: sources,
+            activeSourceID: abc.id, to: russian.id).text, "Приветб будем")
+        XCTAssertEqual(try LayoutCorrectionMapper.map("обычно жизнью", from: sources,
+            activeSourceID: russian.id, to: abc.id).text, "j,sxyj ;bpym.")
     }
 
     func testClassifierDoesNotCountCommandPasteAndTreatsAlternateAsCompositionUncertain() {

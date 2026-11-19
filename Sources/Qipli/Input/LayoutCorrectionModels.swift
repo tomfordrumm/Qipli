@@ -58,7 +58,7 @@ enum LayoutCorrectionMapper {
         }
 
         let mapped = try text.map { character -> String in
-            let candidates = origin.keyMap.filter { $0.value == String(character) }
+            let candidates = origin.keyMap.filter { $0.value == String(character) }.map(\.key)
             guard !candidates.isEmpty else {
                 let existsInAnySource = sorted.contains { $0.keyMap.values.contains(String(character)) }
                 guard !existsInAnySource else {
@@ -66,20 +66,43 @@ enum LayoutCorrectionMapper {
                 }
                 return String(character)
             }
-            let mappedCandidates = candidates.map { key, _ -> String? in destination.keyMap[key] }
-            guard mappedCandidates.allSatisfy({ $0 != nil }) else {
-                throw CorrectionMappingError.ambiguousDestination
-            }
-            let targets = Set(mappedCandidates.compactMap { $0 })
-            guard targets.count == 1, let output = targets.first else {
-                throw CorrectionMappingError.ambiguousDestination
-            }
-            return output
+            return try destinationOutput(for: candidates, in: destination)
         }
         let result = mapped.joined()
         guard result != text else { throw CorrectionMappingError.unchanged }
         return CorrectionMapping(sourceID: origin.id, text: result)
     }
+
+    /// Keypad keys produce layout-independent digits/operators, and Caps Lock levels
+    /// duplicate the plain/Shift output of punctuation keys. Treating those
+    /// duplicates as equal candidates made `, . ; ' [ ] \` (б ю ж э х ъ ё in
+    /// Russian) ambiguous. A character resolves through the most canonical
+    /// tier: main keys before keypad, then plain, Shift, Caps Lock, Shift+Caps.
+    /// Two keys of the same tier with different outputs remain ambiguous.
+    static func destinationOutput(for candidates: [CorrectionPhysicalKey], in destination: CorrectionSource) throws -> String {
+        let tiers = Dictionary(grouping: candidates) { key in
+            (keypadKeyCodes.contains(key.keyCode) ? 4 : 0) + Int(key.level)
+        }
+        for rank in tiers.keys.sorted() {
+            let outputs = tiers[rank, default: []].map { destination.keyMap[$0] }
+            if outputs.allSatisfy({ $0 == nil }) { continue }
+            let targets = Set(outputs.compactMap { $0 })
+            guard outputs.allSatisfy({ $0 != nil }), targets.count == 1, let output = targets.first else {
+                throw CorrectionMappingError.ambiguousDestination
+            }
+            return output
+        }
+        throw CorrectionMappingError.ambiguousDestination
+    }
+
+    static let keypadKeyCodes: Set<UInt16> = [
+        UInt16(kVK_ANSI_KeypadDecimal), UInt16(kVK_ANSI_KeypadMultiply), UInt16(kVK_ANSI_KeypadPlus),
+        UInt16(kVK_ANSI_KeypadClear), UInt16(kVK_ANSI_KeypadDivide), UInt16(kVK_ANSI_KeypadEnter),
+        UInt16(kVK_ANSI_KeypadMinus), UInt16(kVK_ANSI_KeypadEquals),
+        UInt16(kVK_ANSI_Keypad0), UInt16(kVK_ANSI_Keypad1), UInt16(kVK_ANSI_Keypad2), UInt16(kVK_ANSI_Keypad3),
+        UInt16(kVK_ANSI_Keypad4), UInt16(kVK_ANSI_Keypad5), UInt16(kVK_ANSI_Keypad6), UInt16(kVK_ANSI_Keypad7),
+        UInt16(kVK_ANSI_Keypad8), UInt16(kVK_ANSI_Keypad9),
+    ]
 
     private static func represents(_ known: String, in source: CorrectionSource) -> Bool {
         known.allSatisfy { source.keyMap.values.contains(String($0)) }
@@ -120,6 +143,22 @@ final class CorrectionInputLedger: @unchecked Sendable {
     private var compositionUncertain = false
     private var keys: [CorrectionPhysicalKey] = []
     private var keyExpiryScheduled = false
+    private var lastWordReset: DiagnosticWordReset?
+    private var lastWordResetTimestamp: UInt64 = 0
+
+    /// Diagnostic class of the most recent event that discarded a non-empty word, and its age.
+    func lastWordLoss(now: UInt64 = DispatchTime.now().uptimeNanoseconds) -> (reason: DiagnosticWordReset, ageMilliseconds: UInt64)? {
+        lock.lock(); defer { lock.unlock() }
+        guard let lastWordReset else { return nil }
+        return (lastWordReset, now >= lastWordResetTimestamp ? (now - lastWordResetTimestamp) / 1_000_000 : 0)
+    }
+
+    /// Caller holds the lock. Records only an actual loss of buffered keys.
+    private func noteWordLoss(_ reason: DiagnosticWordReset) {
+        guard !keys.isEmpty else { return }
+        lastWordReset = reason
+        lastWordResetTimestamp = DispatchTime.now().uptimeNanoseconds
+    }
 
     func recentKeys(now: UInt64 = DispatchTime.now().uptimeNanoseconds) -> [CorrectionPhysicalKey] {
         lock.lock(); defer { lock.unlock() }
@@ -145,6 +184,7 @@ final class CorrectionInputLedger: @unchecked Sendable {
     func setActiveSourceID(_ sourceID: String) {
         lock.lock(); defer { lock.unlock() }
         if activeSourceID != sourceID {
+            noteWordLoss(.sourceChanged)
             generation &+= 1
             inputGeneration &+= 1
             clearWordMetadata(preserveCompositionUncertain: true)
@@ -166,7 +206,8 @@ final class CorrectionInputLedger: @unchecked Sendable {
 
     func noteKeyDown(timestamp: UInt64, sourceID: String, targetPID: pid_t,
                      expectedUTF16Units: UInt8?, isSpace: Bool, isExternal: Bool,
-                     uncertainComposition: Bool = false, physicalKey: CorrectionPhysicalKey? = nil) {
+                     uncertainComposition: Bool = false, physicalKey: CorrectionPhysicalKey? = nil,
+                     nonTextReason: DiagnosticWordReset = .nonTextKey) {
         lock.lock(); defer { lock.unlock() }
         guard isExternal else { return }
         generation &+= 1
@@ -184,39 +225,45 @@ final class CorrectionInputLedger: @unchecked Sendable {
             capturedSourceID = sourceID
             capturedPID = targetPID
         } else if capturedSourceID != sourceID || capturedPID != targetPID {
+            noteWordLoss(.targetChanged)
             keys.removeAll(); blocked = true; compositionUncertain = true
         }
         guard let expectedUTF16Units, expectedUTF16Units > 0 else {
+            noteWordLoss(uncertainComposition ? .composition : nonTextReason)
             keys.removeAll(); blocked = true; compositionUncertain = compositionUncertain || uncertainComposition; return
         }
         totalUTF16Units &+= UInt32(expectedUTF16Units)
         if isSpace {
-            if trailingSpaces == 8 { keys.removeAll(); blocked = true }
+            if trailingSpaces == 8 { noteWordLoss(.wordLimit); keys.removeAll(); blocked = true }
             else { trailingSpaces += 1 }
         } else {
             if trailingSpaces > 0 { wordUTF16Units = 0; keys.removeAll() }
             wordUTF16Units &+= UInt32(expectedUTF16Units)
             trailingSpaces = 0
             if let physicalKey, !blocked {
+                if keys.isEmpty { lastWordReset = nil } // a new word supersedes an older loss
                 if keys.count < 256 { keys.append(physicalKey); scheduleKeyExpiry() }
-                else { keys.removeAll(); blocked = true }
+                else { noteWordLoss(.wordLimit); keys.removeAll(); blocked = true }
             }
         }
     }
 
-    func invalidate() {
+    func invalidate(reason: DiagnosticWordReset = .other) {
         lock.lock(); defer { lock.unlock() }
+        noteWordLoss(reason)
         generation &+= 1; inputGeneration &+= 1; keys.removeAll(); blocked = true
     }
 
-    func resetWordMetadata() {
+    func resetWordMetadata(reason: DiagnosticWordReset = .other) {
         lock.lock(); defer { lock.unlock() }
+        noteWordLoss(reason)
         generation &+= 1; inputGeneration &+= 1
         clearWordMetadata(preserveCompositionUncertain: true)
     }
 
-    func markCompositionUncertain() {
+    func markCompositionUncertain(reason: DiagnosticWordReset = .composition) {
         lock.lock(); defer { lock.unlock() }
+        noteWordLoss(reason)
         generation &+= 1; inputGeneration &+= 1; keys.removeAll(); blocked = true; compositionUncertain = true
     }
 
@@ -239,8 +286,9 @@ final class CorrectionInputLedger: @unchecked Sendable {
     }
 
     func isBlocked() -> Bool { lock.lock(); defer { lock.unlock() }; return blocked }
-    func reset() {
+    func reset(reason: DiagnosticWordReset = .other) {
         lock.lock(); defer { lock.unlock() }
+        noteWordLoss(reason)
         generation &+= 1; inputGeneration &+= 1
         clearWordMetadata(preserveCompositionUncertain: false)
     }

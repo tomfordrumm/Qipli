@@ -90,7 +90,7 @@ final class LayoutCorrectionSourceCatalog {
         stringProperty(source, kTISPropertyInputSourceID)
     }
 
-    private static func buildMap(data: Data, keyboardType: UInt32) -> [CorrectionPhysicalKey: String]? {
+    nonisolated static func buildMap(data: Data, keyboardType: UInt32) -> [CorrectionPhysicalKey: String]? {
         data.withUnsafeBytes { bytes -> [CorrectionPhysicalKey: String]? in
         guard let base = bytes.baseAddress, bytes.count >= MemoryLayout<UCKeyboardLayout>.size else { return nil }
         let layout = base.assumingMemoryBound(to: UCKeyboardLayout.self)
