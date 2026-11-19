@@ -35,7 +35,8 @@ Source code and license: https://github.com/tomfordrumm/Qipli
 
 ## Changes
 
-- Avoid duplicate text History entries when Hex restores the previous clipboard after dictation. Detection now covers plain and rich text alongside images, including multi-item copies: the restore is skipped only when every item's text matches the previous content. Copying the same content again within one second after dictation is treated as the restore and skipped; later copies are captured normally.
-- Opt-in local correction diagnostics now record the target application's bundle identifier with each operation's final outcome, so a failure can be attributed to a specific app. Diagnostics remain off by default and local-only, and never record clipboard content.
+- Manual keyboard layout correction of a selection no longer refuses text containing punctuation keys such as `, . ; ' [ ] \` (for example б ю ж э х ъ ё in the Russian layout). Duplicate keypad and Caps Lock variants of these keys no longer make the mapping ambiguous.
+- Layout correction now briefly waits for the copied text when an app adds it after clearing the clipboard, as Qt-based apps such as Telegram can, instead of refusing immediately. If another app changes the clipboard during this wait, the correction stops and leaves that clipboard content untouched.
+- Opt-in local correction diagnostics now record which kind of input event discarded the recently typed word and the structure of an unsuccessful copy response (counts only). Diagnostics remain off by default and local-only, and never record clipboard content, keys, or text.
 
 Existing History, favorites, shortcuts, and preferences are retained. This release does not change the database schema or permission requirements.
