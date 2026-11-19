@@ -1,18 +1,14 @@
 # Qipli — текущее состояние проекта
 
-Последняя актуализация: 2026-11-16, опубликован и независимо проверен v1.0.21/build22: дедуп текстового возврата Hex (D-061, PR #49) и bundle identifier целевого приложения в opt-in диагностике (D-062, PR #50). Installed update и реальные smoke остаются отдельными gates.
+Последняя актуализация: 2026-11-19, опубликован и независимо проверен v1.0.22/build23: надёжность ручного исправления раскладки (D-063, PR #53) — пунктуация в маппере, закреплённый ответ native Copy и причина потери слова в opt-in диагностике. Installed update и реальные smoke в Telegram/Codex остаются отдельными gates.
 
 Источник operational-статусов: этот файл. Исторические переходы и прежние verification snapshots находятся в [`STATE-HISTORY.md`](STATE-HISTORY.md).
 
 ## Текущее положение
 
-### Выпуск 1.0.21/build22: опубликован
+### Выпуск 1.0.22/build23: опубликован
 
-[v1.0.21](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.21) публичен/latest с 2026-11-16 18:49 UTC, build marker22, tag/main SHA `27144e076d6c2267d15eaf2cf0eaf19e12b93493`. Содержит дедуп текстового возврата Hex (D-061, [PR #49](https://github.com/tomfordrumm/Qipli/pull/49), включая multi-item fingerprint после P2 review) и targetBundleID в opt-in диагностике (D-062, [PR #50](https://github.com/tomfordrumm/Qipli/pull/50)). [Release PR #51](https://github.com/tomfordrumm/Qipli/pull/51), exact-main CI и [release run 43924175689](https://github.com/tomfordrumm/Qipli/actions/runs/43924175689) SUCCESS; первый прогон упал на notarization из-за истёкшего соглашения Apple Developer Program, пользователь принял соглашение и разрешил повтор упавшего job, recovery прошёл без изменения тега. Скачанные ZIP/DMG checksums, stable alias, codesign/stapler/Gatekeeper и независимая CryptoKit проверка Sparkle-подписи PASS; публичный feed 1.0.21/build22 с immutable ZIP URL. Подробное evidence и recovery — в STATE-HISTORY. Installed Hex text smoke, реальный инцидент с заполненным targetBundleID и installed Sparkle update остаются отдельными gates.
-
-### Локальный кандидат: надёжность исправления раскладки, 2026-11-18
-
-Ветка `feature/layout-correction-punctuation-copy`, D-063, без commit. Маппер больше не отказывает на `, . ; ' [ ] \` (б ю ж э х ъ ё) из-за дубликатов numpad/Caps Lock. Native Copy закрепляет первый ответ и ждёт дописывания Qt/Telegram до deadline; чужая запись в это окно или до первого опроса отменяет операцию и сохраняется, форма ответа пишется и на stale-пути. Отказ `wordProof` и terminal lastFailure пишут класс события, удалившего слово. После двух раундов review полный SwiftPM 406/406. Следующее действие: Dev-сборка и installed проверка выделения с пунктуацией в Codex/Telegram и слова в Telegram. Открытые продуктовые вопросы: сверка Copy при отставании AX range (Safari/Electron) и Backspace без сброса buffer.
+[v1.0.22](https://github.com/tomfordrumm/Qipli/releases/tag/v1.0.22) публичен/latest с 2026-11-19 09:19 UTC, build marker23, tag/main SHA `05d75927f71533dea2b5c3b2670df0dc8a977061`. Содержит D-063 ([PR #53](https://github.com/tomfordrumm/Qipli/pull/53)): маппер больше не отказывает на `, . ; ' [ ] \` (б ю ж э х ъ ё), native Copy закрепляет ровно первый ответ и ждёт дописывания plain text до deadline, чужая запись отменяет операцию и сохраняется, `wordProof`/lastFailure пишут класс события, удалившего слово, а отказ Copy — его форму. [Release PR #54](https://github.com/tomfordrumm/Qipli/pull/54), [exact-main CI](https://github.com/tomfordrumm/Qipli/actions/runs/44492671679) и [release run 44493814334](https://github.com/tomfordrumm/Qipli/actions/runs/44493814334) SUCCESS после Environment approval пользователя. Скачанные ZIP/DMG checksums, stable alias, codesign/stapler/Gatekeeper и независимая CryptoKit проверка Sparkle-подписи PASS; публичный feed 1.0.22/build23 с immutable ZIP URL. Подробности в STATE-HISTORY. Следующее действие: обновиться на 1.0.22 и проверить выделение с пунктуацией в Codex/Telegram, Copy и слово в Telegram, затем снять журнал диагностики. Открытые продуктовые вопросы: сверка Copy при отставании AX range (Safari/Electron) и Backspace без сброса buffer. Installed Sparkle update, Hex text smoke (D-061) и инцидент с targetBundleID (D-062) остаются отдельными gates.
 
 ### Локальный кандидат: безопасная замена текста и Hex, 2026-11-11
 
